@@ -75,9 +75,8 @@ const TASK_RULES = `A task is one line of work, split by meaning: a feature, an 
 
 Every folder in \`${TASKS}/\` is on the board, and every board task has its folder. What is "in progress" on the board is what you are doing now — one task, several, or none.`
 
-// In a tag that names the mod: the agent tells this section from the owner's own instructions.
-export const DOCTRINE = `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
-# Shift
+// The section's text without its tag, for a harness that wraps a prompt section in a tag of its own.
+export const DOCTRINE_BODY = `# Shift
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
@@ -113,7 +112,11 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 - \`${TOOL}\` — make a shift.
 - \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
 - \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
-- \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
+- \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.`
+
+// In a tag that names the mod: the agent tells this section from the owner's own instructions.
+export const DOCTRINE = `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
+${DOCTRINE_BODY}
 </${MOD}>`
 
 export const GUIDE = `# Shift: how it works and how to do it right

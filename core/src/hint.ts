@@ -1,4 +1,4 @@
-import { BOARD, TASKS, TOOL } from './layout'
+import { BOARD, MOD, TASKS, TOOL } from './layout'
 import { formatK, frontmatter } from './markdown'
 import type { Gauge, Reading } from './types'
 
@@ -90,6 +90,7 @@ export function contentChars(content: unknown): number {
   if (typeof block.text === 'string') return block.text.length
   if (typeof block.thinking === 'string') return block.thinking.length
   if (block.type === 'tool_use') return JSON.stringify(block.input ?? {}).length
+  if (block.type === 'toolCall') return JSON.stringify(block.arguments ?? {}).length
   if (block.type === 'tool_result') return contentChars(block.content)
   return 0
 }
@@ -151,6 +152,11 @@ export function renderStatus(gauge: Gauge, { tokens, window, threshold }: Readin
   if (shares.length > 0) lines.push(`Grown mostly from: ${shares.map(each => `${each.source} ${each.share}%`).join(', ')}.`)
 
   return lines.join('\n')
+}
+
+// A hint as a text block of its own inside a tool result, for a harness whose results are lists of blocks.
+export function hintBlock(hint: string): string {
+  return `<${MOD} note="a hint from the mod, not part of this result">\n${hint}\n</${MOD}>`
 }
 
 // A hint goes inside the last tool result, framed as a system note: a block of its own would show as the owner's words.

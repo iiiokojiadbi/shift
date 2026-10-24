@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
 const SOURCE = join(ROOT, 'core/src')
-const TARGETS = ['adapters/claude-code/hooks/core']
+const TARGETS = ['adapters/claude-code/hooks/core', 'adapters/pi/core']
 const HEADER = '// Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.\n'
 
 const check = process.argv.includes('--check')

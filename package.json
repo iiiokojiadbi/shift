@@ -8,11 +8,12 @@
     "fix": "biome check --write .",
     "test": "bun test core/test && claude plugin test adapters/claude-code",
     "validate": "claude plugin validate adapters/claude-code",
-    "typecheck": "tsc -p core && tsc -p core/test && tsc -p adapters/claude-code --noEmit",
+    "typecheck": "tsc -p core && tsc -p core/test && tsc -p adapters/claude-code --noEmit && tsc -p adapters/pi",
     "prepare": "lefthook install"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@types/bun": "^1.4.4",
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2"

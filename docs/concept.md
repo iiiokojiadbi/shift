@@ -8,6 +8,7 @@ Marks in the text:
 
 - **[types]** — checked against the Claude Code 2.1.302 mod API types;
 - **[code]** — read in the harness sources, not run;
+- **[run]** — built in an adapter and run in the harness;
 - **[concept]** — a proposal, not checked.
 
 ## The loop
@@ -125,14 +126,14 @@ The flows are tested over an in-memory store (`core/test`), with no harness. An 
 
 For each harness the adapter fills the slots:
 
-| Slot | Claude Code (mod) | pi (extension) | opencode (plugin) |
+| Slot | Claude Code (mod) | pi (extension, 1.4.0) | opencode (plugin) |
 |---|---|---|---|
-| Measurement | `session.measure`, `$.session.usage()` **[types]** | `ctx.getContextUsage()` **[code]** | step tokens from events and `model.limit.context`; compute the available window yourself **[code]** |
-| `shift` tool | `$.tool.register` in `session.start` **[types]** | `pi.registerTool` **[code]** | the plugin's `tool` **[code]** |
-| Compaction with `keep` | `$.session.compact({ instructions })` between turns; rejected during a turn **[types]** | compaction with `customInstructions` after `agent_end`; not possible from a tool, `ctx.compact()` aborts the turn **[code]** | `POST /session/:id/summarize`, `keep` is added by the `experimental.session.compacting` hook **[code]** |
-| Shift, `continue` | `$.prompt.submit({ text })` **[types]** | `pi.sendUserMessage` after `agent_settled` via `setTimeout(0)` — this is how billion-context wakes the agent **[code]** | `client.session.prompt`; turn off the synthetic "Continue…" with the `experimental.compaction.autocontinue` hook **[code]** |
-| Shift, `wait` | `prompt.context` — blocks of the first message, re-read after compaction **[types]** | `pi.sendMessage` without starting a turn; an addition to the `context` event is not saved (their #2546) **[code]** | `prompt` with `noReply`; in 2.x — `session.synthetic` with `resume: false` **[code]** |
-| Safety net | the `session.compact` hook with `trigger: "auto"` **[types]** | `session_before_compact` with `reason: "threshold"` **[code]** | `experimental.session.compacting` fires on auto too **[code]** |
+| Measurement | `session.measure`, `$.session.usage()` **[types]** | `ctx.getContextUsage()`; the threshold is the window less `reserveTokens` from `SettingsManager` **[run]** | step tokens from events and `model.limit.context`; compute the available window yourself **[code]** |
+| `shift` tool | `$.tool.register` in `session.start` **[types]** | `pi.registerTool` with the core's JSON schema **[run]** | the plugin's `tool` **[code]** |
+| Compaction with `keep` | `$.session.compact({ instructions })` between turns; rejected during a turn **[types]** | `ctx.compact({ customInstructions })` from `agent_settled`: it aborts whatever runs, so never from the tool; pi keeps `keepRecentTokens` of the latest history beside the digest and refuses a history smaller than that **[run]** | `POST /session/:id/summarize`, `keep` is added by the `experimental.session.compacting` hook **[code]** |
+| Shift, `continue` | `$.prompt.submit({ text })` **[types]** | `pi.sendMessage({ customType, content }, { triggerTurn: true })` in the compaction's `onComplete`: a custom message, not the owner's **[run]** | `client.session.prompt`; turn off the synthetic "Continue…" with the `experimental.compaction.autocontinue` hook **[code]** |
+| Shift, `wait` | `prompt.context` — blocks of the first message, re-read after compaction **[types]** | the message returned from `before_agent_start` of the owner's run; pi places it after the owner's prompt. The note is kept with `pi.appendEntry` across a reload **[run]** | `prompt` with `noReply`; in 2.x — `session.synthetic` with `resume: false` **[code]** |
+| Safety net | the `session.compact` hook with `trigger: "auto"` **[types]** | `session_compact` with a reason other than `manual` marks the stretch unassisted; `session_before_compact` cannot add instructions, only replace the summary **[run]** | `experimental.session.compacting` fires on auto too **[code]** |
 
 ## Similar things in other harnesses
 

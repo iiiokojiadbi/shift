@@ -4,7 +4,7 @@ An agent decides by itself when to **shift**: at a stage boundary it updates its
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.
 
-Harnesses: Claude Code (first, done as a mod), pi and opencode (next). Another harness in Go or Rust may come later. The concept and its reasoning are in `docs/concept.md`.
+Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next). Another harness in Go or Rust may come later. The concept and its reasoning are in `docs/concept.md`.
 
 ## Tree
 
@@ -34,6 +34,11 @@ adapters/
     hooks/core/            GENERATED copy of core/src — never edit
     types/index.d.ts       the plugin's state contract
     tests/                 `claude plugin test` suites
+  pi/                      the pi extension package (pi 1.4.0 ExtensionAPI)
+    package.json           the `pi` manifest; pi and typebox are peers the host supplies
+    index.ts               tools, the command, events: the doctrine section, hints, the let-go after a run settles, continue and wait
+    store.ts               the store over node's fs and git
+    core/                  GENERATED copy of core/src — never edit
 .claude-plugin/marketplace.json   the repo as a local marketplace for development; lists adapters/claude-code
 scripts/sync-core.ts       copies core/src into every adapter; --check fails on a stale copy
 docs/concept.md            the concept, the loop, the records, hints, core and adapters, lessons
@@ -51,6 +56,7 @@ lefthook.yml  biome.json  package.json
 - A flow that does not depend on the harness goes into `core/src/flows.ts` over the `Store` port; the adapter keeps only wiring, state, measurement, the let-go and delivery.
 - Install for Claude Code: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install infinity-shift@iiiokojiadbi`. That marketplace is a separate repo listing all of the owner's plugins; it points at `adapters/claude-code` here.
 - Local development: `claude plugin marketplace add <path to this repo>` and `claude plugin install infinity-shift@infinity-shift` — a marketplace added from a local path loads the plugin in place, edits apply on `/reload-plugins`. Do not have both installed at once.
+- Try the pi adapter: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). pi refuses to compact a history smaller than `keepRecentTokens` (20K by default); a test project can lower it in `.pi/settings.json` and run with `--approve`. `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first.
 - Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `infinity-shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
 - Lint findings are fixed, never silenced.
 

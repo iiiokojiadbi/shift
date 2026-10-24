@@ -1,0 +1,19 @@
+{
+  "name": "infinity-shift-pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The agent decides by itself when to shift: it keeps a work board and task folders, writes a letter to itself, and continues from where it stopped.",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

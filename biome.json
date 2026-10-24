@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.md", "!**/.claude-plugin/types", "!adapters/*/hooks/core"]
+    "includes": ["**", "!**/*.md", "!**/.claude-plugin/types", "!adapters/*/hooks/core", "!adapters/pi/core"]
   },
   "formatter": {
     "indentStyle": "space",
