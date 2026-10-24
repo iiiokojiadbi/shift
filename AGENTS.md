@@ -15,11 +15,14 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/input.ts             parsing and checking tool arguments
   src/markdown.ts          sections, items, frontmatter, dates, number formatting
   src/records.ts           checks of the letter, the board and the task folders
-  src/settings.ts          the owner's settings.toml: a flat TOML subset, `enabled`, `knowledge` and `commit`
+  src/tasks.ts             TASKS.md: the open tasks, their links, its checks, the list after archiving
+  src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
+  src/docs.ts              the map of the documents the mod writes into SHIFT.md
+  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`
   src/archive.ts           archiving checks and the index line
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history
   src/store.ts             the storage port an adapter implements, and reading the records over it
-  src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart
+  src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session
   src/hint.ts              when to hint a shift, what the history grew from, shift_status, how the hint rides in a tool result
   src/texts/doctrine.ts    the "Shift" system-prompt section and the full guide
   src/texts/tools.ts       tool descriptions and schemas

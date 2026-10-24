@@ -1,4 +1,4 @@
-import { BOARD, MOD, TASKS, TOOL } from './layout'
+import { BOARD, MOD, TASK_LIST, TASKS, TOOL } from './layout'
 import { formatK, frontmatter } from './markdown'
 import type { Gauge, Reading } from './types'
 
@@ -174,4 +174,4 @@ export function withHint<Block extends { type: string }>(content: readonly Block
   return content.map((each, index) => (index === at ? ({ ...block, content: merged } as Block) : each))
 }
 
-export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\` and the tasks in progress in \`${TASKS}/\`, and check where you stand against them.`
+export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`, \`${TASK_LIST}\` and the tasks in progress in \`${TASKS}/\`, and check where you stand against them.`
