@@ -1,4 +1,4 @@
-import { ABOUT_MAX, ARCHIVE, GUIDE_TOOL, HISTORY_DEFAULT, HISTORY_MAX, INDEX, LETTER, TASKS } from '../layout'
+import { ABOUT_MAX, ARCHIVE, GUIDE_TOOL, HISTORY_DEFAULT, HISTORY_MAX, INDEX, LETTER, TASK_LIST, TASKS } from '../layout'
 
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how, see ${GUIDE_TOOL}. After the call, end the turn with one line.`
 
@@ -13,6 +13,20 @@ export const SETUP_SCHEMA = { type: 'object', properties: {} }
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
 export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of TASKS.md.`
+
+export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item "in progress", "open", "done", "dropped"; for a task "in progress", "deferred", "waiting for owner". note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item.`
+
+export const TRACK_SCHEMA = {
+  type: 'object',
+  properties: {
+    task: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
+    item: { type: 'string', description: "Words of the track item's name; leave out to set the task's own status." },
+    status: { type: 'string', enum: ['in progress', 'open', 'done', 'dropped', 'deferred', 'waiting for owner'] },
+    note: { type: 'string', description: 'One line: replaces what follows " — ".' },
+    add: { type: 'boolean', description: 'true: add item as a new item.' },
+  },
+  required: ['task', 'status'],
+}
 
 export const STATUS_DESCRIPTION =
   'How full the history is: used of the window, where the harness lets it go by itself, the growth since the last shift, when the next shift hints come, and what the history grew from most. Read-only.'

@@ -9,6 +9,8 @@ export const HISTORY_TOOL = 'shift_history'
 
 export const ARCHIVE_TOOL = 'task_archive'
 
+export const TRACK_TOOL = 'task_track'
+
 export const STATUS_TOOL = 'shift_status'
 
 export const SETUP_TOOL = 'shift_setup'

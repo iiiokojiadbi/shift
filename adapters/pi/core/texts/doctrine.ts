@@ -37,6 +37,7 @@ import {
   TASK_SECTIONS,
   TASKS,
   TOOL,
+  TRACK_TOOL,
 } from '../layout'
 
 const BOARD_RULES = `The board is a state, not a diary:
@@ -96,7 +97,7 @@ Each fact lives in one place. Your records live in the project directory, not in
 
 const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in lowercase latin with dashes:
 - \`task.md\` — what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map(s => `"${s}"`).join(', ')}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go, update their status in place; closed items stay until the task is archived — the track is the task's history.
+- \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand; closed items stay until the task is archived — the track is the task's history.
 
 Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
 
@@ -163,6 +164,7 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 - \`${GUIDE_TOOL}\` — how to shift properly and how the files are laid out. Read it before the first shift of a session.
 - \`${TOOL}\` — make a shift.
 - \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
+- \`${TRACK_TOOL}\` — set a track item's status or add an item, found by words of its name; without an item, the task's own status in \`${TASK_LIST}\`.
 - \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
 - \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
 - \`${SETUP_TOOL}\` — how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.

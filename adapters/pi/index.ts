@@ -40,6 +40,7 @@ import {
   parseHistoryCount,
   parsePath,
   parseShiftInput,
+  parseTrackInput,
   RESUME_COMMAND,
   readSettings,
   renderStatus,
@@ -63,11 +64,24 @@ import {
   TOOL,
   TOOL_DESCRIPTION,
   TOOL_SCHEMA,
+  TRACK_DESCRIPTION,
+  TRACK_SCHEMA,
+  TRACK_TOOL,
+  updateTrack,
 } from './core/index'
 import { nodeStore } from './store'
 
 const DOCS_TOOLS: ReadonlySet<string> = new Set([OUTLINE_TOOL, MENTIONS_TOOL])
-const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL, SETUP_TOOL, ...DOCS_TOOLS])
+const TOOLS: ReadonlySet<string> = new Set([
+  TOOL,
+  GUIDE_TOOL,
+  HISTORY_TOOL,
+  ARCHIVE_TOOL,
+  TRACK_TOOL,
+  STATUS_TOOL,
+  SETUP_TOOL,
+  ...DOCS_TOOLS,
+])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
@@ -117,6 +131,22 @@ export default function shift(pi: ExtensionAPI): void {
       if ('deny' in archived) throw new Error(archived.deny)
 
       return text(archived.result)
+    },
+  })
+
+  pi.registerTool({
+    name: TRACK_TOOL,
+    label: 'Task status',
+    description: TRACK_DESCRIPTION,
+    parameters: schema(TRACK_SCHEMA),
+    executionMode: 'sequential',
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const parsed = parseTrackInput(params as Record<string, unknown>)
+      if (typeof parsed === 'string') throw new Error(parsed)
+      const done = await updateTrack(nodeStore, ctx.cwd, parsed)
+      if ('deny' in done) throw new Error(done.deny)
+
+      return text(done.result)
     },
   })
 

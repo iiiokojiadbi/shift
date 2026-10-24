@@ -22,6 +22,7 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; every key with the version it came in
   src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed
   src/archive.ts           archiving checks and the index line
+  src/track.ts             task_track: a track item found by words of its name, or a task's line in TASKS.md, takes a status
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history
   src/store.ts             the storage port an adapter implements, and reading the records over it
   src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session

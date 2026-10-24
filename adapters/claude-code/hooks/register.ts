@@ -32,6 +32,7 @@ import {
   parseHistoryCount,
   parsePath,
   parseShiftInput,
+  parseTrackInput,
   RESUME_COMMAND,
   RESUME_GO,
   readSettings,
@@ -51,7 +52,11 @@ import {
   TOOL,
   TOOL_DESCRIPTION,
   TOOL_SCHEMA,
+  TRACK_DESCRIPTION,
+  TRACK_SCHEMA,
+  TRACK_TOOL,
   UNASSISTED_INSTRUCTIONS,
+  updateTrack,
   withHint,
 } from './core/index'
 import { claudeStore } from './disk'
@@ -95,6 +100,7 @@ export const register: Register = on => {
     await $.tool.register({ name: GUIDE_TOOL, description: GUIDE_DESCRIPTION, inputSchema: GUIDE_SCHEMA, isDeferred: false })
     await $.tool.register({ name: HISTORY_TOOL, description: HISTORY_DESCRIPTION, inputSchema: HISTORY_SCHEMA, isDeferred: false })
     await $.tool.register({ name: ARCHIVE_TOOL, description: ARCHIVE_DESCRIPTION, inputSchema: ARCHIVE_SCHEMA, isDeferred: false })
+    await $.tool.register({ name: TRACK_TOOL, description: TRACK_DESCRIPTION, inputSchema: TRACK_SCHEMA, isDeferred: false })
     await $.tool.register({ name: STATUS_TOOL, description: STATUS_DESCRIPTION, inputSchema: STATUS_SCHEMA, isDeferred: false })
     await $.tool.register({ name: SETUP_TOOL, description: SETUP_DESCRIPTION, inputSchema: SETUP_SCHEMA, isDeferred: false })
     // The docs tools only where the mod keeps docs.
@@ -144,6 +150,13 @@ export const register: Register = on => {
 
     return archiveTask(claudeStore($), await $.session.root(), parsed)
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: archiving broke (${next.error?.kind ?? 'unknown'}).` }))
+
+  on('tool.call', { tool: 'mcp__shift__task_track' }, async ($, e) => {
+    const parsed = parseTrackInput(e as unknown as Record<string, unknown>)
+    if (typeof parsed === 'string') return { deny: parsed }
+
+    return updateTrack(claudeStore($), await $.session.root(), parsed)
+  }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the status was not set (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__shift_guide' }, () => ({ result: GUIDE }))
 
