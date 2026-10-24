@@ -29,5 +29,13 @@ export function claudeStore($: EngineInterface): Store {
     },
     // 1 — not ignored; 128 — not a git repository, nothing to keep out.
     isIgnored: async (root, path) => (await $.process.run(['git', '-C', root, 'check-ignore', '-q', path])).exitCode !== 1,
+    // git names it relative to the root, or absolute in a linked worktree.
+    excludeFile: async root => {
+      const found = await $.process.run(['git', '-C', root, 'rev-parse', '--git-path', 'info/exclude'])
+      const path = found.stdout.trim()
+      if (found.exitCode !== 0 || path === '') return null
+
+      return path.startsWith('/') ? path : `${root}/${path}`
+    },
   }
 }

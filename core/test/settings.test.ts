@@ -13,6 +13,7 @@ test('settings parse the keys, comments and tables; a missing key keeps its defa
   expect(parseSettings('')).toEqual(DEFAULT_SETTINGS)
   expect(parseSettings('# off here\nenabled = false  # for now\n')).toEqual({ ...DEFAULT_SETTINGS, enabled: false })
   expect(parseSettings("knowledge = 'split'")).toEqual({ ...DEFAULT_SETTINGS, knowledge: 'split' })
+  expect(parseSettings('commit = true')).toEqual({ ...DEFAULT_SETTINGS, commit: true })
   expect(parseSettings('knowledge = "a # b"')).toContain('`knowledge` is one of')
 })
 

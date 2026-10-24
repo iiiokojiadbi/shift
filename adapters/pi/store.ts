@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { Store } from './core/index'
 
 // The core's store over node's files and processes: an extension runs inside pi's own node process.
@@ -34,8 +34,16 @@ export const nodeStore: Store = {
     }
   },
   // 1 — not ignored; 128 — not a git repository, nothing to keep out.
+  // git names it relative to the root, or absolute in a linked worktree.
+  excludeFile: root =>
+    new Promise(done => {
+      execFile('git', ['-C', root, 'rev-parse', '--git-path', 'info/exclude'], (error, stdout) => {
+        const path = stdout.trim()
+        done(error !== null || path === '' ? null : resolve(root, path))
+      })
+    }),
   isIgnored: (root, path) =>
-    new Promise(resolve => {
-      execFile('git', ['-C', root, 'check-ignore', '-q', path], error => resolve(error?.code !== 1))
+    new Promise(done => {
+      execFile('git', ['-C', root, 'check-ignore', '-q', path], error => done(error?.code !== 1))
     }),
 }

@@ -14,6 +14,8 @@ export type Store = {
   move(from: string, to: string): Promise<string | null>
   // Whether the project's version control keeps `path` out; true when there is none, so nothing to keep out of.
   isIgnored(root: string, path: string): Promise<boolean>
+  // The absolute path of the repository's own exclude file, which is never committed; null when there is no repository.
+  excludeFile(root: string): Promise<string | null>
 }
 
 // The records under `base` (the project's `.infinity-shift/` or a shift's snapshot); null without a board.

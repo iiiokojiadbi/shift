@@ -15,7 +15,7 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/input.ts             parsing and checking tool arguments
   src/markdown.ts          sections, items, frontmatter, dates, number formatting
   src/records.ts           checks of the letter, the board and the task folders
-  src/settings.ts          the owner's settings.toml: a flat TOML subset, `enabled` and `knowledge`
+  src/settings.ts          the owner's settings.toml: a flat TOML subset, `enabled`, `knowledge` and `commit`
   src/archive.ts           archiving checks and the index line
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history
   src/store.ts             the storage port an adapter implements, and reading the records over it

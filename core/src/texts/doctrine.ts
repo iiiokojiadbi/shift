@@ -153,11 +153,12 @@ ${DIR}/
         └── summary.md    what stayed in memory after the shift
 \`\`\`
 
-\`${DIR}/\` is yours, not the project's: the project's git ignores it (\`/${DIR}/\` in \`.gitignore\`), and the mod refuses a shift inside a git repository that does not. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.
+\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` below); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.
 
-\`${SETTINGS}\` is the owner's, and you change it only on their word. Both keys are optional:
+\`${SETTINGS}\` is the owner's, and you change it only on their word. Every key is optional:
 - \`enabled = false\` turns the mod off in this project from the next session: no tools, no doctrine, no hints;
-- \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below.
+- \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below;
+- \`commit = true\` lets the project's git take the records in; the mod then leaves git alone.
 A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
 
 ## What goes where
@@ -223,7 +224,7 @@ A refusal names the reason; fix it and call again:
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines;
 - a knowledge file with an unknown \`kind\`, a name not of its kind, no \`about\`, more than ${KNOWLEDGE_MAX_LINES} lines, an entry without its fields;
 - a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in any record;
-- \`${DIR}/\` not ignored by the project's git;
+- \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
 - a board task with an unknown status or name, a task folder missing from the board, a board task without a folder;
 - a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status;
 - nothing changed in the records since the last shift;

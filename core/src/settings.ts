@@ -7,12 +7,14 @@ export type Settings = {
   enabled: boolean
   // Where knowledge goes; null until the owner said, and then it stays in the records' knowledge folder.
   knowledge: Placement | null
+  // true lets the project's git take the records in; false keeps them out, the mod excludes them itself.
+  commit: boolean
 }
 
 export const PLACEMENTS = ['local', 'project', 'split'] as const
 export type Placement = (typeof PLACEMENTS)[number]
 
-export const DEFAULT_SETTINGS: Settings = { enabled: true, knowledge: null }
+export const DEFAULT_SETTINGS: Settings = { enabled: true, knowledge: null, commit: false }
 
 // A flat subset of TOML: `key = value` lines with a string, a boolean or a number, `#` comments, `[table]` headers
 // that prefix the keys after them. A key outside the known ones is a mistake, not a setting the mod skips.
@@ -36,16 +38,16 @@ export function parseSettings(text: string): Settings | string {
 
   const settings = { ...DEFAULT_SETTINGS }
   for (const [key, value] of values) {
-    if (key === 'enabled') {
-      if (typeof value !== 'boolean') return `${SETTINGS}: \`enabled\` is true or false, got ${JSON.stringify(value)}.`
-      settings.enabled = value
+    if (key === 'enabled' || key === 'commit') {
+      if (typeof value !== 'boolean') return `${SETTINGS}: \`${key}\` is true or false, got ${JSON.stringify(value)}.`
+      settings[key] = value
     } else if (key === 'knowledge') {
       if (!(PLACEMENTS as readonly unknown[]).includes(value)) {
         return `${SETTINGS}: \`knowledge\` is one of ${PLACEMENTS.map(each => `"${each}"`).join(', ')}, got ${JSON.stringify(value)}.`
       }
       settings.knowledge = value as Placement
     } else {
-      return `${SETTINGS}: unknown key \`${key}\`; the keys are \`enabled\` and \`knowledge\`.`
+      return `${SETTINGS}: unknown key \`${key}\`; the keys are \`enabled\`, \`knowledge\` and \`commit\`.`
     }
   }
 

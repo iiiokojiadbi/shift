@@ -255,6 +255,9 @@ function stubSession(
   })
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
     const [command, from, to] = e.argv
+    if (command === 'git' && e.argv.includes('rev-parse')) {
+      return { value: { exitCode: 0, stdout: '.git/info/exclude\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (command === 'git') {
       return { value: { exitCode: ignored, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -337,8 +340,9 @@ test('the shift tool refuses without a board or a letter', async ($, on) => {
   expect(noLetter.deny).toContain('No letter')
 })
 
-test('the shift tool refuses while the project would commit the records', async ($, on) => {
-  stubSession(on, project(), [], () => 50000, 1)
+test('records the project would commit go to its local exclude file, and the shift goes on', async ($, on) => {
+  const files = project()
+  stubSession(on, files, [], () => 50000, 1)
   mock.clock(on, { now: AT })
 
   const answer = await $.tool.call({
@@ -347,7 +351,9 @@ test('the shift tool refuses while the project would commit the records', async 
     after: 'wait',
     about: 'ABOUT',
   })
-  expect(answer.deny).toContain('add "/.infinity-shift/" to the project\'s .gitignore')
+  expect(answer.deny).toBeUndefined()
+  expect(String(answer.result)).toContain('the mod added ".infinity-shift/" to /proj/.git/info/exclude')
+  expect(files.get('/proj/.git/info/exclude')).toBe('.infinity-shift/\n')
 })
 
 test('continue: after the turn the history is let go with the hold, and the letter and the work start a turn', async ($, on) => {

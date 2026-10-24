@@ -7,7 +7,9 @@ import {
   ARCHIVE_TOOL,
   acceptShift,
   archiveTask,
+  DIR,
   DOCTRINE,
+  EXCLUDED,
   FRESH_GAUGE,
   GUIDE,
   GUIDE_DESCRIPTION,
@@ -16,6 +18,7 @@ import {
   HISTORY_DESCRIPTION,
   HISTORY_SCHEMA,
   HISTORY_TOOL,
+  keepRecordsOut,
   parseArchiveInput,
   parseHistoryCount,
   parseShiftInput,
@@ -48,10 +51,17 @@ const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, nu
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
   on('session.start', async ($, e, next) => {
-    const { settings, problem } = await readSettings(claudeStore($), await $.session.root())
+    const store = claudeStore($)
+    const root = await $.session.root()
+    const { settings, problem } = await readSettings(store, root)
     await update($, enabled, () => settings.enabled)
     if (problem !== null) $.ui.log(`${PLUGIN}: ${problem} The mod stays on.`)
     if (!settings.enabled) return next(e)
+    // Records written before the first shift stay out of a commit too.
+    if (await store.exists(`${root}/${DIR}`)) {
+      const kept = await keepRecordsOut(store, root, settings)
+      if ('excluded' in kept && kept.excluded !== null) $.ui.log(EXCLUDED(kept.excluded))
+    }
     await $.tool.register({
       name: TOOL,
       description: TOOL_DESCRIPTION,

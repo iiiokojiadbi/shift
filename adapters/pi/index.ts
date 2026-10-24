@@ -11,7 +11,9 @@ import {
   archiveTask,
   compactInstructions,
   contentChars,
+  DIR,
   DOCTRINE_BODY,
+  EXCLUDED,
   FRESH_GAUGE,
   GUIDE,
   GUIDE_DESCRIPTION,
@@ -21,6 +23,7 @@ import {
   HISTORY_SCHEMA,
   HISTORY_TOOL,
   hintBlock,
+  keepRecordsOut,
   MOD,
   parseArchiveInput,
   parseHistoryCount,
@@ -150,6 +153,11 @@ export default function infinityShift(pi: ExtensionAPI): void {
     if (!enabled) {
       pi.setActiveTools(pi.getActiveTools().filter(name => !TOOLS.has(name)))
       return
+    }
+    // Records written before the first shift stay out of a commit too.
+    if (await nodeStore.exists(`${ctx.cwd}/${DIR}`)) {
+      const kept = await keepRecordsOut(nodeStore, ctx.cwd, settings)
+      if ('excluded' in kept && kept.excluded !== null) tell(ctx, EXCLUDED(kept.excluded), 'info')
     }
     const last = ctx.sessionManager
       .getBranch()

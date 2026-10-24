@@ -6,9 +6,11 @@ import { resolvePath } from './input'
 import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, TASKS } from './layout'
 import { formatK, sections } from './markdown'
 import { checkLetter, checkWork } from './records'
+import type { Settings } from './settings'
+import { DEFAULT_SETTINGS, parseSettings } from './settings'
 import type { Store } from './store'
 import { lastShifts, previousShift, readSnapshot, readWork, recentShifts } from './store'
-import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
+import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, WAITING } from './texts/rows'
 import type { ArchiveInput, PendingShift, Settled, ShiftInput, TaskFiles } from './types'
 
@@ -30,7 +32,9 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/index.md`)
   const workProblem = checkWork(work, previous?.work ?? null)
   if (workProblem !== null) return { deny: workProblem }
-  if (!(await store.isIgnored(root, DIR))) return { deny: NOT_IGNORED }
+  const settings = work.settings === null ? DEFAULT_SETTINGS : parseSettings(work.settings)
+  const kept = await keepRecordsOut(store, root, typeof settings === 'string' ? DEFAULT_SETTINGS : settings)
+  if ('deny' in kept) return kept
 
   const index = await store.read(`${root}/${INDEX}`)
   const dir = shiftDir(root, call.at)
@@ -58,7 +62,7 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
   await store.write(`${dir}/about.md`, renderAbout({ ...shift, result: 'pending' }))
 
-  return { shift, result: ACCEPTED(dir) }
+  return { shift, result: kept.excluded === null ? ACCEPTED(dir) : `${EXCLUDED(kept.excluded)}\n\n${ACCEPTED(dir)}` }
 }
 
 // Moves a finished or dropped task's folder to the archive and adds its line to the index.
@@ -160,6 +164,22 @@ export async function shiftBase(store: Store, root: string, sessionId: string): 
   const about = dir === null ? null : await store.read(`${dir}/about.md`)
 
   return about === null ? null : shiftFill(about, sessionId)
+}
+
+// Unless the owner lets the project commit them, the records stay out of its git: when they are not ignored, the mod
+// adds them to the repository's own exclude file. The exclude file's path when it did; null when nothing was needed.
+export async function keepRecordsOut(
+  store: Store,
+  root: string,
+  settings: Settings,
+): Promise<{ excluded: string | null } | { deny: string }> {
+  if (settings.commit || (await store.isIgnored(root, DIR))) return { excluded: null }
+  const file = await store.excludeFile(root)
+  if (file === null) return { deny: NOT_IGNORED }
+  const text = (await store.read(file)) ?? ''
+  await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`)
+
+  return { excluded: file }
 }
 
 function shiftName(shift: PendingShift): string {

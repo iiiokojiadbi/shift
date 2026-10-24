@@ -62,7 +62,7 @@ async function accepted(store = project()): Promise<PendingShift> {
   return result.shift
 }
 
-test('a shift is refused without a letter, with a bad letter, without a board, or with the records not ignored', async () => {
+test('a shift is refused without a letter, with a bad letter or without a board', async () => {
   const call = { root: ROOT, input: INPUT, at: AT, sessionId: 's1' }
   const deny = async (store: ReturnType<typeof project>) => {
     const result = await acceptShift(store, call)
@@ -75,7 +75,24 @@ test('a shift is refused without a letter, with a bad letter, without a board, o
   const noBoard = project()
   noBoard.files.delete(`${R}/board.md`)
   expect(await deny(noBoard)).toContain('No board')
-  expect(await deny(project({}, false))).toContain('is not ignored')
+})
+
+test("records the project's git does not ignore are excluded locally, unless the owner lets them be committed", async () => {
+  const call = { root: ROOT, input: INPUT, at: AT, sessionId: 's1' }
+  const store = project({ [`${ROOT}/.git/info/exclude`]: '# git ls-files --others --exclude-from=.git/info/exclude' }, false)
+  const accepted = await acceptShift(store, call)
+  if ('deny' in accepted) throw new Error(accepted.deny)
+  expect(accepted.result).toContain('the mod added ".infinity-shift/" to /p/.git/info/exclude')
+  expect(store.files.get(`${ROOT}/.git/info/exclude`)).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n.infinity-shift/\n')
+
+  const committed = project({ [`${R}/settings.toml`]: 'commit = true' }, false)
+  const kept = await acceptShift(committed, call)
+  if ('deny' in kept) throw new Error(kept.deny)
+  expect(kept.result).not.toContain('exclude')
+  expect(committed.files.has(`${ROOT}/.git/info/exclude`)).toBe(false)
+
+  const noRepoFile = { ...project({}, false), excludeFile: async () => null }
+  expect(await acceptShift(noRepoFile, call)).toEqual({ deny: expect.stringContaining('commit = true') })
 })
 
 test('an accepted shift snapshots the records and leaves a pending about.md', async () => {

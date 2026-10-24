@@ -30,5 +30,6 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
       return null
     },
     isIgnored: async () => ignored,
+    excludeFile: async root => `${root}/.git/info/exclude`,
   }
 }

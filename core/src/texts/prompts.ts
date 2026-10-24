@@ -147,4 +147,8 @@ export function resumePrompt(letter: string, work: Work | null, recent: Recent, 
 export const ACCEPTED = (dir: string) =>
   `Shift accepted, the letter and the snapshots: ${dir}/. End the turn with one line and do nothing more: after the turn the stretch's history is let go, and you continue from the letter.`
 
-export const NOT_IGNORED = `${DIR}/ is not ignored by this project's git. The records are yours, not the project's: add "/${DIR}/" to the project's .gitignore and call again.`
+export const NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`
+
+// The records were not ignored and the mod excluded them: told to the agent and to the owner.
+export const EXCLUDED = (file: string) =>
+  `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`
