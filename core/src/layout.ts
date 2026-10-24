@@ -29,7 +29,7 @@ export const TASKS_MAX_LINES = 150
 export const GLOSSARY_MAX_LINES = 400
 
 // The docs map in SHIFT.md, in characters; past it only folders and file names are listed.
-export const DOCS_MAP_MAX_CHARS = 24000
+export const DOCS_MAP_MAX_CHARS = 100000
 
 // A knowledge file past this is split by topic.
 export const KNOWLEDGE_MAX_LINES = 400

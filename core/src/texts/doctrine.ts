@@ -5,6 +5,7 @@ import {
   BOARD,
   BOARD_MAX_LINES,
   DIR,
+  DOCS_MAP_MAX_CHARS,
   FOCUS,
   GLOSSARY,
   GLOSSARY_MAX_LINES,
@@ -205,7 +206,7 @@ ${DIR}/
 - \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below;
 - \`commit = true\` lets the project's git take the records in; the mod then leaves git alone;
 - \`[files]\` \`shift\`, \`owner\`, \`glossary\` — where SHIFT.md, OWNER.md and GLOSSARY.md live, paths from the project's root; by default inside \`${DIR}/\`;
-- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe.
+- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe; \`max_chars = ${DOCS_MAP_MAX_CHARS}\` — how long the map may be: past it the map drops the sections, then the descriptions, and says what it dropped.
 A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
 
 ## What goes where

@@ -1,5 +1,6 @@
-import { DOCS_MAP_MAX_CHARS, MOD } from './layout'
+import { MOD } from './layout'
 import { frontmatter } from './markdown'
+import type { DocsSettings } from './settings'
 import type { Store } from './store'
 
 // The map of the project's documents the mod keeps in SHIFT.md: per folder, each document's path, its `description:`
@@ -41,12 +42,14 @@ function headings(text: string): string[] {
   return found
 }
 
-// The block itself; past its size limit first without the sections, then only folders and file names, so it never
-// crowds the session and loses the descriptions last. A folder of the
+// The block itself; past `[docs] max_chars` first without the sections, then only folders and file names, so it never
+// crowds the session and loses the descriptions last. A map cut down says so, and what this level dropped, so the
+// agent knows what it does not see. A folder of the
 // settings with nothing to list is named with why — no such folder, or no documents in it — so the agent knows the
 // project has no docs there and does not go searching. `[docs] dirs = []` is the owner turning the map off — the
 // project's docs may be shared with people and not the agent's to describe — and the block says just that.
-export function renderMap(docs: readonly Doc[], dirs: readonly string[], missing: readonly string[]): string {
+export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing: readonly string[]): string {
+  const { dirs, maxChars } = settings
   if (dirs.length === 0) {
     const off =
       "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it."
@@ -76,23 +79,27 @@ export function renderMap(docs: readonly Doc[], dirs: readonly string[], missing
         ]),
       ].join('\n'),
     )
-  const fits = (body: string[]): boolean => body.join('\n\n').length <= DOCS_MAP_MAX_CHARS
+  const size = (body: string[]): number => body.join('\n\n').length
   const full = listed(true)
   const described = listed(false)
-  const [body, note] = fits(full)
-    ? [full, 'Open a document for numbers, commands and names: the map only points.']
-    : fits(described)
-      ? [
-          described,
-          `With the sections the map is over ${DOCS_MAP_MAX_CHARS} characters, so descriptions only: open a document for its sections.`,
-        ]
-      : [
-          sorted.map(
-            ([folder, inside]) =>
-              `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
-          ),
-          `Even without the sections the map is over ${DOCS_MAP_MAX_CHARS} characters, so only folders: read a document's frontmatter for what it holds.`,
-        ]
+  const over = `the full map is ${size(full)} characters, over \`[docs] max_chars = ${maxChars}\` in the settings`
+  const back =
+    'Tell the owner: they may raise `[docs] max_chars`; shorter descriptions and fewer `##` sections also bring the map back whole.'
+  const [body, note] =
+    size(full) <= maxChars
+      ? [full, 'Open a document for numbers, commands and names: the map only points.']
+      : size(described) <= maxChars
+        ? [
+            described,
+            `Cut down: ${over}. Dropped at this level: the \`sections:\` line of every document — open a document for its \`##\` sections. Whole: every document with its description. ${back}`,
+          ]
+        : [
+            sorted.map(
+              ([folder, inside]) =>
+                `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
+            ),
+            `Cut down: ${over}, and ${size(described)} without the sections. Dropped at this level: the description and the sections of every document — read a document's frontmatter \`description:\` for what it holds. Whole: every folder with its file names. ${back}`,
+          ]
   const nothing = empty.length === 0 ? [] : ['', 'Nothing to list:', ...empty]
 
   return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), ...nothing, '', MAP_END].join('\n')
@@ -111,7 +118,8 @@ export function withMap(shift: string | null, map: string): string {
 }
 
 // Writes the map into SHIFT.md when it changed; nothing when there are no documents and no SHIFT.md yet.
-export async function refreshMap(store: Store, root: string, shiftPath: string, dirs: readonly string[]): Promise<void> {
+export async function refreshMap(store: Store, root: string, shiftPath: string, settings: DocsSettings): Promise<void> {
+  const dirs = settings.dirs
   const docs = await readDocs(store, root, dirs)
   const missing: string[] = []
   for (const dir of dirs.map(each => each.replace(/\/+$/, ''))) {
@@ -120,6 +128,6 @@ export async function refreshMap(store: Store, root: string, shiftPath: string, 
   const path = `${root}/${shiftPath}`
   const current = await store.read(path)
   if (docs.length === 0 && current === null) return
-  const next = withMap(current, renderMap(docs, dirs, missing))
+  const next = withMap(current, renderMap(docs, settings, missing))
   if (next !== current) await store.write(path, next)
 }

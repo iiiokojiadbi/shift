@@ -1,4 +1,4 @@
-import { GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
+import { DOCS_MAP_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
 import type { Store } from './store'
 
 // The owner's settings for one project; the agent does not edit them.
@@ -11,9 +11,12 @@ export type Settings = {
   commit: boolean
   // Where the files loaded into every session live, relative to the project's root.
   files: { shift: string; owner: string; glossary: string }
-  // The folders whose documents the map in SHIFT.md lists, relative to the project's root.
-  docs: string[]
+  // The map of documents in SHIFT.md: the folders it lists, relative to the project's root, and how long it may be
+  // before it is cut down.
+  docs: DocsSettings
 }
+
+export type DocsSettings = { dirs: string[]; maxChars: number }
 
 export const PLACEMENTS = ['local', 'project', 'split'] as const
 export type Placement = (typeof PLACEMENTS)[number]
@@ -23,7 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   knowledge: null,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY },
-  docs: ['docs'],
+  docs: { dirs: ['docs'], maxChars: DOCS_MAP_MAX_CHARS },
 }
 
 type Value = string | boolean | number | string[]
@@ -49,7 +52,7 @@ export function parseSettings(text: string): Settings | string {
     values.set(`${table}${pair[1]}`, value)
   }
 
-  const settings: Settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files } }
+  const settings: Settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files }, docs: { ...DEFAULT_SETTINGS.docs } }
   for (const [key, value] of values) {
     const problem = apply(settings, key, value)
     if (problem !== null) return `${SETTINGS}: ${problem}`
@@ -75,9 +78,13 @@ function apply(settings: Settings, key: string, value: Value): string | null {
   } else if (key === 'docs.dirs') {
     if (!Array.isArray(value) || !value.every(isInside))
       return `\`docs.dirs\` is a list of folders inside the project, got ${JSON.stringify(value)}.`
-    settings.docs = value
+    settings.docs.dirs = value
+  } else if (key === 'docs.max_chars') {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
+      return `\`docs.max_chars\` is a whole number of characters above 0, got ${JSON.stringify(value)}.`
+    settings.docs.maxChars = value
   } else {
-    return `unknown key \`${key}\`; the keys are \`enabled\`, \`knowledge\`, \`commit\`, \`files.shift\`, \`files.owner\`, \`files.glossary\` and \`docs.dirs\`.`
+    return `unknown key \`${key}\`; the keys are \`enabled\`, \`knowledge\`, \`commit\`, \`files.shift\`, \`files.owner\`, \`files.glossary\`, \`docs.dirs\` and \`docs.max_chars\`.`
   }
 
   return null

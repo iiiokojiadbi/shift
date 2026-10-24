@@ -73,31 +73,36 @@ test('the docs map lists each document with its description and sections, and re
     [`${ROOT}/docs/a.md`]: '---\ndescription: what A holds\n---\n\n# A\n\n## One\n\n```\n## not a heading\n```\n\n## Two',
     [`${ROOT}/docs/deep/b.md`]: '# B',
   })
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', { dirs: ['docs'], maxChars: 100000 })
   const first = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(first).toContain('- `docs/a.md` — what A holds\n  sections: One · Two')
   expect(first).toContain('- `docs/deep/b.md` — no description')
 
   store.files.set(`${R}/SHIFT.md`, first.replace('# Shift', '# Shift\n\nMY RULES'))
   store.files.set(`${ROOT}/docs/c.md`, '---\ndescription: C\n---')
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', { dirs: ['docs'], maxChars: 100000 })
   const second = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(second).toContain('MY RULES')
   expect(second).toContain('`docs/c.md` — C')
   expect(second.split(MAP_END).length).toBe(2)
 
   const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'] }))
-  expect(renderMap(many, ['docs'], [])).toContain('- `docs/x/` — 400 docs:')
+  const folders = renderMap(many, { dirs: ['docs'], maxChars: 24000 }, [])
+  expect(folders).toContain('- `docs/x/` — 400 docs:')
+  expect(folders).toContain('over `[docs] max_chars = 24000`')
+  expect(folders).toContain('Dropped at this level: the description and the sections of every document')
   const long = Array.from({ length: 100 }, (_, i) => ({ path: `docs/${i}.md`, description: 'd'.repeat(100), sections: ['s'.repeat(200)] }))
-  const described = renderMap(long, ['docs'], [])
+  expect(renderMap(long, { dirs: ['docs'], maxChars: 100000 }, [])).toContain('sections: sss')
+  const described = renderMap(long, { dirs: ['docs'], maxChars: 24000 }, [])
   expect(described).toContain(`- \`docs/7.md\` — ${'d'.repeat(100)}`)
-  expect(described).not.toContain('sections:')
-  expect(described).toContain('descriptions only')
+  expect(described).not.toContain('  sections:')
+  expect(described).toContain('Dropped at this level: the `sections:` line of every document')
+  expect(parseSettings('[docs]\nmax_chars = 0')).toContain('above 0')
 })
 
 test('a folder with nothing to list is named as missing or empty; with no SHIFT.md and no documents nothing is written', async () => {
   const store = memoryStore({ [`${R}/SHIFT.md`]: '# Shift\n\nMY RULES' })
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs/'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', { dirs: ['docs/'], maxChars: 100000 })
   const shift = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(shift).toContain('MY RULES')
   expect(shift).toContain('## Documents\n\nnone:\n- `docs/` — no such folder')
@@ -105,18 +110,18 @@ test('a folder with nothing to list is named as missing or empty; with no SHIFT.
 
   store.files.set(`${ROOT}/notes/n.md`, '# N')
   store.files.set(`${ROOT}/empty/.keep`, '')
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs', 'notes', 'empty'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', { dirs: ['docs', 'notes', 'empty'], maxChars: 100000 })
   const some = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(some).toContain('`notes/n.md`')
   expect(some).toContain('Nothing to list:\n- `docs/` — no such folder\n- `empty/` — no documents')
 
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', [])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', { dirs: [], maxChars: 100000 })
   const off = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(off).toContain('## Documents\n\noff: the owner set `[docs] dirs = []`')
   expect(off).not.toContain('notes/n.md')
 
   const bare = memoryStore()
-  await refreshMap(bare, ROOT, '.shift/SHIFT.md', ['docs'])
+  await refreshMap(bare, ROOT, '.shift/SHIFT.md', { dirs: ['docs'], maxChars: 100000 })
   expect(bare.files.size).toBe(0)
 })
 
