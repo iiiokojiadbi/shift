@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { ARCHIVE, CLOSED, TASKS } from './layout'
 import { itemsOf } from './markdown'
-import { continues, taskTitle } from './records'
+import { taskTitle } from './records'
 import type { ArchiveInput, TaskFiles } from './types'
 
 // What `task_archive` refuses: a task that is not there, or one marked done with open items.
@@ -20,8 +20,9 @@ export function checkArchive(input: ArchiveInput, task: TaskFiles, archived: boo
   return null
 }
 
-export function indexLine(input: ArchiveInput, task: string): string {
-  const linked = continues(task)
+// `continues` lists the archived tasks this one picked up, from its links in TASKS.md.
+export function indexLine(input: ArchiveInput, task: string, continues: readonly string[]): string {
+  const linked = continues
   const tail = linked.length === 0 ? '' : `; continues ${linked.join(', ')}`
 
   return `- [${input.outcome}] [${taskTitle(task) ?? input.name}](${input.name}/) — ${input.about}${tail}`

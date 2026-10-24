@@ -1,18 +1,20 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { addToIndex, checkArchive, indexLine } from './archive'
+import { refreshMap } from './docs'
 import { shiftFill } from './hint'
 import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, TASKS } from './layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, TASK_LIST, TASKS } from './layout'
 import { formatK, sections } from './markdown'
 import { checkLetter, checkWork } from './records'
 import type { Settings } from './settings'
-import { DEFAULT_SETTINGS, parseSettings } from './settings'
+import { DEFAULT_SETTINGS, parseSettings, readSettings } from './settings'
 import type { Store } from './store'
-import { lastShifts, previousShift, readSnapshot, readWork, recentShifts } from './store'
+import { lastShifts, previousShift, readProject, readSnapshot, recentShifts } from './store'
+import { archiveInList, parseTaskList } from './tasks'
 import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, WAITING } from './texts/rows'
-import type { ArchiveInput, PendingShift, Settled, ShiftInput, TaskFiles } from './types'
+import type { ArchiveInput, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them its store and what only it knows.
 
@@ -26,7 +28,9 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
   const letterProblem = checkLetter(letter)
   if (letterProblem !== null) return { deny: letterProblem }
 
-  const work = await readWork(store, `${root}/${DIR}`)
+  const { settings: current } = await readSettings(store, root)
+  if (current.enabled) await refreshMap(store, root, current.files.shift, current.docs)
+  const work = await readProject(store, root)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const previousDir = await previousShift(store, root)
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/index.md`)
@@ -56,7 +60,10 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
     if (task.task !== null) await store.write(`${dir}/tasks/${task.name}/task.md`, task.task)
     if (task.track !== null) await store.write(`${dir}/tasks/${task.name}/track.md`, task.track)
   }
-  if (work.owner !== null) await store.write(`${dir}/owner.md`, work.owner)
+  if (work.owner !== null) await store.write(`${dir}/OWNER.md`, work.owner)
+  if (work.taskList !== null) await store.write(`${dir}/TASKS.md`, work.taskList)
+  if (work.glossary !== null) await store.write(`${dir}/GLOSSARY.md`, work.glossary)
+  if (work.shift !== null) await store.write(`${dir}/SHIFT.md`, work.shift)
   if (work.settings !== null) await store.write(`${dir}/settings.toml`, work.settings)
   for (const file of work.knowledge) await store.write(`${dir}/knowledge/${file.name}`, file.text)
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
@@ -77,10 +84,17 @@ export async function archiveTask(store: Store, root: string, input: ArchiveInpu
   const problem = checkArchive(input, task, await store.exists(to))
   if (problem !== null) return { deny: problem }
 
+  const listPath = `${root}/${TASK_LIST}`
+  const list = await store.read(listPath)
+  const listed = list === null ? [] : parseTaskList(list)
+  const entry = typeof listed === 'string' ? undefined : listed.find(t => t.name === input.name)
+  const continued = (entry?.links ?? []).filter(link => link.kind === 'continues').map(link => link.name)
+
   const failed = await store.move(from, to)
   if (failed !== null) return { deny: `Could not move ${from} to ${to}: ${failed}` }
   const index = await store.read(`${root}/${INDEX}`)
-  await store.write(`${root}/${INDEX}`, addToIndex(index, indexLine(input, task.task ?? '')))
+  await store.write(`${root}/${INDEX}`, addToIndex(index, indexLine(input, task.task ?? '', continued)))
+  if (list !== null) await store.write(listPath, archiveInList(list, input.name))
 
   return { result: ARCHIVED(input.name) }
 }
@@ -98,7 +112,7 @@ export async function resumeShift(store: Store, root: string): Promise<{ text: s
   const letter = await store.read(`${dir}/letter.md`)
   if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
 
-  const work = await readWork(store, `${root}/${DIR}`)
+  const work = await readProject(store, root)
   const recent = await recentShifts(store, root)
 
   return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, work, recent, dir) }
@@ -136,7 +150,7 @@ export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> 
       `${shift.dir}/about.md`,
       renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
     )
-  const work = await readWork(store, `${root}/${DIR}`)
+  const work = await readProject(store, root)
   const recent = await recentShifts(store, root)
   const name = shiftName(shift)
 
@@ -180,6 +194,18 @@ export async function keepRecordsOut(
   await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`)
 
   return { excluded: file }
+}
+
+// What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md and TASKS.md, with
+// paths from the project's root; none when the mod is off here.
+export async function sessionFiles(store: Store, root: string): Promise<SessionFile[]> {
+  const { settings } = await readSettings(store, root)
+  if (!settings.enabled) return []
+  await refreshMap(store, root, settings.files.shift, settings.docs)
+  const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST]
+  const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
+
+  return files.filter((file): file is SessionFile => file.text !== null)
 }
 
 function shiftName(shift: PendingShift): string {

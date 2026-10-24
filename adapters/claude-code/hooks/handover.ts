@@ -1,13 +1,14 @@
 import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { PendingShift } from '../types'
-import { compactInstructions, settleShift, shiftNotMade } from './core/index'
+import { compactInstructions, renderSessionFiles, sessionFiles, settleShift, shiftNotMade } from './core/index'
 import { claudeStore } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
 const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
 const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, null)
+const files = atom({ plugin: 'infinity-shift', key: 'files' } as const, null)
 
 export async function handOver($: EngineInterface): Promise<void> {
   const shift: PendingShift | null = await read($, pending)
@@ -24,8 +25,12 @@ export async function handOver($: EngineInterface): Promise<void> {
     return
   }
 
+  const root = await $.session.root()
+  // The files the session carries come back as the shift left them.
+  const loaded = renderSessionFiles(await sessionFiles(store, root))
+  await update($, files, () => loaded)
   const settled = await settleShift(store, {
-    root: await $.session.root(),
+    root,
     shift,
     messages: done.messages,
     before: done.tokensBefore ?? tokensBefore,

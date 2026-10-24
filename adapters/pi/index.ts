@@ -38,6 +38,7 @@ import {
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
   STATUS_TOOL,
+  sessionFiles,
   settleShift,
   shiftBase,
   shiftHint,
@@ -175,6 +176,13 @@ export default function infinityShift(pi: ExtensionAPI): void {
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
     event.systemPromptOptions.sections[MOD] = DOCTRINE_BODY
+    // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added twice.
+    const loaded = await sessionFiles(nodeStore, ctx.cwd)
+    const ours = new Set(loaded.map(file => file.path))
+    event.systemPromptOptions.contextFiles = [
+      ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
+      ...loaded.map(file => ({ path: file.path, content: file.text })),
+    ]
     const parts: string[] = []
     const hint = await takeHint(ctx)
     if (hint !== null) parts.push(hintBlock(hint))

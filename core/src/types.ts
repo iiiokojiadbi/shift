@@ -24,7 +24,25 @@ export type Kind = keyof typeof KINDS
 // A file of `knowledge/`: its name with `.md` and its text.
 export type KnowledgeFile = { name: string; text: string }
 
-export type Work = { board: string; owner: string | null; tasks: TaskFiles[]; knowledge: KnowledgeFile[]; settings: string | null }
+// A file loaded into every session, its path from the project's root.
+export type SessionFile = { path: string; text: string }
+
+export type Work = {
+  board: string
+  owner: string | null
+  tasks: TaskFiles[]
+  knowledge: KnowledgeFile[]
+  settings: string | null
+  // TASKS.md: the open tasks and their links.
+  taskList: string | null
+  glossary: string | null
+  // SHIFT.md: the project's rules and the map of its documents.
+  shift: string | null
+  // Folder names in the archive.
+  archived: string[]
+  // owner.md is still there under its old name.
+  oldOwner: boolean
+}
 
 // What one stretch of work did, from the files against the previous shift's snapshot.
 export type Segment = { done: string[]; dropped: string[]; archived: string[]; open: string[] }

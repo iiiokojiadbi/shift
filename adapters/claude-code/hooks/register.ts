@@ -24,11 +24,13 @@ import {
   parseShiftInput,
   RESUME_COMMAND,
   readSettings,
+  renderSessionFiles,
   resumeShift,
   SOURCES,
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
   STATUS_TOOL,
+  sessionFiles,
   shiftHistory,
   TOOL,
   TOOL_DESCRIPTION,
@@ -44,6 +46,7 @@ import { OWNER_ORIGINS, PLUGIN } from './state'
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
 const enabled = atom({ plugin: 'infinity-shift', key: 'enabled' } as const, true)
+const files = atom({ plugin: 'infinity-shift', key: 'files' } as const, null)
 const gauge = atom({ plugin: 'infinity-shift', key: 'gauge' } as const, FRESH_GAUGE)
 const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
 const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, null)
@@ -57,6 +60,8 @@ export const register: Register = on => {
     await update($, enabled, () => settings.enabled)
     if (problem !== null) $.ui.log(`${PLUGIN}: ${problem} The mod stays on.`)
     if (!settings.enabled) return next(e)
+    const loaded = renderSessionFiles(await sessionFiles(store, root))
+    await update($, files, () => loaded)
     // Records written before the first shift stay out of a commit too.
     if (await store.exists(`${root}/${DIR}`)) {
       const kept = await keepRecordsOut(store, root, settings)
@@ -83,8 +88,11 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (!(await read($, enabled))) return composed
+    const loaded: string | null = await read($, files)
+    const own = [{ id: `${PLUGIN}:doctrine`, text: DOCTRINE, scope: 'session' as const }]
+    if (loaded !== null) own.push({ id: `${PLUGIN}:files`, text: loaded, scope: 'session' })
 
-    return { ...composed, sections: [...composed.sections, { id: `${PLUGIN}:doctrine`, text: DOCTRINE, scope: 'session' }] }
+    return { ...composed, sections: [...composed.sections, ...own] }
   })
 
   on('tool.call', { tool: 'mcp__infinity-shift__shift' }, async ($, e) => {

@@ -1,24 +1,26 @@
+import { checkGlossary } from './glossary'
 import {
-  ARCHIVE_TOOL,
   BOARD,
   BOARD_MAX_LINES,
   BOARD_SECTIONS,
-  FOCUS,
+  GUIDE_TOOL,
   KINDS,
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER_SECTIONS,
-  NAME,
+  OLD_OWNER,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
   STATUSES,
+  TASK_LIST,
   TASK_SECTIONS,
   TASKS,
 } from './layout'
 import { findDate, frontmatter, itemsOf, missingSections, quote, sections } from './markdown'
-import { parseSettings } from './settings'
-import type { FocusTask, Kind, KnowledgeFile, TaskFiles, Work } from './types'
+import { DEFAULT_SETTINGS, parseSettings } from './settings'
+import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
+import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
 
 export function checkLetter(text: string): string | null {
   const missing = missingSections(text, LETTER_SECTIONS, 'The letter')
@@ -30,20 +32,15 @@ export function checkLetter(text: string): string | null {
   return null
 }
 
-export function boardTasks(board: string): FocusTask[] {
-  return itemsOf(sections(board).get('Tasks') ?? '').map(item => ({
-    status: item.status,
-    name: item.rest.split(/\s+/)[0] ?? '',
-    line: item.line,
-  }))
+// The open tasks as TASKS.md lists them; none when it is missing or does not parse.
+export function listedTasks(work: Work): ListedTask[] {
+  const listed = work.taskList === null ? [] : parseTaskList(work.taskList)
+
+  return typeof listed === 'string' ? [] : listed
 }
 
 export function taskTitle(task: string): string | null {
   return /^# +(.+?)\s*$/m.exec(task)?.[1] ?? null
-}
-
-export function continues(task: string): string[] {
-  return [...task.matchAll(/^continues: *(?:\S*\/)?archive\/([a-z0-9-]+)\/?\s*$/gm)].map(match => match[1] ?? '')
 }
 
 // The whole state of the work as one text, to tell whether anything moved since the last shift.
@@ -53,6 +50,9 @@ export function workText(work: Work): string {
   return [
     work.board.trim(),
     (work.owner ?? '').trim(),
+    (work.taskList ?? '').trim(),
+    (work.glossary ?? '').trim(),
+    (work.shift ?? '').trim(),
     ...tasks.map(t => `${t.name}\n${(t.task ?? '').trim()}\n${(t.track ?? '').trim()}`),
     ...work.knowledge.map(k => `${k.name}\n${k.text.trim()}`),
   ].join('\n\n')
@@ -62,10 +62,14 @@ const lineCount = (text: string) => text.trimEnd().split('\n').length
 
 export function checkWork(work: Work, previous: Work | null): string | null {
   const { board } = work
-  const settings = work.settings === null ? null : parseSettings(work.settings)
-  if (typeof settings === 'string') return `${settings} The file is the owner's: tell them, and do not shift until it is fixed.`
+  const parsed = work.settings === null ? DEFAULT_SETTINGS : parseSettings(work.settings)
+  if (typeof parsed === 'string') return `${parsed} The file is the owner's: tell them, and do not shift until it is fixed.`
+  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${parsed.files.owner} now. Rename it and call again.`
   if (sections(board).has(OWNER_SECTION)) {
-    return `The board has an "## ${OWNER_SECTION}" section: owner decisions now live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
+    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${parsed.files.owner}. Move its lines there as they are, remove the section from the board, and call again.`
+  }
+  if (sections(board).has('Tasks')) {
+    return `The board has a "## Tasks" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
   }
   const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing
@@ -77,25 +81,15 @@ export function checkWork(work: Work, previous: Work | null): string | null {
 
   const date = findDate(board)
   if (date !== null) return `A date on the board: "${date}". The board has no dates — each shift's time is recorded by itself. Remove it.`
+  const rejected = badRejected(board, 'The board')
+  if (rejected !== null) return rejected
 
-  const focus = boardTasks(board)
-  const badStatus = focus.filter(t => !(FOCUS as readonly string[]).includes(t.status))
-  if (badStatus.length > 0) {
-    return `Board tasks without a status (${FOCUS.join(', ')}): ${badStatus.map(t => `"${t.line}"`).join('; ')}. A finished task is archived with ${ARCHIVE_TOOL}, not marked on the board.`
-  }
-  const badName = focus.filter(t => !NAME.test(t.name))
-  if (badName.length > 0) {
-    return `Board tasks must start with the task's folder name: ${badName.map(t => `"${t.line}"`).join('; ')}.`
-  }
-
-  const onBoard = new Set(focus.map(t => t.name))
-  const folders = new Set(work.tasks.map(t => t.name))
-  const unlisted = [...folders].filter(name => !onBoard.has(name))
-  if (unlisted.length > 0)
-    return `Task folders missing from the board: ${unlisted.join(', ')}. Put each on the board with its status, or archive it.`
-  const homeless = [...onBoard].filter(name => !folders.has(name))
-  if (homeless.length > 0)
-    return `Board tasks without a folder in ${TASKS}/: ${homeless.join(', ')}. Create the folder, or remove the line if the task is archived.`
+  const listProblem = checkTaskList(
+    work.taskList,
+    work.tasks.map(t => t.name),
+    work.archived,
+  )
+  if (listProblem !== null) return listProblem
 
   const ownerProblem = checkOwner(work.owner)
   if (ownerProblem !== null) return ownerProblem
@@ -109,6 +103,9 @@ export function checkWork(work: Work, previous: Work | null): string | null {
     const problem = checkKnowledge(file)
     if (problem !== null) return problem
   }
+
+  const glossaryProblem = checkGlossary(work.glossary, parsed.files.glossary)
+  if (glossaryProblem !== null) return glossaryProblem
 
   if (previous !== null && workText(previous) === workText(work)) {
     return 'Nothing changed in the records since the last shift. Update the tracks, statuses and decisions, then shift.'
@@ -126,11 +123,22 @@ function checkTask({ name, task, track }: TaskFiles): string | null {
   if (missing !== null) return missing
   const date = findDate(task) ?? findDate(track)
   if (date !== null) return `A date in ${where}: "${date}". Tasks have no dates. Remove it.`
+  if (/^continues:/m.test(task))
+    return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
+  const rejected = badRejected(task, `${where}task.md`)
+  if (rejected !== null) return rejected
   const bad = itemsOf(track).filter(item => !(STATUSES as readonly string[]).includes(item.status))
   if (bad.length > 0)
     return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${bad.map(i => `"${i.line}"`).join('; ')}.`
 
   return null
+}
+
+// A decision may name what it turned down: "rejected: <option> — <why>".
+function badRejected(text: string, where: string): string | null {
+  const bad = (sections(text).get('Decisions') ?? '').split('\n').find(line => /rejected:/.test(line) && !/rejected: .+ — .+/.test(line))
+
+  return bad === undefined ? null : `${where}: "${bad.trim()}" — a rejected option needs its reason: "rejected: <option> — <why>".`
 }
 
 function checkOwner(owner: string | null): string | null {
@@ -168,6 +176,8 @@ export function checkKnowledge({ name, text }: KnowledgeFile): string | null {
   const where = `${KNOWLEDGE}/${name}`
   const meta = frontmatter(text)
   const kind = meta.get('kind') ?? ''
+  if (kind === 'glossary')
+    return `${where} is a glossary: terms live in GLOSSARY.md now, one article each — see ${GUIDE_TOOL}. Move them there and remove the file.`
   if (!isKind(kind)) return `${where} needs a frontmatter "kind": one of ${Object.keys(KINDS).join(', ')}.`
   if (name !== `${kind}.md` && !name.startsWith(`${kind}-`)) {
     return `${where} is of kind "${kind}": name it ${kind}.md or ${kind}-<topic>.md.`

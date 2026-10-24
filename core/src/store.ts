@@ -1,4 +1,5 @@
 import { DIR, RECENT_SHIFTS } from './layout'
+import { readSettings } from './settings'
 import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
@@ -18,10 +19,15 @@ export type Store = {
   excludeFile(root: string): Promise<string | null>
 }
 
+// Where the files loaded into every session are, absolute.
+export type Places = { owner: string; glossary: string; shift: string }
+
 // The records under `base` (the project's `.infinity-shift/` or a shift's snapshot); null without a board.
-export async function readWork(store: Store, base: string): Promise<Work | null> {
+// A snapshot keeps every file under its own name; a project's places come from its settings.
+export async function readWork(store: Store, base: string, places?: Places): Promise<Work | null> {
   const board = await store.read(`${base}/board.md`)
   if (board === null) return null
+  const at = places ?? { owner: `${base}/OWNER.md`, glossary: `${base}/GLOSSARY.md`, shift: `${base}/SHIFT.md` }
   const tasks: TaskFiles[] = await Promise.all(
     (await store.list(`${base}/tasks`, 'dir')).map(async name => ({
       name,
@@ -35,8 +41,36 @@ export async function readWork(store: Store, base: string): Promise<Work | null>
       .filter(name => name.endsWith('.md'))
       .map(async name => ({ name, text: (await store.read(`${base}/knowledge/${name}`)) ?? '' })),
   )
+  // Snapshots taken before OWNER.md keep owner.md.
+  const owner = (await store.read(at.owner)) ?? (places === undefined ? await store.read(`${base}/owner.md`) : null)
 
-  return { board, owner: await store.read(`${base}/owner.md`), tasks, knowledge, settings: await store.read(`${base}/settings.toml`) }
+  return {
+    board,
+    owner,
+    tasks,
+    knowledge,
+    settings: await store.read(`${base}/settings.toml`),
+    taskList: await store.read(`${base}/TASKS.md`),
+    glossary: await store.read(at.glossary),
+    shift: await store.read(at.shift),
+    archived: await store.list(`${base}/archive`, 'dir'),
+    oldOwner: places !== undefined && places.owner !== `${base}/owner.md` && (await store.exists(`${base}/owner.md`)),
+  }
+}
+
+// The project's records at the places its settings give; a settings file that does not parse counts as the defaults.
+export async function readProject(store: Store, root: string): Promise<Work | null> {
+  return readWork(store, `${root}/${DIR}`, await placesOf(store, root))
+}
+
+export async function placesOf(store: Store, root: string): Promise<Places> {
+  const { settings } = await readSettings(store, root)
+
+  return {
+    owner: `${root}/${settings.files.owner}`,
+    glossary: `${root}/${settings.files.glossary}`,
+    shift: `${root}/${settings.files.shift}`,
+  }
 }
 
 export async function readSnapshot(store: Store, base: string, index: string): Promise<Snapshot | null> {

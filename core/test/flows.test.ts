@@ -10,7 +10,8 @@ const AT = Date.UTC(2026, 0, 2, 3, 4, 5)
 const DIR = `${R}/shifts/20260102-030405`
 
 const LETTER = ['## Where I am', 'fixing tests', '## Next', 'run them', '## Unverified', 'none', '## Hold', 'HOLD-THIS'].join('\n')
-const BOARD = ['## Goal', 'the mod', '## Tasks', '- [in progress] tests — red', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
+const BOARD = ['## Goal', 'the mod', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
+const TASK_LIST = '# Tasks\n\n- [in progress] [tests](tasks/tests/) — red'
 const TASK = [
   '# Green tests',
   '## Goal',
@@ -46,7 +47,8 @@ function project(extra: Record<string, string> = {}, ignored = true) {
     {
       [`${R}/letter.md`]: LETTER,
       [`${R}/board.md`]: BOARD,
-      [`${R}/owner.md`]: '# Owner decisions\n\n## Work\n\n- «green first»',
+      [`${R}/OWNER.md`]: '# Owner decisions\n\n## Work\n\n- «green first»',
+      [`${R}/TASKS.md`]: TASK_LIST,
       [`${R}/tasks/tests/task.md`]: TASK,
       [`${R}/tasks/tests/track.md`]: TRACK,
       ...extra,
@@ -105,7 +107,8 @@ test('an accepted shift snapshots the records and leaves a pending about.md', as
   for (const name of [
     'letter.md',
     'board.md',
-    'owner.md',
+    'OWNER.md',
+    'TASKS.md',
     'index.md',
     'tasks/tests/task.md',
     'tasks/tests/track.md',

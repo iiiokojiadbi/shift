@@ -36,6 +36,8 @@ declare module 'claude-code' {
       threshold: number | null
       // false when the project's settings turn the mod off.
       enabled: boolean
+      // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md as one block, read at the session's start and after each shift.
+      files: string | null
     }
   }
 }

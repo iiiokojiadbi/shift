@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { CLOSED, DIR } from './layout'
 import { bullets, formatK, frontmatter, itemsOf, sections } from './markdown'
-import { boardTasks } from './records'
+import { listedTasks } from './records'
 import type { AboutMeta, HistoryEntry, Segment, Snapshot } from './types'
 
 export function stamp(ms: number): string {
@@ -40,7 +40,7 @@ export function segment(now: Snapshot, previous: Snapshot | null): Segment {
     archived: itemsOf(now.index ?? '')
       .filter(i => !indexed.has(i.line))
       .map(i => i.line.slice(2)),
-    open: boardTasks(now.work.board).map(t => t.line.slice(2)),
+    open: listedTasks(now.work).map(t => t.line.slice(2)),
   }
 }
 

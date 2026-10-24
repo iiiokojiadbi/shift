@@ -1,0 +1,97 @@
+// Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { DOCS_MAP_MAX_CHARS, MOD } from './layout'
+import { frontmatter } from './markdown'
+import type { Store } from './store'
+
+// The map of the project's documents the mod keeps in SHIFT.md: per folder, each document's path, its `description:`
+// and its `##` sections, so the agent knows what the docs hold without opening one. Built from the files every time,
+// so it cannot go stale; the mod rewrites only the block between its markers.
+
+export const MAP_START = `<!-- ${MOD}:docs — written by the mod from each document's description and ## headings; edit those, not this -->`
+export const MAP_END = `<!-- /${MOD}:docs -->`
+
+export type Doc = { path: string; description: string | null; sections: string[] }
+
+// Every .md file under the folders, sorted by path; a missing folder has none.
+export async function readDocs(store: Store, root: string, dirs: readonly string[]): Promise<Doc[]> {
+  const docs: Doc[] = []
+  const walk = async (dir: string): Promise<void> => {
+    for (const name of await store.list(`${root}/${dir}`, 'file')) {
+      if (!name.endsWith('.md')) continue
+      const text = (await store.read(`${root}/${dir}/${name}`)) ?? ''
+      docs.push({ path: `${dir}/${name}`, description: frontmatter(text).get('description') ?? null, sections: headings(text) })
+    }
+    for (const name of await store.list(`${root}/${dir}`, 'dir')) {
+      if (!name.startsWith('.')) await walk(`${dir}/${name}`)
+    }
+  }
+  for (const dir of dirs) await walk(dir.replace(/\/+$/, ''))
+
+  return docs.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+// `##` headings outside code fences.
+function headings(text: string): string[] {
+  let fenced = false
+  const found: string[] = []
+  for (const line of text.split('\n')) {
+    if (line.trimStart().startsWith('```')) fenced = !fenced
+    else if (!fenced && line.startsWith('## ')) found.push(line.slice(3).trim())
+  }
+
+  return found
+}
+
+// The block itself; past its size limit only folders and file names, so it never crowds the session.
+export function renderMap(docs: readonly Doc[]): string {
+  const folders = new Map<string, Doc[]>()
+  for (const doc of docs) {
+    const folder = doc.path.slice(0, doc.path.lastIndexOf('/'))
+    folders.set(folder, [...(folders.get(folder) ?? []), doc])
+  }
+  const full = [...folders].map(([folder, inside]) =>
+    [
+      `### ${folder}/`,
+      '',
+      ...inside.flatMap(doc => [
+        `- \`${doc.path}\` — ${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
+        ...(doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
+      ]),
+    ].join('\n'),
+  )
+  const body =
+    full.join('\n\n').length <= DOCS_MAP_MAX_CHARS
+      ? full
+      : [...folders].map(
+          ([folder, inside]) =>
+            `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
+        )
+  const note =
+    body === full
+      ? 'Open a document for numbers, commands and names: the map only points.'
+      : `The full map is over ${DOCS_MAP_MAX_CHARS} characters, so only folders: read a document's frontmatter for what it holds.`
+
+  return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), '', MAP_END].join('\n')
+}
+
+// SHIFT.md with its map block replaced, or added at the end; a new file starts with a heading and a line on what it is.
+export function withMap(shift: string | null, map: string): string {
+  if (shift === null) {
+    return `# Shift\n\nHow this project keeps its knowledge. The rules are written on the owner's word; the map below is the mod's.\n\n${map}\n`
+  }
+  const start = shift.indexOf(MAP_START.slice(0, MAP_START.indexOf(' — ')))
+  const end = shift.indexOf(MAP_END)
+  if (start === -1 || end === -1) return `${shift.trimEnd()}\n\n${map}\n`
+
+  return `${shift.slice(0, start)}${map}${shift.slice(end + MAP_END.length)}`
+}
+
+// Writes the map into SHIFT.md when it changed; nothing when there are no documents and no SHIFT.md yet.
+export async function refreshMap(store: Store, root: string, shiftPath: string, dirs: readonly string[]): Promise<void> {
+  const docs = await readDocs(store, root, dirs)
+  const path = `${root}/${shiftPath}`
+  const current = await store.read(path)
+  if (docs.length === 0 && current === null) return
+  const next = withMap(current, renderMap(docs))
+  if (next !== current) await store.write(path, next)
+}

@@ -1,12 +1,26 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HISTORY_MAX, HISTORY_TOOL, INDEX, KNOWLEDGE, MOD, OWNER, SETTINGS, TASKS } from '../layout'
+import {
+  ARCHIVE,
+  BOARD,
+  DIR,
+  GUIDE_TOOL,
+  HISTORY_MAX,
+  HISTORY_TOOL,
+  INDEX,
+  KNOWLEDGE,
+  MOD,
+  OWNER,
+  SETTINGS,
+  TASK_LIST,
+  TASKS,
+} from '../layout'
 import { frontmatter } from '../markdown'
-import { boardTasks, knowledgeMap } from '../records'
+import { knowledgeMap, listedTasks } from '../records'
 import { DEFAULT_SETTINGS, parseSettings } from '../settings'
-import type { Recent, Work } from '../types'
+import type { Recent, SessionFile, Work } from '../types'
 
 export const ARCHIVED = (name: string) =>
-  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}. Now remove "${name}" from the board's Tasks, and lift to the board any of its decisions that still bind beyond it.`
+  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
 
 // What the engine's summarizer is told; the model never sees this framing.
 export function compactInstructions(hold: string, board: string, letter: string): string {
@@ -24,7 +38,8 @@ export function compactInstructions(hold: string, board: string, letter: string)
 // Added to an automatic compaction the agent did not ask for.
 export const UNASSISTED_INSTRUCTIONS = `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}, its tasks in ${TASKS}/. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`
 
-// The board, the owner's decisions and the tasks in progress, whole, and the map of knowledge: what the agent stands on after a shift.
+// The board and the tasks in progress, whole, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
+// TASKS.md, GLOSSARY.md and SHIFT.md are in the session's own block, fresh after every shift.
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
 export function renderWork(work: Work | null): string {
   if (work === null) return `There is no board at ${BOARD}.`
@@ -35,7 +50,6 @@ export function renderWork(work: Work | null): string {
 
   return [
     file(BOARD, work.board),
-    file(OWNER, work.owner ?? 'none'),
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(work.settings)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
@@ -52,13 +66,24 @@ function placement(settings: string | null): string {
   return `here until the owner sets knowledge in ${SETTINGS}; ask them once`
 }
 
+// The files loaded into every session, each in its tag; they change during the session only on disk.
+export function renderSessionFiles(files: readonly SessionFile[]): string | null {
+  if (files.length === 0) return null
+
+  return [
+    `<${MOD} note="loaded at the session's start and after each shift; the files on disk are newer if you changed them since">`,
+    ...files.map(each => file(each.path, each.text)),
+    `</${MOD}>`,
+  ].join('\n\n')
+}
+
 function file(path: string, text: string): string {
   return `<file path="${path}">\n${text.trim()}\n</file>`
 }
 
 function inProgress(work: Work): Work['tasks'] {
   const doing = new Set(
-    boardTasks(work.board)
+    listedTasks(work)
       .filter(t => t.status === 'in progress')
       .map(t => t.name),
   )
@@ -69,11 +94,10 @@ function inProgress(work: Work): Work['tasks'] {
 // What a shift hands back, as paths inside the records folder: the owner's row names them.
 export function deliveredFiles(work: Work | null): string[] {
   if (work === null) return ['letter.md']
-  const owner = work.owner === null ? [] : ['owner.md']
   const tasks = inProgress(work).map(t => `tasks/${t.name}/`)
   const knowledge = work.knowledge.length === 0 ? [] : ['knowledge/ (the map)']
 
-  return ['letter.md', 'board.md', ...owner, ...tasks, ...knowledge]
+  return ['letter.md', 'board.md', ...tasks, ...knowledge]
 }
 
 // What the agent did before this stretch: a line per recent shift, oldest first, from its about.md.
@@ -105,7 +129,7 @@ function shiftMessage(opening: string, letter: string, work: Work | null, recent
     `<${MOD} shift="${dir}/">`,
     opening,
     '',
-    "The board, the owner's decisions, the tasks in progress and the map of knowledge, as they are now:",
+    'The board, the tasks in progress and the map of knowledge, as they are now; SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md are in your session block, read again after this shift:',
     '',
     renderWork(work),
     '',

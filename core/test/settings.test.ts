@@ -7,7 +7,7 @@ import { memoryStore } from './memory'
 const ROOT = '/p'
 const R = `${ROOT}/.infinity-shift`
 const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
-const BOARD = ['## Goal', 'g', '## Tasks', 'none', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
+const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
 
 test('settings parse the keys, comments and tables; a missing key keeps its default', () => {
   expect(parseSettings('')).toEqual(DEFAULT_SETTINGS)
@@ -35,7 +35,12 @@ test('no file means the defaults; a broken file leaves the mod on and says why',
 
 test('a shift snapshots the settings and is refused while they do not parse', async () => {
   const call = { root: ROOT, input: { letter: '.infinity-shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
-  const files = { [`${R}/letter.md`]: LETTER, [`${R}/board.md`]: BOARD, [`${R}/owner.md`]: '# Owner decisions\n\nnone' }
+  const files = {
+    [`${R}/letter.md`]: LETTER,
+    [`${R}/board.md`]: BOARD,
+    [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
+    [`${R}/TASKS.md`]: 'none',
+  }
   const broken = await acceptShift(memoryStore({ ...files, [`${R}/settings.toml`]: 'knowledge = "docs"' }), call)
   expect(broken).toEqual({ deny: expect.stringContaining('`knowledge` is one of') })
 
@@ -46,7 +51,17 @@ test('a shift snapshots the settings and is refused while they do not parse', as
 })
 
 test('the map of knowledge says where knowledge goes', () => {
-  const work = { board: BOARD, owner: null, tasks: [], knowledge: [] }
+  const work = {
+    board: BOARD,
+    owner: null,
+    tasks: [],
+    knowledge: [],
+    taskList: null,
+    glossary: null,
+    shift: null,
+    archived: [],
+    oldOwner: false,
+  }
   expect(renderWork({ ...work, settings: null })).toContain(
     'goes="here until the owner sets knowledge in .infinity-shift/settings.toml; ask them once"',
   )
