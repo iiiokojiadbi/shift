@@ -319,7 +319,7 @@ ${DIR}/
 │   └── <name>/       the task's folder as it was
 └── shifts/           history, written by the mod; do not edit
     └── <YYYYMMDD-hhmmss UTC>/
-        ├── about.md      the shift in brief — strict structure below
+        ├── about.md      the shift in brief — its structure is in ${GUIDE_TOOL}
         ├── letter.md     a copy of the letter
         ├── board.md      a snapshot of the board
         ├── TASKS.md, OWNER.md, GLOSSARY.md, SHIFT.md, settings.toml   snapshots
@@ -329,7 +329,7 @@ ${DIR}/
         └── summary.md    what stayed in memory after the shift
 \`\`\`
 
-\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` below); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`
+\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` above); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`
 
 export const SETUP_MIGRATION = `## Coming from the earlier layout
 
