@@ -1,6 +1,6 @@
 {
   "name": "infinity-shift",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "The agent shifts itself at a stage boundary: keeps a work board, writes itself a letter, steers the compaction and resumes from the letter",
   "author": {
     "name": "iiiokojiadbi"
