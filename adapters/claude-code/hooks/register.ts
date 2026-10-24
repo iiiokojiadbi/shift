@@ -5,6 +5,7 @@ import {
   afterWrite,
   doctrine,
   FRESH_GAUGE,
+  letGoGauge,
   type Project,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
@@ -158,7 +159,7 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && done.messages !== undefined) {
-      await update($, gauge, () => ({ ...FRESH_GAUGE, unassisted: e.trigger === 'auto', whole: true }))
+      await update($, gauge, () => letGoGauge(e.trigger === 'auto'))
     }
 
     return done

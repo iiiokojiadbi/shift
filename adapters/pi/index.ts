@@ -2,27 +2,29 @@ import { resolve } from 'node:path'
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
-import type { Gauge, PendingShift, Reading, WaitNote } from './core/index'
+import type { Gauge, GaugeKeeper, PendingShift, WaitNote } from './core/index'
 import {
   addGrowth,
   afterWrite,
   compactInstructions,
   contentChars,
+  takeHint as coreHint,
+  countGrowth,
   doctrineBody,
   FRESH_GAUGE,
+  gaugeStatus,
   HINTED,
   hintBlock,
+  letGoGauge,
   MOD,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
-  renderStatus,
   resumeShift,
   SETTINGS,
   SOURCES,
   sessionFiles,
   settleShift,
   shiftBase,
-  shiftHint,
   shiftNotMade,
   startSession,
   TOOLS,
@@ -66,10 +68,7 @@ export default function shift(pi: ExtensionAPI): void {
           pending: pending !== null,
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
-          status: async () => {
-            await restore(ctx)
-            return renderStatus(gauge, reading(ctx))
-          },
+          status: () => gaugeStatus(keeperOf(ctx)),
         })
         if ('deny' in done) throw new Error(done.deny)
         if (done.shift !== undefined) pending = done.shift
@@ -146,9 +145,8 @@ export default function shift(pi: ExtensionAPI): void {
   // Every message of the history is counted by source.
   pi.on('message_end', async (event, ctx) => {
     if (!enabled) return
-    await restore(ctx)
     const source = growthSource(event.message)
-    if (source !== null) gauge = addGrowth(gauge, source, messageChars(event.message))
+    if (source !== null) await countGrowth(keeperOf(ctx), source, messageChars(event.message))
   })
 
   // A hint rides inside a tool result: mid-turn, at the agent's next look, with no message of its own.
@@ -184,7 +182,7 @@ export default function shift(pi: ExtensionAPI): void {
 
   // Any compaction starts a new stretch; one the agent did not ask for is told to it at its next look.
   pi.on('session_compact', event => {
-    gauge = { ...FRESH_GAUGE, unassisted: event.reason !== 'manual', whole: true }
+    gauge = letGoGauge(event.reason !== 'manual')
   })
 
   // A failure is written to the shift's about.md and told to the owner; the history stays as it was.
@@ -228,39 +226,38 @@ export default function shift(pi: ExtensionAPI): void {
   // A hint for the agent if the fill since the last shift calls for one; none while a shift is pending.
   async function takeHint(ctx: ExtensionContext): Promise<string | null> {
     if (pending !== null) return null
-    await restore(ctx)
-    const hint = shiftHint(gauge, reading(ctx))
-    gauge = hint.gauge
-    if (hint.text !== null) tell(ctx, HINTED(hint.text), 'info')
+    const text = await coreHint(keeperOf(ctx))
+    if (text !== null) tell(ctx, HINTED(text), 'info')
 
-    return hint.text
+    return text
   }
 
-  // pi compacts by itself once the free room falls under `reserveTokens`.
-  function reading(ctx: ExtensionContext): Reading {
-    const usage = ctx.getContextUsage()
-    const window = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0
-    const settings = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model)
-
+  // The gauge in the extension's runtime; the history and the base read from the session. pi compacts by itself once
+  // the free room falls under `reserveTokens`.
+  function keeperOf(ctx: ExtensionContext): GaugeKeeper {
     return {
-      tokens: usage?.tokens ?? undefined,
-      window,
-      threshold: settings.enabled ? window - settings.reserveTokens : undefined,
-    }
-  }
+      read: async () => gauge,
+      update: async change => {
+        gauge = change(gauge)
+      },
+      history: async () => {
+        let counted = FRESH_GAUGE
+        for (const message of ctx.sessionManager.buildSessionProjection().messages) {
+          const source = growthSource(message)
+          if (source !== null) counted = addGrowth(counted, source, messageChars(message))
+        }
 
-  // A fresh runtime (a restart, a reload, a resumed session) starts with none of the stretch counted: the base comes back
-  // from the last shift of this session, the growth from the history as it is. Once; a compaction marks the count whole itself.
-  async function restore(ctx: ExtensionContext): Promise<void> {
-    if (gauge.whole) return
-    const base = await shiftBase(await projectAt(ctx.cwd), ctx.sessionManager.getSessionId())
-    if (gauge.whole) return
-    const counted = ctx.sessionManager.buildSessionProjection().messages.reduce((sum, message) => {
-      const source = growthSource(message)
-      return source === null ? sum : addGrowth(sum, source, messageChars(message))
-    }, FRESH_GAUGE)
-    const merged = Object.entries(gauge.growth).reduce((sum, [source, chars]) => addGrowth(sum, source, chars), counted)
-    gauge = { ...gauge, growth: merged.growth, base: gauge.base ?? base, whole: true }
+        return counted.growth
+      },
+      base: async () => shiftBase(await projectAt(ctx.cwd), ctx.sessionManager.getSessionId()),
+      reading: async () => {
+        const usage = ctx.getContextUsage()
+        const window = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0
+        const settings = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model)
+
+        return { tokens: usage?.tokens ?? undefined, window, threshold: settings.enabled ? window - settings.reserveTokens : undefined }
+      },
+    }
   }
 }
 

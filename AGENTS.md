@@ -31,7 +31,7 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/store.ts             the storage port an adapter implements (files, a move, git), and reading the records over it
   src/tools.ts             the tool table: a row per tool with its texts and `run`; which tools a project shows; what a session starts with
   src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session
-  src/hint.ts              when to hint a shift, what the history grew from, shift_status, how the hint rides in a tool result
+  src/hint.ts              when to hint a shift, what the history grew from, shift_status, how the hint rides in a tool result; the gauge keeper over a small port an adapter fills
   src/texts/doctrine.ts    the "Shift" system-prompt section, its tool list from the tools shown, and the full guide
   src/texts/tools.ts       each tool's label, description, doctrine line and schema
   src/texts/prompts.ts     compaction instructions and the messages after a shift

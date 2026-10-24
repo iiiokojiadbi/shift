@@ -183,3 +183,72 @@ export function withHint<Block extends { type: string }>(content: readonly Block
 }
 
 export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`, \`${TASK_LIST}\` and the tasks in progress in \`${TASKS}/\`, and check where you stand against them.`
+
+// The gauge as an adapter keeps it, and what only the harness knows; how it is kept is the core's. A fresh process
+// (a restart, a reload, a resumed session) starts with none of the stretch counted and restores it once.
+export type GaugeKeeper = {
+  // The gauge as kept; null or a gauge of an older version of the mod is completed with the fields added since.
+  read(): Promise<Gauge | null>
+  // A change applied to the gauge as it is then: a harness that serializes state changes applies it atomically.
+  update(change: (current: Gauge) => Gauge): Promise<void>
+  // The growth of the history as it is now, per source: what a fresh process counts from.
+  history(): Promise<Record<string, number>>
+  // The fill the stretch started from, if the last shift was this session's.
+  base(): Promise<number | null>
+  // How full the history is; `asked` when the agent asked for the status rather than a hint being checked.
+  reading(asked: boolean): Promise<Reading>
+}
+
+// A gauge after any let-go of the main history: a new stretch, whole from its start; one the agent did not ask for
+// is told to it at its next look.
+export function letGoGauge(unassisted: boolean): Gauge {
+  return { ...FRESH_GAUGE, unassisted, whole: true }
+}
+
+// A hint for the agent if the fill since the last shift calls for one.
+export async function takeHint(keeper: GaugeKeeper): Promise<string | null> {
+  await restore(keeper)
+  const reading = await keeper.reading(false)
+  let text: string | null = null
+  await keeper.update(current => {
+    const hint = shiftHint(complete(current), reading)
+    text = hint.text
+
+    return hint.gauge
+  })
+
+  return text
+}
+
+// What a row added to the stretch's history, by where it came from.
+export async function countGrowth(keeper: GaugeKeeper, source: string, chars: number): Promise<void> {
+  await restore(keeper)
+  await keeper.update(current => addGrowth(complete(current), source, chars))
+}
+
+// What shift_status answers.
+export async function gaugeStatus(keeper: GaugeKeeper): Promise<string> {
+  await restore(keeper)
+  const reading = await keeper.reading(true)
+
+  return renderStatus(complete(await keeper.read()), reading)
+}
+
+function complete(current: Gauge | null): Gauge {
+  return { ...FRESH_GAUGE, ...current }
+}
+
+// The base from the last shift of this session, the growth from the history plus whatever this process counted before
+// the restore finished. Once; a let-go marks the count whole itself.
+async function restore(keeper: GaugeKeeper): Promise<void> {
+  if (complete(await keeper.read()).whole) return
+  const base = await keeper.base()
+  const growth = await keeper.history()
+  await keeper.update(current => {
+    const now = complete(current)
+    if (now.whole) return now
+    const merged = Object.entries(now.growth).reduce((sum, [source, chars]) => addGrowth(sum, source, chars), { ...now, growth })
+
+    return { ...merged, base: now.base ?? base, whole: true }
+  })
+}

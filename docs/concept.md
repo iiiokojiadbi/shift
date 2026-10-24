@@ -130,7 +130,7 @@ The core knows nothing about the harness. It holds:
 - the tool fields and their validation;
 - the doctrine for the system prompt and the full guide;
 - the checks of the letter, the board, the tasks, the owner's decisions and the knowledge;
-- the hint rule — a pure function of the measurement history — and the counting of growth;
+- the hint rule — a pure function of the measurement history — and the counting of growth, kept over a small port (`GaugeKeeper`: the gauge as the adapter stores it, the history's growth, the base, a reading), so the restore after a fresh process is written once;
 - every text the model or the owner reads: tool descriptions, the summarizer's instructions, the messages after a shift, the owner's rows;
 - the flows over a storage port (`store.ts`: read, list, write, exists, move, and running git — what its exit codes mean is the core's, once) and the project they run on, loaded once per hook or tool call (`project.ts`: the store, the root, the parsed settings and what is wrong with them): accepting a shift with its snapshots, archiving a task, the history, picking up the last shift, what follows a let-go (continue, wait, or a forced wait after three continues without the owner) and the stretch's base after a restart.
 
