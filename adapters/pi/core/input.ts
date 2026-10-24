@@ -45,3 +45,10 @@ export function parseHistoryCount(raw: Record<string, unknown>): number | string
 
   return count
 }
+
+// The one path argument of a docs tool; null when it is missing or empty.
+export function parsePath(raw: Record<string, unknown>, key: 'path' | 'file'): string | null {
+  const value = raw[key]
+
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}

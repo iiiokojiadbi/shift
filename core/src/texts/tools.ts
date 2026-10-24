@@ -7,12 +7,30 @@ export const GUIDE_DESCRIPTION =
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
-export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. Then remove the task from the board.`
+export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of TASKS.md.`
 
 export const STATUS_DESCRIPTION =
   'How full the history is: used of the window, where the harness lets it go by itself, the growth since the last shift, when the next shift hints come, and what the history grew from most. Read-only.'
 
 export const STATUS_SCHEMA = { type: 'object', properties: {} }
+
+export const OUTLINE_DESCRIPTION =
+  "A document's description and its ## and ### sections with line numbers, to read only the section you need. path — from the project's root."
+
+export const OUTLINE_SCHEMA = {
+  type: 'object',
+  properties: { path: { type: 'string', description: "The document, from the project's root." } },
+  required: ['path'],
+}
+
+export const MENTIONS_DESCRIPTION =
+  'Which documents of the project mention a file: its name without the folder, as a whole word. Call it after changing code, before calling the work done, to check those documents against the change.'
+
+export const MENTIONS_SCHEMA = {
+  type: 'object',
+  properties: { file: { type: 'string', description: 'The file whose name to look for; a path or just the name.' } },
+  required: ['file'],
+}
 
 export const GUIDE_SCHEMA = { type: 'object', properties: {} }
 

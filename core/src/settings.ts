@@ -9,14 +9,22 @@ export type Settings = {
   knowledge: Placement | null
   // true lets the project's git take the records in; false keeps them out, the mod excludes them itself.
   commit: boolean
-  // Where the files loaded into every session live, relative to the project's root.
-  files: { shift: string; owner: string; glossary: string }
-  // The map of documents in SHIFT.md: the folders it lists, relative to the project's root, and how long it may be
-  // before it is cut down.
+  // Where the files loaded into every session live, relative to the project's root; `always` are the project's own
+  // files the owner wants whole in every session too.
+  files: { shift: string; owner: string; glossary: string; always: string[] }
   docs: DocsSettings
 }
 
-export type DocsSettings = { dirs: string[]; maxChars: number }
+// The project's documents the mod keeps: the folders, relative to the project's root (none — the mod touches no
+// document), how long the map in SHIFT.md may be, whether each document carries a toc, and the limits a document is
+// checked against after an edit (null — no such check).
+export type DocsSettings = {
+  dirs: string[]
+  maxChars: number
+  toc: boolean
+  maxDescription: number | null
+  maxLines: number | null
+}
 
 export const PLACEMENTS = ['local', 'project', 'split'] as const
 export type Placement = (typeof PLACEMENTS)[number]
@@ -25,8 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
   knowledge: null,
   commit: false,
-  files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY },
-  docs: { dirs: ['docs'], maxChars: DOCS_MAP_MAX_CHARS },
+  files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
+  docs: { dirs: ['docs'], maxChars: DOCS_MAP_MAX_CHARS, toc: false, maxDescription: null, maxLines: null },
 }
 
 type Value = string | boolean | number | string[]
@@ -52,7 +60,11 @@ export function parseSettings(text: string): Settings | string {
     values.set(`${table}${pair[1]}`, value)
   }
 
-  const settings: Settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files }, docs: { ...DEFAULT_SETTINGS.docs } }
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    files: { ...DEFAULT_SETTINGS.files },
+    docs: { ...DEFAULT_SETTINGS.docs },
+  }
   for (const [key, value] of values) {
     const problem = apply(settings, key, value)
     if (problem !== null) return `${SETTINGS}: ${problem}`
@@ -62,6 +74,17 @@ export function parseSettings(text: string): Settings | string {
 }
 
 const FILE_KEYS = { 'files.shift': 'shift', 'files.owner': 'owner', 'files.glossary': 'glossary' } as const
+const LIMIT_KEYS = { 'docs.max_chars': 'maxChars', 'docs.max_description': 'maxDescription', 'docs.max_lines': 'maxLines' } as const
+const KEYS = [
+  'enabled',
+  'knowledge',
+  'commit',
+  ...Object.keys(FILE_KEYS),
+  'files.always',
+  'docs.dirs',
+  'docs.toc',
+  ...Object.keys(LIMIT_KEYS),
+]
 
 function apply(settings: Settings, key: string, value: Value): string | null {
   if (key === 'enabled' || key === 'commit') {
@@ -79,12 +102,19 @@ function apply(settings: Settings, key: string, value: Value): string | null {
     if (!Array.isArray(value) || !value.every(isInside))
       return `\`docs.dirs\` is a list of folders inside the project, got ${JSON.stringify(value)}.`
     settings.docs.dirs = value
-  } else if (key === 'docs.max_chars') {
+  } else if (key === 'files.always') {
+    if (!Array.isArray(value) || !value.every(isInside))
+      return `\`files.always\` is a list of files inside the project, got ${JSON.stringify(value)}.`
+    settings.files.always = value
+  } else if (key === 'docs.toc') {
+    if (typeof value !== 'boolean') return `\`docs.toc\` is true or false, got ${JSON.stringify(value)}.`
+    settings.docs.toc = value
+  } else if (key in LIMIT_KEYS) {
     if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
-      return `\`docs.max_chars\` is a whole number of characters above 0, got ${JSON.stringify(value)}.`
-    settings.docs.maxChars = value
+      return `\`${key}\` is a whole number above 0, got ${JSON.stringify(value)}.`
+    settings.docs[LIMIT_KEYS[key as keyof typeof LIMIT_KEYS]] = value
   } else {
-    return `unknown key \`${key}\`; the keys are \`enabled\`, \`knowledge\`, \`commit\`, \`files.shift\`, \`files.owner\`, \`files.glossary\`, \`docs.dirs\` and \`docs.max_chars\`.`
+    return `unknown key \`${key}\`; the keys are ${KEYS.map(each => `\`${each}\``).join(', ')}.`
   }
 
   return null

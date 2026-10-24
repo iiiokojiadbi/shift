@@ -1,5 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { addToIndex, checkArchive, indexLine } from './archive'
+import { docsReport, refreshTocs } from './doccare'
 import { refreshMap } from './docs'
 import { shiftFill } from './hint'
 import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './history'
@@ -31,7 +32,10 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
   if (letterProblem !== null) return { deny: letterProblem }
 
   const { settings: current } = await readSettings(store, root)
-  if (current.enabled) await refreshMap(store, root, current.files.shift, current.docs)
+  if (current.enabled) {
+    await refreshTocs(store, root, current.docs)
+    await refreshMap(store, root, current.files.shift, current.docs)
+  }
   const work = await readProject(store, root)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const previousDir = await previousShift(store, root)
@@ -117,7 +121,9 @@ export async function resumeShift(store: Store, root: string): Promise<{ text: s
   const work = await readProject(store, root)
   const recent = await recentShifts(store, root)
 
-  return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, work, recent, dir) }
+  const remarks = await docsReport(store, root)
+
+  return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, work, recent, dir, remarks) }
 }
 
 // The harness did not let the history go: about.md says why, the row tells the owner.
@@ -154,6 +160,7 @@ export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> 
     )
   const work = await readProject(store, root)
   const recent = await recentShifts(store, root)
+  const remarks = await docsReport(store, root)
   const name = shiftName(shift)
 
   if (shift.after === 'continue' && !isCapped) {
@@ -162,14 +169,14 @@ export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> 
     return {
       after: 'continue',
       streak,
-      prompt: continuePrompt(shift.letter, work, recent, shift.dir),
+      prompt: continuePrompt(shift.letter, work, recent, shift.dir, remarks),
       row: CONTINUING(name, shrank, shift.dir),
     }
   }
 
   const why = isCapped ? `waiting: ${MAX_AUTO_STREAK} shifts in a row without the owner` : 'waiting for the owner'
   await outcome(`shifted (${shrank}), ${why}`)
-  const note = { context: waitContext(shift.letter, work, recent, shift.dir), dir: shift.dir, files: deliveredFiles(work) }
+  const note = { context: waitContext(shift.letter, work, recent, shift.dir, remarks), dir: shift.dir, files: deliveredFiles(work) }
 
   return { after: 'wait', note, row: WAITING(name, shrank, isCapped) }
 }
@@ -203,8 +210,9 @@ export async function keepRecordsOut(
 export async function sessionFiles(store: Store, root: string): Promise<SessionFile[]> {
   const { settings } = await readSettings(store, root)
   if (!settings.enabled || (await staleLayout(store, root)) !== null) return []
+  await refreshTocs(store, root, settings.docs)
   await refreshMap(store, root, settings.files.shift, settings.docs)
-  const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST]
+  const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 
   return files.filter((file): file is SessionFile => file.text !== null)

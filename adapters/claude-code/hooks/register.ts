@@ -6,9 +6,12 @@ import {
   ARCHIVE_SCHEMA,
   ARCHIVE_TOOL,
   acceptShift,
+  afterWrite,
   archiveTask,
   DIR,
   DOCTRINE,
+  docOutline,
+  docsMentioning,
   EXCLUDED,
   FRESH_GAUGE,
   GUIDE,
@@ -19,8 +22,15 @@ import {
   HISTORY_SCHEMA,
   HISTORY_TOOL,
   keepRecordsOut,
+  MENTIONS_DESCRIPTION,
+  MENTIONS_SCHEMA,
+  MENTIONS_TOOL,
+  OUTLINE_DESCRIPTION,
+  OUTLINE_SCHEMA,
+  OUTLINE_TOOL,
   parseArchiveInput,
   parseHistoryCount,
+  parsePath,
   parseShiftInput,
   RESUME_COMMAND,
   RESUME_GO,
@@ -82,6 +92,11 @@ export const register: Register = on => {
     await $.tool.register({ name: HISTORY_TOOL, description: HISTORY_DESCRIPTION, inputSchema: HISTORY_SCHEMA, isDeferred: false })
     await $.tool.register({ name: ARCHIVE_TOOL, description: ARCHIVE_DESCRIPTION, inputSchema: ARCHIVE_SCHEMA, isDeferred: false })
     await $.tool.register({ name: STATUS_TOOL, description: STATUS_DESCRIPTION, inputSchema: STATUS_SCHEMA, isDeferred: false })
+    // The docs tools only where the mod keeps docs.
+    if (settings.docs.dirs.length > 0) {
+      await $.tool.register({ name: OUTLINE_TOOL, description: OUTLINE_DESCRIPTION, inputSchema: OUTLINE_SCHEMA, isDeferred: false })
+      await $.tool.register({ name: MENTIONS_TOOL, description: MENTIONS_DESCRIPTION, inputSchema: MENTIONS_SCHEMA, isDeferred: false })
+    }
     await $.command.register({
       name: RESUME_COMMAND,
       description: 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent',
@@ -129,6 +144,24 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__shift__shift_status' }, async $ => ({ result: await statusText($) })).catch((_$, e, next) =>
     next.called ? next(e) : { deny: `${PLUGIN}: the status did not read (${next.error?.kind ?? 'unknown'}).` },
   )
+
+  on('tool.call', { tool: 'mcp__shift__doc_outline' }, async ($, e) => {
+    const path = parsePath(e as unknown as Record<string, unknown>, 'path')
+    if (path === null) return { deny: "path is the document, from the project's root." }
+
+    return { result: await docOutline(claudeStore($), await $.session.root(), path) }
+  }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the outline did not read (${next.error?.kind ?? 'unknown'}).` }))
+
+  on('tool.call', { tool: 'mcp__shift__docs_mentioning' }, async ($, e) => {
+    const file = parsePath(e as unknown as Record<string, unknown>, 'file')
+    if (file === null) return { deny: 'file is the file whose name to look for.' }
+
+    return { result: await docsMentioning(claudeStore($), await $.session.root(), file) }
+  }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the documents did not read (${next.error?.kind ?? 'unknown'}).` }))
+
+  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
 
   on('tool.call', { tool: 'mcp__shift__shift_history' }, async ($, e) => {
     const count = parseHistoryCount(e as unknown as Record<string, unknown>)
@@ -230,4 +263,16 @@ async function kick($: EngineInterface): Promise<void> {
   if (!(await read($, resumeKick))) return
   await update($, resumeKick, () => false)
   await $.prompt.submit({ text: RESUME_GO })
+}
+
+// A written file's result with the mod's check of the docs after it, when there is anything to say.
+async function withDocsNote<Done extends { deny?: unknown; isError?: unknown; context?: readonly string[] }>(
+  $: EngineInterface,
+  file: string,
+  done: Done,
+): Promise<Done> {
+  if (done.deny !== undefined || done.isError === true || !(await read($, enabled))) return done
+  const note = await afterWrite(claudeStore($), await $.session.root(), file)
+
+  return note === null ? done : { ...done, context: [...(done.context ?? []), note] }
 }

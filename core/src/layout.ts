@@ -11,6 +11,10 @@ export const ARCHIVE_TOOL = 'task_archive'
 
 export const STATUS_TOOL = 'shift_status'
 
+export const OUTLINE_TOOL = 'doc_outline'
+
+export const MENTIONS_TOOL = 'docs_mentioning'
+
 export const RESUME_COMMAND = 'unshift'
 
 // Consecutive self-continued shifts before the mod stops and waits for the owner.

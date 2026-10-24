@@ -1,4 +1,5 @@
 export * from './archive'
+export * from './doccare'
 export * from './flows'
 export * from './hint'
 export * from './history'

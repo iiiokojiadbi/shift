@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
@@ -8,11 +9,14 @@ import {
   ARCHIVE_TOOL,
   acceptShift,
   addGrowth,
+  afterWrite,
   archiveTask,
   compactInstructions,
   contentChars,
   DIR,
   DOCTRINE_BODY,
+  docOutline,
+  docsMentioning,
   EXCLUDED,
   FRESH_GAUGE,
   GUIDE,
@@ -25,9 +29,16 @@ import {
   HISTORY_TOOL,
   hintBlock,
   keepRecordsOut,
+  MENTIONS_DESCRIPTION,
+  MENTIONS_SCHEMA,
+  MENTIONS_TOOL,
   MOD,
+  OUTLINE_DESCRIPTION,
+  OUTLINE_SCHEMA,
+  OUTLINE_TOOL,
   parseArchiveInput,
   parseHistoryCount,
+  parsePath,
   parseShiftInput,
   RESUME_COMMAND,
   readSettings,
@@ -51,7 +62,8 @@ import {
 } from './core/index'
 import { nodeStore } from './store'
 
-const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL])
+const DOCS_TOOLS: ReadonlySet<string> = new Set([OUTLINE_TOOL, MENTIONS_TOOL])
+const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL, ...DOCS_TOOLS])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
@@ -137,6 +149,32 @@ export default function shift(pi: ExtensionAPI): void {
     },
   })
 
+  pi.registerTool({
+    name: OUTLINE_TOOL,
+    label: 'Document outline',
+    description: OUTLINE_DESCRIPTION,
+    parameters: schema(OUTLINE_SCHEMA),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = parsePath(params as Record<string, unknown>, 'path')
+      if (path === null) throw new Error("path is the document, from the project's root.")
+
+      return text(await docOutline(nodeStore, ctx.cwd, path))
+    },
+  })
+
+  pi.registerTool({
+    name: MENTIONS_TOOL,
+    label: 'Documents mentioning a file',
+    description: MENTIONS_DESCRIPTION,
+    parameters: schema(MENTIONS_SCHEMA),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const file = parsePath(params as Record<string, unknown>, 'file')
+      if (file === null) throw new Error('file is the file whose name to look for.')
+
+      return text(await docsMentioning(nodeStore, ctx.cwd, file))
+    },
+  })
+
   pi.registerCommand(RESUME_COMMAND, {
     description: 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent',
     // The owner's words typed with the command go after the letter, as their own message that starts the turn.
@@ -161,6 +199,8 @@ export default function shift(pi: ExtensionAPI): void {
       pi.setActiveTools(pi.getActiveTools().filter(name => !TOOLS.has(name)))
       return
     }
+    // The docs tools only where the mod keeps docs.
+    if (settings.docs.dirs.length === 0) pi.setActiveTools(pi.getActiveTools().filter(name => !DOCS_TOOLS.has(name)))
     const stale = await staleLayout(nodeStore, ctx.cwd)
     if (stale !== null) tell(ctx, `${MOD}: ${stale}`, 'warning')
     // Records written before the first shift stay out of a commit too.
@@ -217,12 +257,19 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // A hint rides inside a tool result: mid-turn, at the agent's next look, with no message of its own.
+  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
   pi.on('tool_result', async (event, ctx) => {
-    if (!enabled || event.parentToolCallId !== undefined) return
-    const hint = await takeHint(ctx)
-    if (hint === null) return
+    if (!enabled) return
+    const written = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined
+    const note = typeof written === 'string' ? await afterWrite(nodeStore, ctx.cwd, resolve(ctx.cwd, written)) : null
+    const hint = event.parentToolCallId === undefined ? await takeHint(ctx) : null
+    const added = [note, hint === null ? null : hintBlock(hint)].filter((each): each is string => each !== null)
+    if (added.length === 0) return
 
-    return { content: [...event.content, { type: 'text', text: hintBlock(hint) }], structuredContent: event.structuredContent }
+    return {
+      content: [...event.content, ...added.map(each => ({ type: 'text' as const, text: each }))],
+      structuredContent: event.structuredContent,
+    }
   })
 
   // The shift lets go once the run has settled: compacting aborts whatever runs, so never from inside the turn.

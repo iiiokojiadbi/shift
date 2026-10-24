@@ -25,6 +25,8 @@ declare module 'claude-code' {
     mcp__shift__shift_history: { count?: number }
     mcp__shift__shift_status: Record<never, never>
     mcp__shift__task_archive: { name: string; outcome: 'done' | 'dropped'; about: string }
+    mcp__shift__doc_outline: { path: string }
+    mcp__shift__docs_mentioning: { file: string }
   }
 
   interface PluginState {

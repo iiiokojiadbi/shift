@@ -1,5 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 export * from './archive'
+export * from './doccare'
 export * from './flows'
 export * from './hint'
 export * from './history'

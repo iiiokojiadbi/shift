@@ -1,4 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { TOC_END, TOC_START } from '../doccare'
 import {
   ABOUT_MAX,
   ARCHIVE,
@@ -18,9 +19,11 @@ import {
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER,
+  MENTIONS_TOOL,
   MOD,
   OLD_DIR,
   OLD_OWNER,
+  OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -110,7 +113,9 @@ Unconfirmed: is a stretch ever longer than a session?
 
 \`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` — words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` — ask, then drop the line. Only this project's words; no general programming terms.`
 
-const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document under the folders the settings name with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder of the settings with nothing to list is named in the map as \`no such folder\` or \`no documents\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.`
+const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document under the folders the settings name with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder of the settings with nothing to list is named in the map as \`no such folder\` or \`no documents\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
+
+The documents in those folders the mod keeps as you write them. After an Edit or a Write the map follows at once; with \`[docs] toc = true\` each document carries a toc between \`${TOC_START}\` and \`${TOC_END}\` under its \`# \` title, written by the mod from its \`##\` and \`###\` and the \`> \` line under a heading — never edit it by hand, and read the file again when the mod says it rewrote it. Remarks come once, in the tool's result: no description, a description or a file over the limits the settings set, a link to a document that is not there. Silence means all is well. The documents with remarks also come after a shift.`
 
 // The section's text without its tag, for a harness that wraps a prompt section in a tag of its own.
 export const DOCTRINE_BODY = `# Shift
@@ -159,7 +164,9 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 - \`${TOOL}\` — make a shift.
 - \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
 - \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
-- \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.`
+- \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
+- \`${OUTLINE_TOOL}\` — a document's description and sections with line numbers: read only the section you need.
+- \`${MENTIONS_TOOL}\` — which documents mention a file: call it after changing code, before calling the work done.`
 
 // In a tag that names the mod: the agent tells this section from the owner's own instructions.
 export const DOCTRINE = `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
@@ -209,7 +216,8 @@ ${DIR}/
 - \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below;
 - \`commit = true\` lets the project's git take the records in; the mod then leaves git alone;
 - \`[files]\` \`shift\`, \`owner\`, \`glossary\` — where SHIFT.md, OWNER.md and GLOSSARY.md live, paths from the project's root; by default inside \`${DIR}/\`;
-- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe; \`max_chars = ${DOCS_MAP_MAX_CHARS}\` — how long the map may be: past it the map drops the sections, then the descriptions, and says what it dropped.
+- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe; \`max_chars = ${DOCS_MAP_MAX_CHARS}\` — how long the map may be: past it the map drops the sections, then the descriptions, and says what it dropped; \`toc = true\` — a toc in each document; \`max_description\` and \`max_lines\` — limits a document is checked against, none unless set;
+- \`[files]\` \`always = ["docs/dates.md"]\` — the project's files loaded whole into every session, beside SHIFT.md and OWNER.md.
 A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
 
 ## What goes where

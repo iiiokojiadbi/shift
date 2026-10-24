@@ -18,6 +18,7 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/tasks.ts             TASKS.md: the open tasks, their links, its checks, the list after archiving
   src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
   src/docs.ts              the map of the documents the mod writes into SHIFT.md
+  src/doccare.ts           the documents of `[docs] dirs` after a write: toc, remarks, broken links; the outline and mentions tools
   src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`
   src/archive.ts           archiving checks and the index line
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history

@@ -13,22 +13,29 @@ export const MAP_END = `<!-- /${MOD}:docs -->`
 
 export type Doc = { path: string; description: string | null; sections: string[] }
 
-// Every .md file under the folders, sorted by path; a missing folder has none.
-export async function readDocs(store: Store, root: string, dirs: readonly string[]): Promise<Doc[]> {
-  const docs: Doc[] = []
+// Every .md file under the folders, from the project's root, sorted; a missing folder has none, a hidden one is skipped.
+export async function docPaths(store: Store, root: string, dirs: readonly string[]): Promise<string[]> {
+  const paths: string[] = []
   const walk = async (dir: string): Promise<void> => {
-    for (const name of await store.list(`${root}/${dir}`, 'file')) {
-      if (!name.endsWith('.md')) continue
-      const text = (await store.read(`${root}/${dir}/${name}`)) ?? ''
-      docs.push({ path: `${dir}/${name}`, description: frontmatter(text).get('description') ?? null, sections: headings(text) })
-    }
-    for (const name of await store.list(`${root}/${dir}`, 'dir')) {
-      if (!name.startsWith('.')) await walk(`${dir}/${name}`)
-    }
+    for (const name of await store.list(`${root}/${dir}`, 'file')) if (name.endsWith('.md')) paths.push(`${dir}/${name}`)
+    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`)
   }
-  for (const dir of dirs) await walk(dir.replace(/\/+$/, ''))
+  for (const dir of dirs) await walk(trimDir(dir))
 
-  return docs.sort((a, b) => a.path.localeCompare(b.path))
+  return paths.sort((a, b) => a.localeCompare(b))
+}
+
+export async function readDocs(store: Store, root: string, dirs: readonly string[]): Promise<Doc[]> {
+  return Promise.all(
+    (await docPaths(store, root, dirs)).map(async path => {
+      const text = (await store.read(`${root}/${path}`)) ?? ''
+      return { path, description: frontmatter(text).get('description') ?? null, sections: headings(text) }
+    }),
+  )
+}
+
+export function trimDir(dir: string): string {
+  return dir.replace(/\/+$/, '')
 }
 
 // `##` headings outside code fences.
@@ -58,7 +65,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
     return [MAP_START, '', `## Documents`, '', off, '', MAP_END].join('\n')
   }
   const empty = dirs
-    .map(dir => dir.replace(/\/+$/, ''))
+    .map(trimDir)
     .filter(dir => !docs.some(doc => doc.path.startsWith(`${dir}/`)))
     .map(dir => `- \`${dir}/\` — ${missing.includes(dir) ? 'no such folder' : 'no documents'}`)
   if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, '', MAP_END].join('\n')
@@ -123,7 +130,7 @@ export async function refreshMap(store: Store, root: string, shiftPath: string, 
   const dirs = settings.dirs
   const docs = await readDocs(store, root, dirs)
   const missing: string[] = []
-  for (const dir of dirs.map(each => each.replace(/\/+$/, ''))) {
+  for (const dir of dirs.map(trimDir)) {
     if (!(await store.exists(`${root}/${dir}`))) missing.push(dir)
   }
   const path = `${root}/${shiftPath}`

@@ -124,7 +124,15 @@ export function renderRecent(recent: Recent): string {
 // Everything a shift hands back, in one tag that names the mod: the agent sees at once what came from where.
 // Ordered by how a context is read: the records first as reference, the recent shifts in the middle, the letter last,
 // right before the turn, so its "Next" is what the agent sees closest to acting.
-function shiftMessage(opening: string, letter: string, work: Work | null, recent: Recent, dir: string, closing: string[] = []): string {
+function shiftMessage(
+  opening: string,
+  letter: string,
+  work: Work | null,
+  recent: Recent,
+  dir: string,
+  remarks: string | null,
+  closing: string[] = [],
+): string {
   return [
     `<${MOD} folder="${dir}/">`,
     opening,
@@ -135,6 +143,7 @@ function shiftMessage(opening: string, letter: string, work: Work | null, recent
     '',
     renderRecent(recent),
     '',
+    ...(remarks === null ? [] : ['Documents with remarks from the mod — fix them as the work passes by them:', '', remarks, '']),
     'Your letter to yourself, written right before the shift:',
     '',
     `<letter path="${dir}/letter.md">`,
@@ -147,21 +156,22 @@ function shiftMessage(opening: string, letter: string, work: Work | null, recent
   ].join('\n')
 }
 
-export function continuePrompt(letter: string, work: Work | null, recent: Recent, dir: string): string {
-  return shiftMessage('Shift done. You continue from where you stopped.', letter, work, recent, dir, ['Continue from "Next".'])
+export function continuePrompt(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
+  return shiftMessage('Shift done. You continue from where you stopped.', letter, work, recent, dir, remarks, ['Continue from "Next".'])
 }
 
-export function waitContext(letter: string, work: Work | null, recent: Recent, dir: string): string {
-  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, work, recent, dir)
+export function waitContext(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
+  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, work, recent, dir, remarks)
 }
 
-export function resumePrompt(letter: string, work: Work | null, recent: Recent, dir: string): string {
+export function resumePrompt(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
   return shiftMessage(
     'You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.',
     letter,
     work,
     recent,
     dir,
+    remarks,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,
       'Check "Next" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.',
