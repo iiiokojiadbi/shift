@@ -10,7 +10,7 @@ import {
   compactInstructions,
   contentChars,
   DEFAULT_SETTINGS,
-  DOCTRINE,
+  doctrine,
   FRESH_GAUGE,
   frontmatter,
   growthOf,
@@ -437,7 +437,7 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   expect(String(contexts[1])).toContain('<letter path=')
   expect(String(contexts[1])).toContain('<file path=".shift/board.md">')
   expect(String(contexts[1]).trimEnd().endsWith('</shift>')).toBe(true)
-  expect(DOCTRINE.startsWith('<shift note=')).toBe(true)
+  expect(doctrine(['shift']).startsWith('<shift note=')).toBe(true)
   expect(String(contexts[1])).toContain('fix the parser')
   // The records first, the recent shifts in the middle, the letter last.
   const handed = String(contexts[1])
@@ -739,7 +739,7 @@ test('/unshift hands the last letter, the board and the tasks in progress to a f
   expect(submitted.slice(-2)).toEqual(['look at the parser first', 'and the docs'])
 })
 
-test('settings turn the mod off in a project: no tools, no doctrine', async ($, on) => {
+test('settings turn the mod off in a project: no tools, no doctrine; without docs no docs tools', async ($, on) => {
   const files = project()
   stubSession(on, files)
   const registered: string[] = []
@@ -758,6 +758,17 @@ test('settings turn the mod off in a project: no tools, no doctrine', async ($, 
   const loaded = (await compose()).sections.find(section => section.id === 'shift:files')?.text
   expect(loaded).toContain('<file path=".shift/OWNER.md">')
   expect(loaded).toContain('<file path=".shift/TASKS.md">')
+
+  expect(registered).toContain('doc_outline')
+
+  registered.length = 0
+  files.set('/proj/.shift/settings.toml', '[docs]\ndirs = []\n')
+  await $.session.start({ cwd: '/proj', surface: null } as never)
+  expect(registered).toContain('shift')
+  expect(registered).not.toContain('doc_outline')
+  const doctrineText = (await compose()).sections.find(section => section.id === 'shift:doctrine')?.text
+  expect(doctrineText).toContain('- `shift_setup` — ')
+  expect(doctrineText).not.toContain('docs_mentioning')
 
   registered.length = 0
   files.set('/proj/.shift/settings.toml', '# not here\nenabled = false\n')

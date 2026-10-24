@@ -42,6 +42,8 @@ declare module 'claude-code' {
       threshold: number | null
       // false when the project's settings turn the mod off.
       enabled: boolean
+      // The doctrine for the system prompt with the tools this project shows, set at the session's start.
+      doctrine: string | null
       // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md as one block, read at the session's start and after each shift.
       files: string | null
       // The session the block was read for: a resume or a /clear in the same process starts no session, so a new id

@@ -17,11 +17,9 @@ import {
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER,
-  MENTIONS_TOOL,
   MOD,
   OLD_DIR,
   OLD_OWNER,
-  OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -38,6 +36,7 @@ import {
   TOOL,
   TRACK_TOOL,
 } from '../layout'
+import { TOOL_TEXTS } from './tools'
 
 const BOARD_RULES = `The board is a state, not a diary:
 - lines are rewritten in place, nothing new is appended on top of the old;
@@ -117,8 +116,10 @@ const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: 
 
 The documents in those folders the mod keeps as you write them. After an Edit or a Write the map follows at once; with \`[docs] toc = true\` each document carries a toc between \`${TOC_START}\` and \`${TOC_END}\` under its \`# \` title, written by the mod from its \`##\` and \`###\` and the \`> \` line under a heading — never edit it by hand, and read the file again when the mod says it rewrote it. Remarks come once, in the tool's result: no description, a description or a file over the limits the settings set, a link to a document that is not there. Silence means all is well. The documents with remarks also come after a shift.`
 
-// The section's text without its tag, for a harness that wraps a prompt section in a tag of its own.
-export const DOCTRINE_BODY = `# Shift
+// The section's text without its tag, for a harness that wraps a prompt section in a tag of its own; the tools are the
+// ones shown in this project, in the order given.
+export function doctrineBody(tools: readonly string[]): string {
+  return `# Shift
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
@@ -160,20 +161,15 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 
 ## Tools
 
-- \`${GUIDE_TOOL}\` — how to shift properly and how the files are laid out. Read it before the first shift of a session.
-- \`${TOOL}\` — make a shift.
-- \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
-- \`${TRACK_TOOL}\` — set a track item's status or add an item, found by words of its name; without an item, the task's own status in \`${TASK_LIST}\`.
-- \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
-- \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
-- \`${SETUP_TOOL}\` — how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.
-- \`${OUTLINE_TOOL}\` — a document's description and sections with line numbers: read only the section you need.
-- \`${MENTIONS_TOOL}\` — which documents mention a file: call it after changing code, before calling the work done.`
+${tools.map(name => `- \`${name}\` — ${TOOL_TEXTS[name]?.brief ?? ''}`).join('\n')}`
+}
 
 // In a tag that names the mod: the agent tells this section from the owner's own instructions.
-export const DOCTRINE = `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
-${DOCTRINE_BODY}
+export function doctrine(tools: readonly string[]): string {
+  return `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
+${doctrineBody(tools)}
 </${MOD}>`
+}
 
 export const GUIDE = `# Shift: how to shift
 

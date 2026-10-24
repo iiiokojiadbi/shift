@@ -1,5 +1,25 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { ABOUT_MAX, ARCHIVE, GUIDE_TOOL, HISTORY_DEFAULT, HISTORY_MAX, INDEX, LETTER, TASK_LIST, TASKS } from '../layout'
+import {
+  ABOUT_MAX,
+  ARCHIVE,
+  ARCHIVE_TOOL,
+  FOCUS,
+  GUIDE_TOOL,
+  HISTORY_DEFAULT,
+  HISTORY_MAX,
+  HISTORY_TOOL,
+  INDEX,
+  LETTER,
+  MENTIONS_TOOL,
+  OUTLINE_TOOL,
+  SETUP_TOOL,
+  STATUS_TOOL,
+  STATUSES,
+  TASK_LIST,
+  TASKS,
+  TOOL,
+  TRACK_TOOL,
+} from '../layout'
 
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how, see ${GUIDE_TOOL}. After the call, end the turn with one line.`
 
@@ -8,6 +28,8 @@ export const GUIDE_DESCRIPTION =
 
 export const SETUP_DESCRIPTION =
   "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
+
+export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent'
 
 export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
@@ -22,7 +44,7 @@ export const TRACK_SCHEMA = {
   properties: {
     task: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
     item: { type: 'string', description: "Words of the track item's name; leave out to set the task's own status." },
-    status: { type: 'string', enum: ['in progress', 'open', 'done', 'dropped', 'deferred', 'waiting for owner'] },
+    status: { type: 'string', enum: [...new Set([...STATUSES, ...FOCUS])] },
     note: { type: 'string', description: 'One line: replaces what follows " — ".' },
     add: { type: 'boolean', description: 'true: add item as a new item.' },
   },
@@ -101,4 +123,61 @@ export const ARCHIVE_SCHEMA = {
     },
   },
   required: ['name', 'outcome', 'about'],
+}
+
+// What the model and the owner read of each tool: the label a harness shows, the description, the line of the
+// doctrine's tool list, and the schema of its arguments.
+export type ToolText = { label: string; description: string; brief: string; schema: Record<string, unknown> }
+
+export const TOOL_TEXTS: Record<string, ToolText> = {
+  [GUIDE_TOOL]: {
+    label: 'Shift guide',
+    description: GUIDE_DESCRIPTION,
+    brief: 'how to shift properly and how the files are laid out. Read it before the first shift of a session.',
+    schema: GUIDE_SCHEMA,
+  },
+  [TOOL]: { label: 'Shift', description: TOOL_DESCRIPTION, brief: 'make a shift.', schema: TOOL_SCHEMA },
+  [ARCHIVE_TOOL]: {
+    label: 'Archive a task',
+    description: ARCHIVE_DESCRIPTION,
+    brief: 'archive a finished or dropped task.',
+    schema: ARCHIVE_SCHEMA,
+  },
+  [TRACK_TOOL]: {
+    label: 'Task status',
+    description: TRACK_DESCRIPTION,
+    brief: `set a track item's status or add an item, found by words of its name; without an item, the task's own status in \`${TASK_LIST}\`.`,
+    schema: TRACK_SCHEMA,
+  },
+  [HISTORY_TOOL]: {
+    label: 'Shift history',
+    description: HISTORY_DESCRIPTION,
+    brief: 'what happened in past shifts, briefly.',
+    schema: HISTORY_SCHEMA,
+  },
+  [STATUS_TOOL]: {
+    label: 'Shift status',
+    description: STATUS_DESCRIPTION,
+    brief: 'how full the history is, when the next hints come, and what it grew from.',
+    schema: STATUS_SCHEMA,
+  },
+  [SETUP_TOOL]: {
+    label: 'Shift setup',
+    description: SETUP_DESCRIPTION,
+    brief:
+      "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
+    schema: SETUP_SCHEMA,
+  },
+  [OUTLINE_TOOL]: {
+    label: 'Document outline',
+    description: OUTLINE_DESCRIPTION,
+    brief: "a document's description and sections with line numbers: read only the section you need.",
+    schema: OUTLINE_SCHEMA,
+  },
+  [MENTIONS_TOOL]: {
+    label: 'Documents mentioning a file',
+    description: MENTIONS_DESCRIPTION,
+    brief: 'which documents mention a file: call it after changing code, before calling the work done.',
+    schema: MENTIONS_SCHEMA,
+  },
 }

@@ -126,6 +126,7 @@ Besides the hint — the `shift_status` tool on the agent's request: the fill ag
 
 The core knows nothing about the harness. It holds:
 
+- the tools as one table (`tools.ts`): each row's name, texts, schema, whether it writes or belongs to the docs, and its `run` from raw arguments to a result or a refusal; which tools a project shows, and what a session starts with;
 - the tool fields and their validation;
 - the doctrine for the system prompt and the full guide;
 - the checks of the letter, the board, the tasks, the owner's decisions and the knowledge;
@@ -133,7 +134,7 @@ The core knows nothing about the harness. It holds:
 - every text the model or the owner reads: tool descriptions, the summarizer's instructions, the messages after a shift, the owner's rows;
 - the flows over a storage port (`store.ts`: read, list, write, exists, move, and running git — what its exit codes mean is the core's, once) and the project they run on, loaded once per hook or tool call (`project.ts`: the store, the root, the parsed settings and what is wrong with them): accepting a shift with its snapshots, archiving a task, the history, picking up the last shift, what follows a let-go (continue, wait, or a forced wait after three continues without the owner) and the stretch's base after a restart.
 
-The flows are tested over an in-memory store (`core/test`), with no harness. An adapter is wiring plus the port: it registers the tools, the command and the hooks, keeps the state, measures the window, lets the history go, delivers the letter and the hints, and reads its harness's history for growth.
+The flows are tested over an in-memory store (`core/test`), with no harness. An adapter is wiring plus the port: it registers the table's tools and hands each call to its row, registers the command and the hooks, keeps the state, measures the window, lets the history go, delivers the letter and the hints, and reads its harness's history for growth.
 
 For each harness the adapter fills the slots:
 

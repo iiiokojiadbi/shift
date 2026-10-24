@@ -4,83 +4,32 @@ import { SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
 import type { Gauge, PendingShift, Reading, WaitNote } from './core/index'
 import {
-  ARCHIVE_DESCRIPTION,
-  ARCHIVE_SCHEMA,
-  ARCHIVE_TOOL,
-  acceptShift,
   addGrowth,
   afterWrite,
-  archiveTask,
   compactInstructions,
   contentChars,
-  DIR,
-  DOCTRINE_BODY,
-  docOutline,
-  docsMentioning,
-  EXCLUDED,
+  doctrineBody,
   FRESH_GAUGE,
-  GUIDE,
-  GUIDE_DESCRIPTION,
-  GUIDE_SCHEMA,
-  GUIDE_TOOL,
   HINTED,
-  HISTORY_DESCRIPTION,
-  HISTORY_SCHEMA,
-  HISTORY_TOOL,
   hintBlock,
-  keepRecordsOut,
-  MENTIONS_DESCRIPTION,
-  MENTIONS_SCHEMA,
-  MENTIONS_TOOL,
   MOD,
-  OUTLINE_DESCRIPTION,
-  OUTLINE_SCHEMA,
-  OUTLINE_TOOL,
-  parseArchiveInput,
-  parseHistoryCount,
-  parsePath,
-  parseShiftInput,
-  parseTrackInput,
   RESUME_COMMAND,
+  RESUME_DESCRIPTION,
   renderStatus,
   resumeShift,
   SETTINGS,
-  SETUP_DESCRIPTION,
-  SETUP_SCHEMA,
-  SETUP_TOOL,
   SOURCES,
-  STATUS_DESCRIPTION,
-  STATUS_SCHEMA,
-  STATUS_TOOL,
   sessionFiles,
   settleShift,
-  setupReport,
   shiftBase,
   shiftHint,
-  shiftHistory,
   shiftNotMade,
-  staleLayout,
-  TOOL,
-  TOOL_DESCRIPTION,
-  TOOL_SCHEMA,
-  TRACK_DESCRIPTION,
-  TRACK_SCHEMA,
-  TRACK_TOOL,
-  updateTrack,
+  startSession,
+  TOOLS,
 } from './core/index'
 import { projectAt } from './store'
 
-const DOCS_TOOLS: ReadonlySet<string> = new Set([OUTLINE_TOOL, MENTIONS_TOOL])
-const TOOLS: ReadonlySet<string> = new Set([
-  TOOL,
-  GUIDE_TOOL,
-  HISTORY_TOOL,
-  ARCHIVE_TOOL,
-  TRACK_TOOL,
-  STATUS_TOOL,
-  SETUP_TOOL,
-  ...DOCS_TOOLS,
-])
+const OURS: ReadonlySet<string> = new Set(TOOLS.map(tool => tool.name))
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
@@ -94,131 +43,44 @@ export default function shift(pi: ExtensionAPI): void {
   let ownerTyped = false
   // false when the project's settings turn the mod off; read at each session start.
   let enabled = true
+  // The doctrine with the tools this project shows; read at each session start.
+  let doctrine = doctrineBody(TOOLS.map(tool => tool.name))
 
   const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }], details: undefined })
   const schema = (shape: object) => shape as TSchema
 
-  pi.registerTool({
-    name: TOOL,
-    label: 'Shift',
-    description: TOOL_DESCRIPTION,
-    parameters: schema(TOOL_SCHEMA),
-    executionMode: 'sequential',
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      if (pending !== null) throw new Error('The shift is already accepted: end the turn with one line.')
-      const parsed = parseShiftInput(params as Record<string, unknown>)
-      if (typeof parsed === 'string') throw new Error(parsed)
-      const call = { input: parsed, at: Date.now(), sessionId: ctx.sessionManager.getSessionId() }
-      const accepted = await acceptShift(await projectAt(ctx.cwd), call)
-      if ('deny' in accepted) throw new Error(accepted.deny)
-      pending = accepted.shift
+  // Every tool of the table; the session's start takes the ones the project does not show out of the active set.
+  for (const tool of TOOLS) {
+    pi.registerTool({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: schema(tool.schema),
+      ...(tool.writes ? { executionMode: 'sequential' as const } : {}),
+      async execute(_id, params, _signal, _onUpdate, ctx) {
+        const done = await tool.run(params as Record<string, unknown>, {
+          project: () => projectAt(ctx.cwd),
+          sessionId: async () => ctx.sessionManager.getSessionId(),
+          now: async () => Date.now(),
+          subagent: false,
+          pending: pending !== null,
+          // pi reads the session's files anew before every run, so its copy is never older than them.
+          loaded: async () => null,
+          status: async () => {
+            await restore(ctx)
+            return renderStatus(gauge, reading(ctx))
+          },
+        })
+        if ('deny' in done) throw new Error(done.deny)
+        if (done.shift !== undefined) pending = done.shift
 
-      return text(accepted.result)
-    },
-  })
-
-  pi.registerTool({
-    name: ARCHIVE_TOOL,
-    label: 'Archive a task',
-    description: ARCHIVE_DESCRIPTION,
-    parameters: schema(ARCHIVE_SCHEMA),
-    executionMode: 'sequential',
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const parsed = parseArchiveInput(params as Record<string, unknown>)
-      if (typeof parsed === 'string') throw new Error(parsed)
-      const archived = await archiveTask(await projectAt(ctx.cwd), parsed)
-      if ('deny' in archived) throw new Error(archived.deny)
-
-      return text(archived.result)
-    },
-  })
-
-  pi.registerTool({
-    name: TRACK_TOOL,
-    label: 'Task status',
-    description: TRACK_DESCRIPTION,
-    parameters: schema(TRACK_SCHEMA),
-    executionMode: 'sequential',
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const parsed = parseTrackInput(params as Record<string, unknown>)
-      if (typeof parsed === 'string') throw new Error(parsed)
-      const done = await updateTrack(await projectAt(ctx.cwd), parsed)
-      if ('deny' in done) throw new Error(done.deny)
-
-      return text(done.result)
-    },
-  })
-
-  pi.registerTool({
-    name: GUIDE_TOOL,
-    label: 'Shift guide',
-    description: GUIDE_DESCRIPTION,
-    parameters: schema(GUIDE_SCHEMA),
-    execute: async () => text(GUIDE),
-  })
-
-  pi.registerTool({
-    name: HISTORY_TOOL,
-    label: 'Shift history',
-    description: HISTORY_DESCRIPTION,
-    parameters: schema(HISTORY_SCHEMA),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const count = parseHistoryCount(params as Record<string, unknown>)
-      if (typeof count === 'string') throw new Error(count)
-
-      return text(await shiftHistory(await projectAt(ctx.cwd), count))
-    },
-  })
-
-  pi.registerTool({
-    name: STATUS_TOOL,
-    label: 'Shift status',
-    description: STATUS_DESCRIPTION,
-    parameters: schema(STATUS_SCHEMA),
-    async execute(_id, _params, _signal, _onUpdate, ctx) {
-      await restore(ctx)
-
-      return text(renderStatus(gauge, reading(ctx)))
-    },
-  })
-
-  // pi reads the session's files anew before every run, so its copy is never older than them.
-  pi.registerTool({
-    name: SETUP_TOOL,
-    label: 'Shift setup',
-    description: SETUP_DESCRIPTION,
-    parameters: schema(SETUP_SCHEMA),
-    execute: async (_id, _params, _signal, _onUpdate, ctx) => text(await setupReport(await projectAt(ctx.cwd), null)),
-  })
-
-  pi.registerTool({
-    name: OUTLINE_TOOL,
-    label: 'Document outline',
-    description: OUTLINE_DESCRIPTION,
-    parameters: schema(OUTLINE_SCHEMA),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = parsePath(params as Record<string, unknown>, 'path')
-      if (path === null) throw new Error("path is the document, from the project's root.")
-
-      return text(await docOutline(await projectAt(ctx.cwd), path))
-    },
-  })
-
-  pi.registerTool({
-    name: MENTIONS_TOOL,
-    label: 'Documents mentioning a file',
-    description: MENTIONS_DESCRIPTION,
-    parameters: schema(MENTIONS_SCHEMA),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const file = parsePath(params as Record<string, unknown>, 'file')
-      if (file === null) throw new Error('file is the file whose name to look for.')
-
-      return text(await docsMentioning(await projectAt(ctx.cwd), file))
-    },
-  })
+        return text(done.result)
+      },
+    })
+  }
 
   pi.registerCommand(RESUME_COMMAND, {
-    description: 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent',
+    description: RESUME_DESCRIPTION,
     // The owner's words typed with the command go after the letter, as their own message that starts the turn.
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
@@ -234,23 +96,13 @@ export default function shift(pi: ExtensionAPI): void {
   // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
-    const project = await projectAt(ctx.cwd)
-    const { settings, problem } = project
-    enabled = settings.enabled
-    if (problem !== null) tell(ctx, `${MOD}: ${problem} The mod stays on.`, 'warning')
-    if (!enabled) {
-      pi.setActiveTools(pi.getActiveTools().filter(name => !TOOLS.has(name)))
-      return
-    }
-    // The docs tools only where the mod keeps docs.
-    if (settings.docs.dirs.length === 0) pi.setActiveTools(pi.getActiveTools().filter(name => !DOCS_TOOLS.has(name)))
-    const stale = await staleLayout(project)
-    if (stale !== null) tell(ctx, `${MOD}: ${stale}`, 'warning')
-    // Records written before the first shift stay out of a commit too.
-    if (await project.store.exists(`${project.root}/${DIR}`)) {
-      const kept = await keepRecordsOut(project)
-      if ('excluded' in kept && kept.excluded !== null) tell(ctx, EXCLUDED(kept.excluded), 'info')
-    }
+    const start = await startSession(await projectAt(ctx.cwd))
+    enabled = start.enabled
+    doctrine = start.doctrineBody
+    for (const row of start.rows) tell(ctx, row.text, row.level)
+    const shown = start.tools.map(tool => tool.name)
+    pi.setActiveTools([...pi.getActiveTools().filter(name => !OURS.has(name)), ...shown])
+    if (!enabled) return
     const last = ctx.sessionManager
       .getBranch()
       .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
@@ -265,7 +117,7 @@ export default function shift(pi: ExtensionAPI): void {
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
-    event.systemPromptOptions.sections[MOD] = DOCTRINE_BODY
+    event.systemPromptOptions.sections[MOD] = doctrine
     // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added twice.
     const loaded = await sessionFiles(await projectAt(ctx.cwd))
     const ours = new Set(loaded.map(file => file.path))
