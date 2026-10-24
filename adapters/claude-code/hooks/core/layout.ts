@@ -75,4 +75,7 @@ export const HISTORY_DEFAULT = 10
 
 export const HISTORY_MAX = 50
 
+// How many shifts' descriptions go back with the message after a shift.
+export const RECENT_SHIFTS = 10
+
 export const NAME = /^[a-z0-9][a-z0-9-]*$/

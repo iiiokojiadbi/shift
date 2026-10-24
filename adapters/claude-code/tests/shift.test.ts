@@ -20,6 +20,7 @@ import {
   parseShiftInput,
   renderAbout,
   renderHistory,
+  renderRecent,
   renderStatus,
   sections,
   segment,
@@ -414,6 +415,11 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   expect(String(contexts[1]).trimEnd().endsWith('</infinity-shift>')).toBe(true)
   expect(DOCTRINE.startsWith('<infinity-shift note=')).toBe(true)
   expect(String(contexts[1])).toContain('fix the parser')
+  // The records first, the recent shifts in the middle, the letter last.
+  const handed = String(contexts[1])
+  expect(handed.indexOf('<file path=".infinity-shift/board.md">')).toBeLessThan(handed.indexOf('<shifts>'))
+  expect(handed.indexOf('</shifts>')).toBeLessThan(handed.indexOf('<letter path='))
+  expect(handed).toMatch(/- \d{8}-\d{6} · ABOUT\n<\/shifts>/)
   expect(contexts[2] ?? []).toEqual([])
   // Rows in the transcript only: the status line under the input was noise.
   expect(logs).toEqual([
@@ -589,6 +595,30 @@ test('history: count defaults to 10, entries read oldest first, the last one sho
   expect(text).toContain('Archived: [done] [Old](old/) — finished')
   expect(text).toContain('Open: [in progress] refunds')
   expect(renderHistory([], 0)).toContain('No shifts')
+})
+
+test('recent shifts: descriptions oldest first, a pointer to the earlier ones, no wait or continue', () => {
+  const about = (description: string, after: 'wait' | 'continue') =>
+    renderAbout({
+      about: description,
+      sessionId: 's',
+      at: 0,
+      after,
+      segment: { done: [], dropped: [], archived: [], open: [] },
+      result: 'pending',
+    })
+  const text = renderRecent({
+    entries: [
+      { name: 'a', about: about('parser started', 'wait') },
+      { name: 'b', about: about('parser done', 'continue') },
+    ],
+    total: 14,
+  })
+  expect(text).toContain('12 earlier shifts are not listed: shift_history reads them')
+  expect(text.indexOf('- a · parser started')).toBeLessThan(text.indexOf('- b · parser done'))
+  expect(text.indexOf('12 earlier')).toBeLessThan(text.indexOf('<shifts>'))
+  expect(text).not.toMatch(/wait|continue/)
+  expect(renderRecent({ entries: [{ name: 'a', about: null }], total: 1 })).not.toContain('earlier shifts are not listed')
 })
 
 test('the history and guide tools answer', async ($, on) => {

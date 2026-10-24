@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
-import type { KnowledgeFile, Snapshot, TaskFiles, Work } from './core/index'
-import { DIR } from './core/index'
+import type { KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './core/index'
+import { DIR, RECENT_SHIFTS } from './core/index'
 
 export async function readOrNull($: EngineInterface, path: string): Promise<string | null> {
   return $.fs.read(path).then(
@@ -59,4 +59,14 @@ export async function previousShift($: EngineInterface, root: string): Promise<s
   const last = (await shiftNames($, root)).at(-1)
 
   return last === undefined ? null : `${root}/${DIR}/shifts/${last}`
+}
+
+// The last shifts' about.md, oldest first, for the message after a shift.
+export async function recentShifts($: EngineInterface, root: string): Promise<Recent> {
+  const names = await shiftNames($, root)
+  const entries = await Promise.all(
+    names.slice(-RECENT_SHIFTS).map(async name => ({ name, about: await readOrNull($, `${root}/${DIR}/shifts/${name}/about.md`) })),
+  )
+
+  return { entries, total: names.length }
 }

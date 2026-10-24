@@ -55,6 +55,7 @@ lefthook.yml  biome.json  package.json
 - Text the model reads says only "shift": "compression", "summary", "compaction" make a model write a summary as text instead of calling the tool.
 - A hint goes inside the last tool result as a `<system-reminder>`: a separate block in that row is shown to the owner as their own message.
 - Everything the mod puts before the model is wrapped in an `<infinity-shift …>` tag; inside a shift's message each record is a `<file path="…">`. Records have headings and code blocks of their own, so only a tag marks where a file ends.
+- A shift's message is ordered by how a context is read: records first, the last shifts' descriptions in the middle, the letter last. The recent-shift lines carry no `after`: a column of past waits pulls the agent towards waiting.
 - Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English.

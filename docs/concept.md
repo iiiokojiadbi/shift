@@ -29,6 +29,8 @@ Marks in the text:
 
 **What came from the mod.** Everything the mod puts before the model is in a tag that names it: the doctrine in the system prompt is `<infinity-shift note="…">`, what a shift hands back is `<infinity-shift shift="<folder>/">`, with the letter in `<letter path="…">`, each record in `<file path="…">` and the map in `<knowledge path="…">`. Records carry headings and code blocks of their own, so neither a heading level nor a fence can mark where one file ends; a tag can, and the agent tells the mod's text from the owner's instructions at once.
 
+**In what order.** A model reads the start of a context as a frame, the middle weakest and the end as what to do now. So a shift hands back the records first as reference (the board, the owner's decisions, the tasks in progress, the map of knowledge), then in the middle the descriptions of the last 10 shifts oldest first, as memory of what was done before, with a line that `shift_history` reads the earlier ones when there are more, and the letter last, right before the turn. A recent-shift line is the folder and the description only: a column of past `wait` would pull the agent towards waiting when it could go on.
+
 Division of roles: the digest is responsible for "what was", the letter — for "what next", the board and the tasks — for the state of the work. All of it stays on disk in the shift folder.
 
 ## Records

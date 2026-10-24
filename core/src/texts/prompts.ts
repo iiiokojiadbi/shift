@@ -1,6 +1,7 @@
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HISTORY_TOOL, INDEX, KNOWLEDGE, MOD, OWNER, TASKS } from '../layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HISTORY_MAX, HISTORY_TOOL, INDEX, KNOWLEDGE, MOD, OWNER, TASKS } from '../layout'
+import { frontmatter } from '../markdown'
 import { boardTasks, knowledgeMap } from '../records'
-import type { Work } from '../types'
+import type { Recent, Work } from '../types'
 
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}. Now remove "${name}" from the board's Tasks, and lift to the board any of its decisions that still bind beyond it.`
@@ -62,19 +63,41 @@ export function deliveredFiles(work: Work | null): string[] {
   return ['letter.md', 'board.md', ...owner, ...tasks, ...knowledge]
 }
 
+// What the agent did before this stretch: a line per recent shift, oldest first, from its about.md.
+export function renderRecent(recent: Recent): string {
+  if (recent.entries.length === 0) return 'No earlier shifts.'
+  const earlier = recent.total - recent.entries.length
+  // No `after`: a row of past waits would pull the agent towards waiting when it could go on.
+  const lines = recent.entries.map(entry => `- ${entry.name} · ${frontmatter(entry.about ?? '').get('description') ?? 'no about.md'}`)
+
+  return [
+    `What you did before: the last ${recent.entries.length} shifts, oldest first, the one you shifted from last.`,
+    ...(earlier > 0 ? [`${earlier} earlier shifts are not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`] : []),
+    '<shifts>',
+    ...lines,
+    '</shifts>',
+  ].join('\n')
+}
+
 // Everything a shift hands back, in one tag that names the mod: the agent sees at once what came from where.
-function shiftMessage(opening: string, letter: string, work: Work | null, dir: string, closing: string[] = []): string {
+// Ordered by how a context is read: the records first as reference, the recent shifts in the middle, the letter last,
+// right before the turn, so its "Next" is what the agent sees closest to acting.
+function shiftMessage(opening: string, letter: string, work: Work | null, recent: Recent, dir: string, closing: string[] = []): string {
   return [
     `<${MOD} shift="${dir}/">`,
     opening,
     '',
-    `<letter path="${dir}/letter.md">`,
-    letter.trim(),
-    '</letter>',
-    '',
     "The board, the owner's decisions, the tasks in progress and the map of knowledge, as they are now:",
     '',
     renderWork(work),
+    '',
+    renderRecent(recent),
+    '',
+    'Your letter to yourself, written right before the shift:',
+    '',
+    `<letter path="${dir}/letter.md">`,
+    letter.trim(),
+    '</letter>',
     '',
     `The letter and the snapshots of this shift: ${dir}/.`,
     ...closing,
@@ -82,21 +105,20 @@ function shiftMessage(opening: string, letter: string, work: Work | null, dir: s
   ].join('\n')
 }
 
-export function continuePrompt(letter: string, work: Work | null, dir: string): string {
-  return shiftMessage('Shift done. You continue from where you stopped. Your letter to yourself:', letter, work, dir, [
-    'Continue from "Next".',
-  ])
+export function continuePrompt(letter: string, work: Work | null, recent: Recent, dir: string): string {
+  return shiftMessage('Shift done. You continue from where you stopped.', letter, work, recent, dir, ['Continue from "Next".'])
 }
 
-export function waitContext(letter: string, work: Work | null, dir: string): string {
-  return shiftMessage("You shifted and waited for the owner; the owner's message is above. Your letter to yourself:", letter, work, dir)
+export function waitContext(letter: string, work: Work | null, recent: Recent, dir: string): string {
+  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, work, recent, dir)
 }
 
-export function resumePrompt(letter: string, work: Work | null, dir: string): string {
+export function resumePrompt(letter: string, work: Work | null, recent: Recent, dir: string): string {
   return shiftMessage(
-    'You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records. Your letter to yourself:',
+    'You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.',
     letter,
     work,
+    recent,
     dir,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,

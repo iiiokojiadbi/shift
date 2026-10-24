@@ -50,7 +50,7 @@ import {
   UNASSISTED_INSTRUCTIONS,
   withHint,
 } from './core/index'
-import { previousShift, readOrNull, readSnapshot, readWork, shiftNames } from './disk'
+import { previousShift, readOrNull, readSnapshot, readWork, recentShifts, shiftNames } from './disk'
 import { handOver } from './handover'
 import { countGrowth, statusText, takeHint } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
@@ -193,7 +193,8 @@ export const register: Register = on => {
     if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
 
     const work = await readWork($, `${root}/${DIR}`)
-    $.clock.after(100, () => void $.prompt.submit({ text: resumePrompt(letter, work, dir) }))
+    const recent = await recentShifts($, root)
+    $.clock.after(100, () => void $.prompt.submit({ text: resumePrompt(letter, work, recent, dir) }))
 
     return { text: `Picking up shift ${dir.split('/').at(-1)}.` }
   })

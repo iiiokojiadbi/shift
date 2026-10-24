@@ -18,6 +18,7 @@ import {
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
+  RECENT_SHIFTS,
   RESUME_COMMAND,
   STATUS_TOOL,
   STATUSES,
@@ -198,10 +199,10 @@ Written anew, whole, before every shift. Sections \`##\`, all required and non-e
 3. Call \`${TOOL}\`:
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;
    - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-   - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by.
+   - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn with one line, no further actions.
 
-After the shift, the first message is "Shift done" with the letter, the board, the owner's decisions and the tasks in progress, whole, and the map of knowledge; continue from "Next". With \`wait\` they come together with the owner's next message. Three \`continue\` in a row without the owner — the mod then waits for the owner itself.
+After the shift, the first message is "Shift done": the board, the owner's decisions and the tasks in progress, whole, and the map of knowledge; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. Three \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## When the mod refuses
 

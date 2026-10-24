@@ -43,7 +43,7 @@ export const TOOL_SCHEMA = {
     },
     about: {
       type: 'string',
-      description: `One line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. The line of the shift history.`,
+      description: `One line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. The line of the shift history, shown after later shifts too; the work only, not whether you continue or wait.`,
     },
   },
   required: ['letter', 'after', 'about'],
