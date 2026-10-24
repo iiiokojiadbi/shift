@@ -70,7 +70,7 @@ function lineCount(text: string): number {
 export function docRemarks(text: string, docs: DocsSettings): string[] {
   const remarks: string[] = []
   const about = description(text)
-  if (about === null) remarks.push('no `description:` in its frontmatter')
+  if (about === null) remarks.push(NO_DESCRIPTION)
   else if (docs.maxDescription !== null && about.length > docs.maxDescription) {
     remarks.push(`a description of ${about.length} characters, over \`[docs] max_description = ${docs.maxDescription}\``)
   }
@@ -147,24 +147,49 @@ export async function refreshTocs(store: Store, root: string, docs: DocsSettings
   }
 }
 
-// Every document with a remark, and the root's Markdown files with a broken link; null when there are none.
+// The documents with remarks and the root's Markdown files with a broken link, short enough to read after a shift:
+// documents without a description as one line with a count, the other remarks for the first few documents and a count
+// of the rest. Null when there are none.
 export async function docsReport(store: Store, root: string): Promise<string | null> {
   const { settings } = await readSettings(store, root)
   const docs = settings.docs
   if (!settings.enabled || docs.dirs.length === 0) return null
   const rootFiles = (await store.list(root, 'file')).filter(name => name.endsWith('.md'))
+  const undescribed: string[] = []
   const lines: string[] = []
   for (const path of [...(await docPaths(store, root, docs.dirs)), ...rootFiles]) {
     const text = (await store.read(`${root}/${path}`)) ?? ''
+    const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
+    if (own.includes(NO_DESCRIPTION)) undescribed.push(path)
     const remarks = [
-      ...(isDoc(path, docs.dirs) ? docRemarks(text, docs) : []),
+      ...own.filter(remark => remark !== NO_DESCRIPTION),
       ...(await brokenLinks(store, root, path, text, docs.dirs)).map(link => `a link to \`${link}\` that is not there`),
     ]
     if (remarks.length > 0) lines.push(`- \`${path}\`: ${remarks.join('; ')}`)
   }
+  const shown = lines.slice(0, REPORT_DOCS)
+  const report = [
+    ...(undescribed.length === 0
+      ? []
+      : [
+          `- ${undescribed.length} ${undescribed.length === 1 ? 'document' : 'documents'} without \`description:\`: ${undescribed
+            .slice(0, 3)
+            .map(path => `\`${path}\``)
+            .join(', ')}${undescribed.length > 3 ? ' and the rest the map marks' : ''}`,
+        ]),
+    ...shown,
+    ...(lines.length > shown.length
+      ? [`- and ${lines.length - shown.length} more documents with remarks: each comes after its next edit`]
+      : []),
+  ]
 
-  return lines.length === 0 ? null : lines.join('\n')
+  return report.length === 0 ? null : report.join('\n')
 }
+
+const NO_DESCRIPTION = 'no `description:` in its frontmatter'
+
+// How many documents the report after a shift names one by one.
+const REPORT_DOCS = 10
 
 // A document's description and its `##` and `###` with line numbers, so the agent reads only the section it needs.
 export async function docOutline(store: Store, root: string, file: string): Promise<string> {

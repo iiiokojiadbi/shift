@@ -110,3 +110,15 @@ test('the setup report: every key with its value here and its version, and which
   store.files.set(SETTINGS, 'enabled = maybe')
   expect(await setupReport(store, ROOT, null)).toContain('It does not parse')
 })
+
+test('the report after a shift folds the undescribed documents into one line and names at most ten others', async () => {
+  const seed: Record<string, string> = { [`${R}/TASKS.md`]: 'none' }
+  for (let i = 0; i < 30; i++) seed[`${ROOT}/docs/${String(i).padStart(2, '0')}.md`] = `# D\n\nsee [x](gone-${i}.md)`
+  const report = (await docsReport(memoryStore(seed), ROOT)) ?? ''
+  expect(report.split('\n')[0]).toBe(
+    '- 30 documents without `description:`: `docs/00.md`, `docs/01.md`, `docs/02.md` and the rest the map marks',
+  )
+  expect(report).toContain('- `docs/09.md`: a link to `gone-9.md` that is not there')
+  expect(report).not.toContain('docs/10.md`:')
+  expect(report.split('\n').at(-1)).toBe('- and 20 more documents with remarks: each comes after its next edit')
+})
