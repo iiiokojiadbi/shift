@@ -19,7 +19,8 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
   src/docs.ts              the map of the documents the mod writes into SHIFT.md
   src/doccare.ts           the documents of `[docs] dirs` after a write: toc, remarks, broken links; the outline and mentions tools
-  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`
+  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; every key with the version it came in
+  src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed
   src/archive.ts           archiving checks and the index line
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history
   src/store.ts             the storage port an adapter implements, and reading the records over it
@@ -64,6 +65,7 @@ lefthook.yml  biome.json  package.json
 - Try the pi adapter: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). pi refuses to compact a history smaller than `keepRecentTokens` (20K by default); a test project can lower it in `.pi/settings.json` and run with `--approve`. `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first.
 - Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
 - Lint findings are fixed, never silenced.
+- A new settings key goes into `SETTING_KEYS` in `core/src/settings.ts` with the version it ships in: `shift_setup` shows it as new.
 
 ## Facts that are not obvious from the code
 
@@ -72,6 +74,7 @@ lefthook.yml  biome.json  package.json
 - A hint goes inside the last tool result as a `<system-reminder>`: a separate block in that row is shown to the owner as their own message.
 - Everything the mod puts before the model is wrapped in an `<shift …>` tag; inside a shift's message each record is a `<file path="…">`. Records have headings and code blocks of their own, so only a tag marks where a file ends.
 - A shift's message is ordered by how a context is read: records first, the last shifts' descriptions in the middle, the letter last. The recent-shift lines carry no `after`: a column of past waits pulls the agent towards waiting.
+- A resume or a `/clear` inside a running Claude Code starts no `session.start`: the plugin reads the session's files again when `$.session.id()` differs from the one they were read for.
 - Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English.

@@ -7,7 +7,6 @@ import {
   BOARD,
   BOARD_MAX_LINES,
   DIR,
-  DOCS_MAP_MAX_CHARS,
   FOCUS,
   GLOSSARY,
   GLOSSARY_MAX_LINES,
@@ -30,6 +29,7 @@ import {
   RECENT_SHIFTS,
   RESUME_COMMAND,
   SETTINGS,
+  SETUP_TOOL,
   SHIFT_FILE,
   STATUS_TOOL,
   STATUSES,
@@ -165,6 +165,7 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 - \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
 - \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
 - \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
+- \`${SETUP_TOOL}\` — how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them.
 - \`${OUTLINE_TOOL}\` — a document's description and sections with line numbers: read only the section you need.
 - \`${MENTIONS_TOOL}\` — which documents mention a file: call it after changing code, before calling the work done.`
 
@@ -173,99 +174,23 @@ export const DOCTRINE = `<${MOD} note="how the ${MOD} mod works: its tools, its 
 ${DOCTRINE_BODY}
 </${MOD}>`
 
-export const GUIDE = `# Shift: how it works and how to do it right
+export const GUIDE = `# Shift: how to shift
 
 A shift is the boundary between stretches of work. You prepare your records, call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
 
-## Files
+First the flow of a shift, then the rules of each record it checks.
 
-\`\`\`
-${DIR}/
-├── board.md          the board — the goal, project-wide decisions and dead ends
-├── TASKS.md          the open tasks, what you do now, their links — every session
-├── OWNER.md          the owner's decisions in force for the whole project — every session
-├── GLOSSARY.md       the project's own words — every session
-├── SHIFT.md          how the project keeps its knowledge, and the map of its docs — every session
-├── settings.toml     the owner's settings, optional — see below
-├── letter.md         the letter to yourself — written anew before every shift
-├── knowledge/        traps, lessons, commands, facts — read on demand
-│   └── <kind>[-<topic>].md
-├── tasks/
-│   └── <name>/
-│       ├── task.md   what the task is, its decisions and dead ends
-│       └── track.md  the task's tracker
-├── archive/          written by ${ARCHIVE_TOOL}; do not edit
-│   ├── index.md      one line per archived task
-│   └── <name>/       the task's folder as it was
-└── shifts/           history, written by the mod; do not edit
-    └── <YYYYMMDD-hhmmss UTC>/
-        ├── about.md      the shift in brief — strict structure below
-        ├── letter.md     a copy of the letter
-        ├── board.md      a snapshot of the board
-        ├── TASKS.md, OWNER.md, GLOSSARY.md, SHIFT.md, settings.toml   snapshots
-        ├── index.md      a snapshot of the archive index
-        ├── tasks/        snapshots of the open tasks
-        ├── knowledge/    a snapshot of the knowledge
-        └── summary.md    what stayed in memory after the shift
-\`\`\`
+## How to shift
 
-\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` below); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.
+1. Board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
+2. The letter — by its sections below.
+3. Call \`${TOOL}\`:
+   - \`letter\` — the path to the letter, usually \`${LETTER}\`;
+   - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
+   - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
+4. End the turn with one line, no further actions.
 
-\`${SETTINGS}\` is the owner's, and you change it only on their word. Every key is optional:
-- \`enabled = false\` turns the mod off in this project from the next session: no tools, no doctrine, no hints;
-- \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below;
-- \`commit = true\` lets the project's git take the records in; the mod then leaves git alone;
-- \`[files]\` \`shift\`, \`owner\`, \`glossary\` — where SHIFT.md, OWNER.md and GLOSSARY.md live, paths from the project's root; by default inside \`${DIR}/\`;
-- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe; \`max_chars = ${DOCS_MAP_MAX_CHARS}\` — how long the map may be: past it the map drops the sections, then the descriptions, and says what it dropped; \`toc = true\` — a toc in each document; \`max_description\` and \`max_lines\` — limits a document is checked against, none unless set;
-- \`[files]\` \`always = ["docs/dates.md"]\` — the project's files loaded whole into every session, beside SHIFT.md and OWNER.md.
-A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
-
-## What goes where
-
-${PLACES}
-
-## Board — \`${BOARD}\`
-
-${BOARD_RULES}
-
-## Open tasks — \`${TASK_LIST}\`
-
-${LIST_RULES}
-
-## Owner's decisions — \`${OWNER}\`
-
-${OWNER_RULES}
-
-## Tasks — \`${TASKS}/\`
-
-${TASK_RULES}
-
-## Glossary — \`${GLOSSARY}\`
-
-${GLOSSARY_RULES}
-
-## Knowledge rules and the docs map — \`${SHIFT_FILE}\`
-
-${SHIFT_RULES}
-
-## Knowledge — \`${KNOWLEDGE}/\`
-
-${KNOWLEDGE_RULES}
-
-## No dates
-
-No record carries a date: a model writes them everywhere, and records turn into a diary. Which of two rules is newer is never a question — a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
-
-## Archive — \`${ARCHIVE}/\`
-
-When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
-- \`name\` — the task's folder name;
-- \`outcome\` — \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
-- \`about\` — one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
-
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
-
-To come back to an archived topic, open a new task and put \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.
+After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. Three \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## Letter — \`${LETTER}\`
 
@@ -274,18 +199,6 @@ Written anew, whole, before every shift. Sections \`##\`, all required and non-e
 - "Next" — steps: a command or a file and what you expect;
 - "Unverified" — and what not to trust;
 - "Hold" — what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. Only this section steers what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole.
-
-## How to shift
-
-1. Board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
-2. The letter — by the sections above.
-3. Call \`${TOOL}\`:
-   - \`letter\` — the path to the letter, usually \`${LETTER}\`;
-   - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-   - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
-4. End the turn with one line, no further actions.
-
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. Three \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## When the mod refuses
 
@@ -336,7 +249,88 @@ How to read it: frontmatter — \`key: value\` lines between \`---\`; sections �
 - \`${INDEX}\` — every archived task, one line each.
 - In a new session the owner calls \`/${RESUME_COMMAND}\`: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "Next".
 
-## Coming from the earlier layout
+How the mod is set up in this project — the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts — is \`${SETUP_TOOL}\`.
+
+## What goes where
+
+${PLACES}
+
+## Board — \`${BOARD}\`
+
+${BOARD_RULES}
+
+## Open tasks — \`${TASK_LIST}\`
+
+${LIST_RULES}
+
+## Owner's decisions — \`${OWNER}\`
+
+${OWNER_RULES}
+
+## Tasks — \`${TASKS}/\`
+
+${TASK_RULES}
+
+## Glossary — \`${GLOSSARY}\`
+
+${GLOSSARY_RULES}
+
+## Knowledge rules and the docs map — \`${SHIFT_FILE}\`
+
+${SHIFT_RULES}
+
+## Knowledge — \`${KNOWLEDGE}/\`
+
+${KNOWLEDGE_RULES}
+
+## No dates
+
+No record carries a date: a model writes them everywhere, and records turn into a diary. Which of two rules is newer is never a question — a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
+
+## Archive — \`${ARCHIVE}/\`
+
+When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
+- \`name\` — the task's folder name;
+- \`outcome\` — \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
+- \`about\` — one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
+
+The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
+
+To come back to an archived topic, open a new task and put \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
+
+export const SETUP_LAYOUT = `\`\`\`
+${DIR}/
+├── board.md          the board — the goal, project-wide decisions and dead ends
+├── TASKS.md          the open tasks, what you do now, their links — every session
+├── OWNER.md          the owner's decisions in force for the whole project — every session
+├── GLOSSARY.md       the project's own words — every session
+├── SHIFT.md          how the project keeps its knowledge, and the map of its docs — every session
+├── settings.toml     the owner's settings, optional — above
+├── letter.md         the letter to yourself — written anew before every shift
+├── knowledge/        traps, lessons, commands, facts — read on demand
+│   └── <kind>[-<topic>].md
+├── tasks/
+│   └── <name>/
+│       ├── task.md   what the task is, its decisions and dead ends
+│       └── track.md  the task's tracker
+├── archive/          written by ${ARCHIVE_TOOL}; do not edit
+│   ├── index.md      one line per archived task
+│   └── <name>/       the task's folder as it was
+└── shifts/           history, written by the mod; do not edit
+    └── <YYYYMMDD-hhmmss UTC>/
+        ├── about.md      the shift in brief — strict structure below
+        ├── letter.md     a copy of the letter
+        ├── board.md      a snapshot of the board
+        ├── TASKS.md, OWNER.md, GLOSSARY.md, SHIFT.md, settings.toml   snapshots
+        ├── index.md      a snapshot of the archive index
+        ├── tasks/        snapshots of the open tasks
+        ├── knowledge/    a snapshot of the knowledge
+        └── summary.md    what stayed in memory after the shift
+\`\`\`
+
+\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` below); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`
+
+export const SETUP_MIGRATION = `## Coming from the earlier layout
 
 Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved once, before the next shift; the refusals name each step:
 - \`${OLD_DIR}/\` → \`${DIR}/\`, the folder renamed as it is;

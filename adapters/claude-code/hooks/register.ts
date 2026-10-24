@@ -37,11 +37,15 @@ import {
   readSettings,
   renderSessionFiles,
   resumeShift,
+  SETUP_DESCRIPTION,
+  SETUP_SCHEMA,
+  SETUP_TOOL,
   SOURCES,
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
   STATUS_TOOL,
   sessionFiles,
+  setupReport,
   shiftHistory,
   staleLayout,
   TOOL,
@@ -59,6 +63,7 @@ import { OWNER_ORIGINS, PLUGIN } from './state'
 const autoStreak = atom({ plugin: 'shift', key: 'autoStreak' } as const, 0)
 const enabled = atom({ plugin: 'shift', key: 'enabled' } as const, true)
 const files = atom({ plugin: 'shift', key: 'files' } as const, null)
+const filesSession = atom({ plugin: 'shift', key: 'filesSession' } as const, null)
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
 const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
 const resumeKick = atom({ plugin: 'shift', key: 'resumeKick' } as const, false)
@@ -75,8 +80,7 @@ export const register: Register = on => {
     if (!settings.enabled) return next(e)
     const stale = await staleLayout(store, root)
     if (stale !== null) $.ui.log(`${PLUGIN}: ${stale}`)
-    const loaded = renderSessionFiles(await sessionFiles(store, root))
-    await update($, files, () => loaded)
+    await loadFiles($)
     // Records written before the first shift stay out of a commit too.
     if (await store.exists(`${root}/${DIR}`)) {
       const kept = await keepRecordsOut(store, root, settings)
@@ -92,6 +96,7 @@ export const register: Register = on => {
     await $.tool.register({ name: HISTORY_TOOL, description: HISTORY_DESCRIPTION, inputSchema: HISTORY_SCHEMA, isDeferred: false })
     await $.tool.register({ name: ARCHIVE_TOOL, description: ARCHIVE_DESCRIPTION, inputSchema: ARCHIVE_SCHEMA, isDeferred: false })
     await $.tool.register({ name: STATUS_TOOL, description: STATUS_DESCRIPTION, inputSchema: STATUS_SCHEMA, isDeferred: false })
+    await $.tool.register({ name: SETUP_TOOL, description: SETUP_DESCRIPTION, inputSchema: SETUP_SCHEMA, isDeferred: false })
     // The docs tools only where the mod keeps docs.
     if (settings.docs.dirs.length > 0) {
       await $.tool.register({ name: OUTLINE_TOOL, description: OUTLINE_DESCRIPTION, inputSchema: OUTLINE_SCHEMA, isDeferred: false })
@@ -108,6 +113,7 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (!(await read($, enabled))) return composed
+    if ((await read($, filesSession)) !== (await $.session.id())) await loadFiles($)
     const loaded: string | null = await read($, files)
     const own = [{ id: `${PLUGIN}:doctrine`, text: DOCTRINE, scope: 'session' as const }]
     if (loaded !== null) own.push({ id: `${PLUGIN}:files`, text: loaded, scope: 'session' })
@@ -140,6 +146,10 @@ export const register: Register = on => {
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: archiving broke (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__shift_guide' }, () => ({ result: GUIDE }))
+
+  on('tool.call', { tool: 'mcp__shift__shift_setup' }, async $ => ({
+    result: await setupReport(claudeStore($), await $.session.root(), await read($, files)),
+  })).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the setup did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__shift_status' }, async $ => ({ result: await statusText($) })).catch((_$, e, next) =>
     next.called ? next(e) : { deny: `${PLUGIN}: the status did not read (${next.error?.kind ?? 'unknown'}).` },
@@ -275,4 +285,12 @@ async function withDocsNote<Done extends { deny?: unknown; isError?: unknown; co
   const note = await afterWrite(claudeStore($), await $.session.root(), file)
 
   return note === null ? done : { ...done, context: [...(done.context ?? []), note] }
+}
+
+// SHIFT.md, OWNER.md, GLOSSARY.md, TASKS.md and the owner's own files, read for the session that runs now.
+async function loadFiles($: EngineInterface): Promise<void> {
+  const loaded = renderSessionFiles(await sessionFiles(claudeStore($), await $.session.root()))
+  const session = await $.session.id()
+  await update($, files, () => loaded)
+  await update($, filesSession, () => session)
 }

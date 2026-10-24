@@ -45,12 +45,16 @@ import {
   renderStatus,
   resumeShift,
   SETTINGS,
+  SETUP_DESCRIPTION,
+  SETUP_SCHEMA,
+  SETUP_TOOL,
   SOURCES,
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
   STATUS_TOOL,
   sessionFiles,
   settleShift,
+  setupReport,
   shiftBase,
   shiftHint,
   shiftHistory,
@@ -63,7 +67,7 @@ import {
 import { nodeStore } from './store'
 
 const DOCS_TOOLS: ReadonlySet<string> = new Set([OUTLINE_TOOL, MENTIONS_TOOL])
-const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL, ...DOCS_TOOLS])
+const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL, SETUP_TOOL, ...DOCS_TOOLS])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
@@ -147,6 +151,15 @@ export default function shift(pi: ExtensionAPI): void {
 
       return text(renderStatus(gauge, reading(ctx)))
     },
+  })
+
+  // pi reads the session's files anew before every run, so its copy is never older than them.
+  pi.registerTool({
+    name: SETUP_TOOL,
+    label: 'Shift setup',
+    description: SETUP_DESCRIPTION,
+    parameters: schema(SETUP_SCHEMA),
+    execute: async (_id, _params, _signal, _onUpdate, ctx) => text(await setupReport(nodeStore, ctx.cwd, null)),
   })
 
   pi.registerTool({

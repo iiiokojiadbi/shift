@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test'
 import { afterWrite, docOutline, docsMentioning, docsReport, outline, withToc } from '../src/doccare'
 import { sessionFiles } from '../src/flows'
 import { parseSettings } from '../src/settings'
+import { setupReport } from '../src/setup'
+import { renderSessionFiles } from '../src/texts/prompts'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
@@ -86,4 +88,25 @@ test('the report at a shift, the outline and mentions tools, and [files] always'
 
   expect(await docsMentioning(store, ROOT, 'src/n8n/fetch.js')).toBe('`fetch.js` is mentioned in:\n- docs/dates.md')
   expect(await docsMentioning(store, ROOT, 'prefetch.js')).toBe('No document in `docs/` mentions `prefetch.js`.')
+})
+
+test('the setup report: every key with its value here and its version, and which session files changed', async () => {
+  const store = memoryStore({
+    [SETTINGS]: '[docs]\ntoc = true # the toc',
+    [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
+    [`${R}/TASKS.md`]: 'none',
+  })
+  const fresh = await setupReport(store, ROOT, null)
+  expect(fresh).toContain('- `[docs] toc` = true — set here, since 0.5.0:')
+  expect(fresh).toContain('- `[docs] max_lines` = unset — default, since 0.5.0:')
+  expect(fresh).toContain('- `enabled` = true — default, since 0.2.9:')
+  expect(fresh).toContain('- `.shift/OWNER.md`')
+  expect(fresh).toContain("This session's block matches them.")
+  expect(fresh).toContain('## Coming from the earlier layout')
+
+  const loaded = renderSessionFiles(await sessionFiles(store, ROOT))
+  store.files.set(`${R}/OWNER.md`, '# Owner decisions\n\n## Scope\n\n- new')
+  expect(await setupReport(store, ROOT, loaded)).toContain("Changed since this session's block was read: `.shift/OWNER.md`.")
+  store.files.set(SETTINGS, 'enabled = maybe')
+  expect(await setupReport(store, ROOT, null)).toContain('It does not parse')
 })

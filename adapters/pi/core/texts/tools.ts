@@ -4,7 +4,12 @@ import { ABOUT_MAX, ARCHIVE, GUIDE_TOOL, HISTORY_DEFAULT, HISTORY_MAX, INDEX, LE
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how, see ${GUIDE_TOOL}. After the call, end the turn with one line.`
 
 export const GUIDE_DESCRIPTION =
-  'How a shift works and how to do it right: the files, the board, the tasks and the archive, the letter, the strict structure of about.md, when the mod refuses. Read it before the first shift of a session.'
+  'How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it before the first shift of a session.'
+
+export const SETUP_DESCRIPTION =
+  "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the files loaded into every session and whether this session's copy is older than them; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
+
+export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 

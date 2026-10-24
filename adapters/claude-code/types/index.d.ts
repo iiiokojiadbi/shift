@@ -24,6 +24,7 @@ declare module 'claude-code' {
     mcp__shift__shift_guide: Record<never, never>
     mcp__shift__shift_history: { count?: number }
     mcp__shift__shift_status: Record<never, never>
+    mcp__shift__shift_setup: Record<never, never>
     mcp__shift__task_archive: { name: string; outcome: 'done' | 'dropped'; about: string }
     mcp__shift__doc_outline: { path: string }
     mcp__shift__docs_mentioning: { file: string }
@@ -42,6 +43,9 @@ declare module 'claude-code' {
       enabled: boolean
       // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md as one block, read at the session's start and after each shift.
       files: string | null
+      // The session the block was read for: a resume or a /clear in the same process starts no session, so a new id
+      // is what tells the block to be read again.
+      filesSession: string | null
     }
   }
 }

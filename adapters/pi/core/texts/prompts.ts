@@ -45,12 +45,12 @@ export const UNASSISTED_INSTRUCTIONS = `The agent did not shift before this poin
 export function renderWork(work: Work | null): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
-    file(`${TASKS}/${t.name}/task.md`, t.task ?? 'missing'),
-    file(`${TASKS}/${t.name}/track.md`, t.track ?? 'missing'),
+    fileBlock(`${TASKS}/${t.name}/task.md`, t.task ?? 'missing'),
+    fileBlock(`${TASKS}/${t.name}/track.md`, t.track ?? 'missing'),
   ])
 
   return [
-    file(BOARD, work.board),
+    fileBlock(BOARD, work.board),
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(work.settings)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
@@ -73,12 +73,12 @@ export function renderSessionFiles(files: readonly SessionFile[]): string | null
 
   return [
     `<${MOD} note="loaded at the session's start and after each shift; the files on disk are newer if you changed them since">`,
-    ...files.map(each => file(each.path, each.text)),
+    ...files.map(each => fileBlock(each.path, each.text)),
     `</${MOD}>`,
   ].join('\n\n')
 }
 
-function file(path: string, text: string): string {
+export function fileBlock(path: string, text: string): string {
   return `<file path="${path}">\n${text.trim()}\n</file>`
 }
 

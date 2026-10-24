@@ -11,6 +11,8 @@ export const ARCHIVE_TOOL = 'task_archive'
 
 export const STATUS_TOOL = 'shift_status'
 
+export const SETUP_TOOL = 'shift_setup'
+
 export const OUTLINE_TOOL = 'doc_outline'
 
 export const MENTIONS_TOOL = 'docs_mentioning'

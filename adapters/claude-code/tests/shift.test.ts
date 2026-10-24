@@ -241,10 +241,11 @@ function stubSession(
   tokens = () => 50000,
   ignored = 0,
   history: { role: string; content: unknown }[] = [],
+  session = () => 'sess',
 ) {
   on('session.root', () => ({ value: '/proj' }))
   on('session.messages', () => ({ value: history as never }))
-  on('session.id', () => ({ value: 'sess' }))
+  on('session.id', () => ({ value: session() }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: tokens() }, rateLimits: [] } }))
   on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
     files.set(e.path, e.text)
@@ -761,4 +762,37 @@ test('settings turn the mod off in a project: no tools, no doctrine', async ($, 
   await $.session.start({ cwd: '/proj', surface: null } as never)
   expect(registered).toEqual([])
   expect((await compose()).sections).toEqual([])
+})
+
+test("a resumed or cleared session reads the session's files again; shift_setup answers", async ($, on) => {
+  const files = project()
+  let session = 'one'
+  stubSession(
+    on,
+    files,
+    [],
+    () => 50000,
+    0,
+    [],
+    () => session,
+  )
+  on('tool.register', () => ({ value: undefined as never }))
+  on('command.register', () => ({ value: undefined as never }))
+  on('session.start', (_$: unknown, e: unknown) => e as never)
+  on('prompt.compose', () => ({ sections: [] }))
+  const compose = async () =>
+    (
+      await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as never)
+    ).sections.find(section => section.id === 'shift:files')?.text
+
+  await $.session.start({ cwd: '/proj', surface: null } as never)
+  expect(await compose()).not.toContain('NEW RULE')
+  files.set('/proj/.shift/OWNER.md', '# Owner decisions\n\n## Scope\n\n- NEW RULE')
+  expect(await compose()).not.toContain('NEW RULE')
+  expect(String((await $.tool.call({ tool: 'mcp__shift__shift_setup' })).result)).toContain(
+    "Changed since this session's block was read: `.shift/OWNER.md`.",
+  )
+
+  session = 'two'
+  expect(await compose()).toContain('NEW RULE')
 })

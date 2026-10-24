@@ -76,16 +76,59 @@ export function parseSettings(text: string): Settings | string {
 
 const FILE_KEYS = { 'files.shift': 'shift', 'files.owner': 'owner', 'files.glossary': 'glossary' } as const
 const LIMIT_KEYS = { 'docs.max_chars': 'maxChars', 'docs.max_description': 'maxDescription', 'docs.max_lines': 'maxLines' } as const
-const KEYS = [
-  'enabled',
-  'knowledge',
-  'commit',
-  ...Object.keys(FILE_KEYS),
-  'files.always',
-  'docs.dirs',
-  'docs.toc',
-  ...Object.keys(LIMIT_KEYS),
+// Every key, with the mod's version it came in and what it does, so an agent after an update sees what is new.
+export const SETTING_KEYS: readonly { key: string; since: string; about: string }[] = [
+  {
+    key: 'enabled',
+    since: '0.2.9',
+    about: 'false turns the mod off in this project from the next session: no tools, no doctrine, no hints',
+  },
+  { key: 'knowledge', since: '0.2.9', about: 'where knowledge goes: "local", "project" or "split"; unset — local, and ask the owner once' },
+  {
+    key: 'commit',
+    since: '0.2.9',
+    about: "true lets the project's git take the records in; false — the mod keeps them out by the local exclude file",
+  },
+  { key: 'files.shift', since: '0.3.0', about: "where SHIFT.md lives, from the project's root" },
+  { key: 'files.owner', since: '0.3.0', about: "where OWNER.md lives, from the project's root" },
+  { key: 'files.glossary', since: '0.3.0', about: "where GLOSSARY.md lives, from the project's root" },
+  { key: 'files.always', since: '0.5.0', about: "the project's own files loaded whole into every session, beside SHIFT.md and OWNER.md" },
+  {
+    key: 'docs.dirs',
+    since: '0.3.0',
+    about:
+      'the folders of documents the mod keeps: the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone',
+  },
+  {
+    key: 'docs.max_chars',
+    since: '0.4.3',
+    about: 'how long the map may be: past it the sections go, then the descriptions, and the map says so',
+  },
+  { key: 'docs.toc', since: '0.5.0', about: 'true — the mod keeps a toc in each document under its # title' },
+  { key: 'docs.max_description', since: '0.5.0', about: "a document's description longer than this is a remark; unset — no such check" },
+  { key: 'docs.max_lines', since: '0.5.0', about: 'a document longer than this many lines is a remark; unset — no such check' },
 ]
+
+// A key's value in the settings, as TOML; null when the key is unset and has no value of its own.
+export function settingValue(settings: Settings, key: string): string | null {
+  const values: Record<string, unknown> = {
+    enabled: settings.enabled,
+    knowledge: settings.knowledge,
+    commit: settings.commit,
+    'files.shift': settings.files.shift,
+    'files.owner': settings.files.owner,
+    'files.glossary': settings.files.glossary,
+    'files.always': settings.files.always,
+    'docs.dirs': settings.docs.dirs,
+    'docs.max_chars': settings.docs.maxChars,
+    'docs.toc': settings.docs.toc,
+    'docs.max_description': settings.docs.maxDescription,
+    'docs.max_lines': settings.docs.maxLines,
+  }
+  const value = values[key]
+
+  return value === null || value === undefined ? null : JSON.stringify(value).replace(/","/g, '", "')
+}
 
 function apply(settings: Settings, key: string, value: Value): string | null {
   if (key === 'enabled' || key === 'commit') {
@@ -115,7 +158,7 @@ function apply(settings: Settings, key: string, value: Value): string | null {
       return `\`${key}\` is a whole number above 0, got ${JSON.stringify(value)}.`
     settings.docs[LIMIT_KEYS[key as keyof typeof LIMIT_KEYS]] = value
   } else {
-    return `unknown key \`${key}\`; the keys are ${KEYS.map(each => `\`${each}\``).join(', ')}.`
+    return `unknown key \`${key}\`; the keys are ${SETTING_KEYS.map(each => `\`${each.key}\``).join(', ')}.`
   }
 
   return null
