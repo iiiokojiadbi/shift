@@ -109,7 +109,7 @@ Unconfirmed: is a stretch ever longer than a session?
 
 \`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` — words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` — ask, then drop the line. Only this project's words; no general programming terms.`
 
-const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document under the folders the settings name with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one.`
+const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document under the folders the settings name with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder of the settings with nothing to list is named in the map as \`no such folder\` or \`no documents\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.`
 
 // The section's text without its tag, for a harness that wraps a prompt section in a tag of its own.
 export const DOCTRINE_BODY = `# Shift
@@ -206,7 +206,7 @@ ${DIR}/
 - \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below;
 - \`commit = true\` lets the project's git take the records in; the mod then leaves git alone;
 - \`[files]\` \`shift\`, \`owner\`, \`glossary\` — where SHIFT.md, OWNER.md and GLOSSARY.md live, paths from the project's root; by default inside \`${DIR}/\`;
-- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists.
+- \`[docs]\` \`dirs = ["docs"]\` — the folders whose documents the map in SHIFT.md lists; \`dirs = []\` turns the map off, for a project whose docs are shared with people and not yours to describe.
 A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
 
 ## What goes where

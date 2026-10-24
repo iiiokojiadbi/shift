@@ -42,8 +42,22 @@ function headings(text: string): string[] {
   return found
 }
 
-// The block itself; past its size limit only folders and file names, so it never crowds the session.
-export function renderMap(docs: readonly Doc[]): string {
+// The block itself; past its size limit only folders and file names, so it never crowds the session. A folder of the
+// settings with nothing to list is named with why — no such folder, or no documents in it — so the agent knows the
+// project has no docs there and does not go searching. `[docs] dirs = []` is the owner turning the map off — the
+// project's docs may be shared with people and not the agent's to describe — and the block says just that.
+export function renderMap(docs: readonly Doc[], dirs: readonly string[], missing: readonly string[]): string {
+  if (dirs.length === 0) {
+    const off =
+      "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it."
+
+    return [MAP_START, '', `## Documents`, '', off, '', MAP_END].join('\n')
+  }
+  const empty = dirs
+    .map(dir => dir.replace(/\/+$/, ''))
+    .filter(dir => !docs.some(doc => doc.path.startsWith(`${dir}/`)))
+    .map(dir => `- \`${dir}/\` — ${missing.includes(dir) ? 'no such folder' : 'no documents'}`)
+  if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, '', MAP_END].join('\n')
   const folders = new Map<string, Doc[]>()
   for (const doc of docs) {
     const folder = doc.path.slice(0, doc.path.lastIndexOf('/'))
@@ -73,7 +87,9 @@ export function renderMap(docs: readonly Doc[]): string {
       ? 'Open a document for numbers, commands and names: the map only points.'
       : `The full map is over ${DOCS_MAP_MAX_CHARS} characters, so only folders: read a document's frontmatter for what it holds.`
 
-  return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), '', MAP_END].join('\n')
+  const nothing = empty.length === 0 ? [] : ['', 'Nothing to list:', ...empty]
+
+  return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), ...nothing, '', MAP_END].join('\n')
 }
 
 // SHIFT.md with its map block replaced, or added at the end; a new file starts with a heading and a line on what it is.
@@ -91,9 +107,13 @@ export function withMap(shift: string | null, map: string): string {
 // Writes the map into SHIFT.md when it changed; nothing when there are no documents and no SHIFT.md yet.
 export async function refreshMap(store: Store, root: string, shiftPath: string, dirs: readonly string[]): Promise<void> {
   const docs = await readDocs(store, root, dirs)
+  const missing: string[] = []
+  for (const dir of dirs.map(each => each.replace(/\/+$/, ''))) {
+    if (!(await store.exists(`${root}/${dir}`))) missing.push(dir)
+  }
   const path = `${root}/${shiftPath}`
   const current = await store.read(path)
   if (docs.length === 0 && current === null) return
-  const next = withMap(current, renderMap(docs))
+  const next = withMap(current, renderMap(docs, dirs, missing))
   if (next !== current) await store.write(path, next)
 }

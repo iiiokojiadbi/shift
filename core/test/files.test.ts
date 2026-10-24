@@ -87,7 +87,32 @@ test('the docs map lists each document with its description and sections, and re
   expect(second.split(MAP_END).length).toBe(2)
 
   const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'] }))
-  expect(renderMap(many)).toContain('- `docs/x/` — 400 docs:')
+  expect(renderMap(many, ['docs'], [])).toContain('- `docs/x/` — 400 docs:')
+})
+
+test('a folder with nothing to list is named as missing or empty; with no SHIFT.md and no documents nothing is written', async () => {
+  const store = memoryStore({ [`${R}/SHIFT.md`]: '# Shift\n\nMY RULES' })
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs/'])
+  const shift = store.files.get(`${R}/SHIFT.md`) ?? ''
+  expect(shift).toContain('MY RULES')
+  expect(shift).toContain('## Documents\n\nnone:\n- `docs/` — no such folder')
+  expect(shift).not.toContain('Open a document')
+
+  store.files.set(`${ROOT}/notes/n.md`, '# N')
+  store.files.set(`${ROOT}/empty/.keep`, '')
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs', 'notes', 'empty'])
+  const some = store.files.get(`${R}/SHIFT.md`) ?? ''
+  expect(some).toContain('`notes/n.md`')
+  expect(some).toContain('Nothing to list:\n- `docs/` — no such folder\n- `empty/` — no documents')
+
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', [])
+  const off = store.files.get(`${R}/SHIFT.md`) ?? ''
+  expect(off).toContain('## Documents\n\noff: the owner set `[docs] dirs = []`')
+  expect(off).not.toContain('notes/n.md')
+
+  const bare = memoryStore()
+  await refreshMap(bare, ROOT, '.shift/SHIFT.md', ['docs'])
+  expect(bare.files.size).toBe(0)
 })
 
 test('every session gets SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md, at the places the settings give', async () => {
