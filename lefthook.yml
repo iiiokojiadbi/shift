@@ -28,4 +28,7 @@ pre-commit:
       run: bash -o pipefail -c "claude plugin test adapters/claude-code 2>&1 | grep -v '^(pass) '"
     - name: pi types
       glob: "{adapters/pi/**,core/src/**}"
-      run: bunx tsc -p adapters/pi
+      run: bunx tsc -p adapters/pi && bunx tsc -p adapters/pi/test
+    - name: pi tests
+      glob: "{adapters/pi/**,core/src/**}"
+      run: bash -o pipefail -c "bun test adapters/pi/test 2>&1 | grep -v '^(pass) '"

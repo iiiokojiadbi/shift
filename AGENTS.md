@@ -51,6 +51,7 @@ adapters/
     index.ts               the table's tools, the command, events: the doctrine section, hints, the let-go after a run settles, continue and wait
     store.ts               the store over node's fs and git
     core/                  GENERATED copy of core/src — never edit
+    test/                  `bun test` of the extension over a stand-in of pi's API and a temporary project
 .claude-plugin/marketplace.json   the repo as a local marketplace for development; lists adapters/claude-code
 scripts/sync-core.ts       copies core/src into every adapter; --check fails on a stale copy
 docs/concept.md            the concept, the loop, the records, hints, core and adapters, lessons
@@ -64,7 +65,7 @@ lefthook.yml  biome.json  package.json
 
 - Tooling: bun. `bun install` also installs the git hooks (lefthook).
 - Edit shared logic only in `core/src/`, then `bun run sync-core`. A harness may load only files inside its plugin folder, so each adapter carries a copy; the pre-commit hook fails on a stale one.
-- `bun run check` (copies + biome), `bun run fix`, `bun run typecheck`, `bun run test` (core, then the adapter), `bun run validate`.
+- `bun run check` (copies + biome), `bun run fix`, `bun run typecheck`, `bun run test` (core and pi, then the Claude Code adapter), `bun run validate`.
 - A flow that does not depend on the harness goes into `core/src/flows.ts` over the `Store` port; the adapter keeps only wiring, state, measurement, the let-go and delivery.
 - A new tool: its name in `layout.ts`, its texts in `texts/tools.ts`, a row in `tools.ts`; the adapters register every row. Only a test that calls it in the Claude Code suite needs its arguments in `McpToolInputs` (`types/index.d.ts`).
 - Install for Claude Code: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install shift@iiiokojiadbi`. That marketplace is a separate repo listing all of the owner's plugins; it points at `adapters/claude-code` here.
