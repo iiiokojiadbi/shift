@@ -102,6 +102,7 @@ test('the setup report: every key with its value here and its version, and which
   expect(fresh).toContain('- `enabled` = true — default, since 0.2.9:')
   expect(fresh).toContain('- `.shift/OWNER.md`')
   expect(fresh).toContain("This session's block matches them.")
+  expect(fresh).toContain('## Documents\n\nNo remarks.')
   expect(fresh).toContain('## Coming from the earlier layout')
 
   const loaded = renderSessionFiles(await sessionFiles(store, ROOT))

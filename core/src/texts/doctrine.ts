@@ -164,7 +164,7 @@ The mod hints with a "Shift hint" line at the end of a tool result or next to a 
 - \`${ARCHIVE_TOOL}\` — archive a finished or dropped task.
 - \`${HISTORY_TOOL}\` — what happened in past shifts, briefly.
 - \`${STATUS_TOOL}\` — how full the history is, when the next hints come, and what it grew from.
-- \`${SETUP_TOOL}\` — how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them.
+- \`${SETUP_TOOL}\` — how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.
 - \`${OUTLINE_TOOL}\` — a document's description and sections with line numbers: read only the section you need.
 - \`${MENTIONS_TOOL}\` — which documents mention a file: call it after changing code, before calling the work done.`
 

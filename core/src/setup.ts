@@ -1,3 +1,4 @@
+import { docsReport } from './doccare'
 import { sessionFiles } from './flows'
 import { MOD, SETTINGS } from './layout'
 import { DEFAULT_SETTINGS, parseSettings, SETTING_KEYS, settingValue } from './settings'
@@ -52,6 +53,12 @@ export async function setupReport(store: Store, root: string, loaded: string | n
     'Loaded whole into every session:',
     '',
     block,
+    '',
+    '## Documents',
+    '',
+    settings.docs.dirs.length === 0
+      ? 'Off: `[docs] dirs = []`, the mod leaves the documents alone.'
+      : ((await docsReport(store, root)) ?? 'No remarks.'),
     '',
     `## Files`,
     '',
