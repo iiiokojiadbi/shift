@@ -10,6 +10,7 @@ import {
   KNOWLEDGE,
   MOD,
   OWNER,
+  RESUME_COMMAND,
   SETTINGS,
   TASK_LIST,
   TASKS,
@@ -164,10 +165,13 @@ export function resumePrompt(letter: string, work: Work | null, recent: Recent, 
     dir,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,
-      'Check "Next" against what is on disk now and continue from the first step not done.',
+      'Check "Next" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.',
     ],
   )
 }
+
+// What starts the turn after /unshift when the owner wrote nothing with it: the letter is already in the history.
+export const RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "Next".</${MOD}>`
 
 export const ACCEPTED = (dir: string) =>
   `Shift accepted, the letter and the snapshots: ${dir}/. End the turn with one line and do nothing more: after the turn the stretch's history is let go, and you continue from the letter.`

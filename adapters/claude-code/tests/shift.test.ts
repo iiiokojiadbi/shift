@@ -685,18 +685,28 @@ test('/unshift hands the last letter, the board and the tasks in progress to a f
     return { text: e.text }
   })
 
-  const run = await $.command.run({
-    command: 'unshift',
-    args: '',
-    origin: { kind: 'composer' },
-    presentation: { isFullscreen: false, columns: 80 },
-  })
+  const unshift = (args: string) =>
+    $.command.run({ command: 'unshift', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+
+  const run = await unshift('')
   expect(run.text).toContain('20261023-140509')
+  expect(run.context?.[0]).toContain('fixing tests')
+  expect(run.context?.[0]).toContain('## Goal')
+  expect(run.context?.[0]).toContain('# Green tests')
   await clock.advance(200)
-  expect(submitted.length).toBe(1)
-  expect(submitted[0]).toContain('fixing tests')
-  expect(submitted[0]).toContain('## Goal')
-  expect(submitted[0]).toContain('# Green tests')
+  expect(submitted).toEqual([expect.stringContaining('Pick up from the shift above')])
+
+  // The owner's words typed with the command go after the letter, as their own.
+  const typed = await unshift('  look at the parser first ')
+  expect(typed.context?.[0]).toContain('fixing tests')
+  await clock.advance(200)
+  expect(submitted.at(-1)).toBe('look at the parser first')
+
+  // The owner's message right after a bare command makes the mod's own prompt needless.
+  await unshift('')
+  await $.prompt.submit({ text: 'and the docs', origin: { kind: 'composer' } } as never)
+  await clock.advance(200)
+  expect(submitted.slice(-2)).toEqual(['look at the parser first', 'and the docs'])
 })
 
 test('settings turn the mod off in a project: no tools, no doctrine', async ($, on) => {

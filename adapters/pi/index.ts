@@ -139,11 +139,15 @@ export default function shift(pi: ExtensionAPI): void {
 
   pi.registerCommand(RESUME_COMMAND, {
     description: 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent',
-    handler: async (_args, ctx) => {
+    // The owner's words typed with the command go after the letter, as their own message that starts the turn.
+    handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       const resumed = await resumeShift(nodeStore, ctx.cwd)
       ctx.ui.notify(resumed.text, 'info')
-      if (resumed.prompt !== undefined) pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: true })
+      if (resumed.prompt === undefined) return
+      const words = args.trim()
+      pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '' })
+      if (words !== '') pi.sendUserMessage(words)
     },
   })
 

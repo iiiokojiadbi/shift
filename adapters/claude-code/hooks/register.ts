@@ -1,4 +1,4 @@
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { WaitNote } from '../types'
 import {
@@ -23,6 +23,7 @@ import {
   parseHistoryCount,
   parseShiftInput,
   RESUME_COMMAND,
+  RESUME_GO,
   readSettings,
   renderSessionFiles,
   resumeShift,
@@ -50,6 +51,7 @@ const enabled = atom({ plugin: 'shift', key: 'enabled' } as const, true)
 const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
 const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
+const resumeKick = atom({ plugin: 'shift', key: 'resumeKick' } as const, false)
 const waitNote = atom({ plugin: 'shift', key: 'waitNote' } as const, null)
 
 export const register: Register = on => {
@@ -135,12 +137,20 @@ export const register: Register = on => {
     return { result: await shiftHistory(claudeStore($), await $.session.root(), count) }
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the history did not read (${next.error?.kind ?? 'unknown'}).` }))
 
-  on('command.run', { command: RESUME_COMMAND }, async $ => {
+  // The letter enters the history with the command itself, so the owner's words — typed with the command or sent
+  // right after it — come after the letter, never before it. A bare command starts the turn with a prompt of its own.
+  on('command.run', { command: RESUME_COMMAND }, async ($, e) => {
     const resumed = await resumeShift(claudeStore($), await $.session.root())
     const { prompt } = resumed
-    if (prompt !== undefined) $.clock.after(100, () => void $.prompt.submit({ text: prompt }))
+    if (prompt === undefined) return { text: resumed.text }
+    const words = e.args.trim()
+    if (words !== '') $.clock.after(100, () => void $.prompt.submit({ text: words, asUser: true }))
+    else {
+      await update($, resumeKick, () => true)
+      $.clock.after(100, () => void kick($))
+    }
 
-    return { text: resumed.text }
+    return { text: resumed.text, context: [prompt] }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -171,6 +181,7 @@ export const register: Register = on => {
     // Only the owner's own message: the terminal, the remote bridge or the SDK host.
     if (!OWNER_ORIGINS.has(e.origin?.kind ?? '')) return next(hinted)
     await update($, autoStreak, () => 0)
+    await update($, resumeKick, () => false)
     const note: WaitNote | null = await read($, waitNote)
     if (note === null) return next(hinted)
     // Cleared only once the message has entered with it: a failed hook keeps the letter for the next one.
@@ -212,4 +223,11 @@ function growthSource(door: string, origin: { kind: string; tool?: string } | un
   if (door === 'compaction' || door === 'notice' || door === 'queue') return null
 
   return SOURCES.attachments
+}
+
+// The turn after a bare /unshift, unless the owner's own message already started one.
+async function kick($: EngineInterface): Promise<void> {
+  if (!(await read($, resumeKick))) return
+  await update($, resumeKick, () => false)
+  await $.prompt.submit({ text: RESUME_GO })
 }
