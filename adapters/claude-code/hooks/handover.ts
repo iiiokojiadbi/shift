@@ -1,18 +1,8 @@
 import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { PendingShift } from '../types'
-import {
-  compactInstructions,
-  continuePrompt,
-  DIR,
-  deliveredFiles,
-  formatK,
-  MAX_AUTO_STREAK,
-  renderAbout,
-  renderSummary,
-  waitContext,
-} from './core/index'
-import { readWork, recentShifts } from './disk'
+import { compactInstructions, settleShift, shiftNotMade } from './core/index'
+import { claudeStore } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
@@ -24,46 +14,31 @@ export async function handOver($: EngineInterface): Promise<void> {
   if (shift === null) return
   await update($, pending, () => null)
 
+  const store = claudeStore($)
   const tokensBefore = (await $.session.usage()).context.tokens
-  const name = shift.dir.split('/').at(-1) ?? shift.dir
-  const outcome = (result: string, after?: number, summaryChars?: number, before = tokensBefore) =>
-    $.fs.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars, result }))
-
   const done = await $.session
     .compact({ instructions: compactInstructions(shift.hold, shift.board, `${shift.dir}/letter.md`) })
     .catch((error: unknown) => ({ skip: `compaction failed: ${String(error)}`, messages: undefined }))
   if (done.messages === undefined) {
-    await outcome(`not shifted: ${done.skip}`)
-    $.ui.log(`shift ${name} not made — ${done.skip}`)
+    $.ui.log(await shiftNotMade(store, shift, done.skip, tokensBefore))
     return
   }
 
-  const summary = renderSummary(done.messages)
-  await $.fs.write(`${shift.dir}/summary.md`, summary)
-  const after = (await $.session.usage()).context.tokens ?? done.tokensAfter ?? 0
-  const streak: number = (await read($, autoStreak)) + 1
-  const isCapped = shift.after === 'continue' && streak > MAX_AUTO_STREAK
-  const before = done.tokensBefore ?? tokensBefore
-  const shrank = `${formatK(before ?? 0)} → ${formatK(after)}`
-  const root = await $.session.root()
-  const work = await readWork($, `${root}/${DIR}`)
-  const recent = await recentShifts($, root)
-
-  if (shift.after === 'continue' && !isCapped) {
-    await update($, autoStreak, () => streak)
-    await outcome(`shifted (${shrank}), continuing`, after, summary.length, before)
-    $.ui.log(`shift ${name} done (${shrank}), continuing from the letter — ${shift.dir}/letter.md`)
-    await $.prompt.submit({ text: continuePrompt(shift.letter, work, recent, shift.dir) })
+  const settled = await settleShift(store, {
+    root: await $.session.root(),
+    shift,
+    messages: done.messages,
+    before: done.tokensBefore ?? tokensBefore,
+    after: (await $.session.usage()).context.tokens ?? done.tokensAfter ?? 0,
+    streak: await read($, autoStreak),
+  })
+  if (settled.after === 'continue') {
+    await update($, autoStreak, () => settled.streak)
+    $.ui.log(settled.row)
+    await $.prompt.submit({ text: settled.prompt })
     return
   }
 
-  await update($, waitNote, () => ({
-    context: waitContext(shift.letter, work, recent, shift.dir),
-    dir: shift.dir,
-    files: deliveredFiles(work),
-  }))
-  const why = isCapped ? `waiting: ${MAX_AUTO_STREAK} shifts in a row without the owner` : 'waiting for the owner'
-  await outcome(`shifted (${shrank}), ${why}`, after, summary.length, before)
-  const capped = isCapped ? `, ${MAX_AUTO_STREAK} in a row without you` : ''
-  $.ui.log(`shift ${name} done (${shrank})${capped} — waiting for you, the letter goes with your next message`)
+  await update($, waitNote, () => settled.note)
+  $.ui.log(settled.row)
 }

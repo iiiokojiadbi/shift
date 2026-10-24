@@ -49,3 +49,22 @@ export type Reading = { tokens: number | undefined; window: number; threshold: n
 export type HistoryEntry = { name: string; about: string | null }
 // The last shifts' about.md, oldest first, and how many shifts the project has in all.
 export type Recent = { entries: HistoryEntry[]; total: number }
+
+// A shift accepted and waiting for the turn to end: what the let-go and the message after it need.
+export type PendingShift = {
+  after: ShiftAfter
+  letter: string
+  hold: string
+  dir: string
+  board: string
+  sessionId: string
+  about: string
+  at: number
+  segment: Segment
+}
+
+// The letter waiting for the owner's next message, the shift folder it came from and the files that go with it.
+export type WaitNote = { context: string; dir: string; files: string[] }
+
+// What follows a let-go: the agent goes on from the prompt, or the note waits for the owner; the row tells the owner.
+export type Settled = { after: 'continue'; streak: number; prompt: string; row: string } | { after: 'wait'; note: WaitNote; row: string }

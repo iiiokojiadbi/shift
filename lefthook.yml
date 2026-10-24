@@ -15,7 +15,10 @@ pre-commit:
       stage_fixed: true
     - name: core types
       glob: "core/**/*.ts"
-      run: bunx tsc -p core
+      run: bunx tsc -p core && bunx tsc -p core/test
+    - name: core tests
+      glob: "core/**/*.ts"
+      run: bash -o pipefail -c "bun test core/test 2>&1 | grep -v '^(pass) '"
     - name: claude-code plugin
       glob: "{adapters/claude-code/**,core/src/**}"
       run: claude plugin validate adapters/claude-code

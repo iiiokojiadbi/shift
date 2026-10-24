@@ -112,13 +112,16 @@ Besides the hint — the `shift_status` tool on the agent's request: the fill ag
 
 ## Core and adapters
 
-The core knows nothing about the harness:
+The core knows nothing about the harness. It holds:
 
-- the `shift` fields and their validation;
-- the doctrine text for the system prompt: when to shift, how to write `keep` and `note`;
-- the hint rule — a pure function of the measurement history, tested without a harness;
-- writing the handoff to disk;
-- loop protection (shifted, came up and immediately shifted again).
+- the tool fields and their validation;
+- the doctrine for the system prompt and the full guide;
+- the checks of the letter, the board, the tasks, the owner's decisions and the knowledge;
+- the hint rule — a pure function of the measurement history — and the counting of growth;
+- every text the model or the owner reads: tool descriptions, the summarizer's instructions, the messages after a shift, the owner's rows;
+- the flows over a storage port (`store.ts`: read, list, write, exists, move, whether the records are ignored by version control): accepting a shift with its snapshots, archiving a task, the history, picking up the last shift, what follows a let-go (continue, wait, or a forced wait after three continues without the owner) and the stretch's base after a restart.
+
+The flows are tested over an in-memory store (`core/test`), with no harness. An adapter is wiring plus the port: it registers the tools, the command and the hooks, keeps the state, measures the window, lets the history go, delivers the letter and the hints, and reads its harness's history for growth.
 
 For each harness the adapter fills the slots:
 

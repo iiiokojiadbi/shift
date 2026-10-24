@@ -1,20 +1,12 @@
 import type { Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
-import type { PendingShift, WaitNote } from '../types'
-import type { TaskFiles } from './core/index'
+import type { WaitNote } from '../types'
 import {
-  ACCEPTED,
-  ARCHIVE,
   ARCHIVE_DESCRIPTION,
   ARCHIVE_SCHEMA,
   ARCHIVE_TOOL,
-  ARCHIVED,
-  addToIndex,
-  BOARD,
-  checkArchive,
-  checkLetter,
-  checkWork,
-  DIR,
+  acceptShift,
+  archiveTask,
   DOCTRINE,
   FRESH_GAUGE,
   GUIDE,
@@ -24,33 +16,23 @@ import {
   HISTORY_DESCRIPTION,
   HISTORY_SCHEMA,
   HISTORY_TOOL,
-  INDEX,
-  indexLine,
-  LETTER,
-  NOT_IGNORED,
   parseArchiveInput,
   parseHistoryCount,
   parseShiftInput,
   RESUME_COMMAND,
-  renderAbout,
-  renderHistory,
-  resolvePath,
-  resumePrompt,
+  resumeShift,
   SOURCES,
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
   STATUS_TOOL,
-  sections,
-  segment,
-  shiftDir,
-  TASKS,
+  shiftHistory,
   TOOL,
   TOOL_DESCRIPTION,
   TOOL_SCHEMA,
   UNASSISTED_INSTRUCTIONS,
   withHint,
 } from './core/index'
-import { previousShift, readOrNull, readSnapshot, readWork, recentShifts, shiftNames } from './disk'
+import { claudeStore } from './disk'
 import { handOver } from './handover'
 import { countGrowth, statusText, takeHint } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
@@ -94,50 +76,12 @@ export const register: Register = on => {
     const parsed = parseShiftInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
-    const root = await $.session.root()
-    const letter = await readOrNull($, resolvePath(root, parsed.letter))
-    if (letter === null) return { deny: `No letter at ${parsed.letter}. Write it (usually ${LETTER}) and call again.` }
-    const letterProblem = checkLetter(letter)
-    if (letterProblem !== null) return { deny: letterProblem }
+    const call = { root: await $.session.root(), input: parsed, at: await $.clock.now(), sessionId: await $.session.id() }
+    const accepted = await acceptShift(claudeStore($), call)
+    if ('deny' in accepted) return accepted
+    await update($, pending, () => accepted.shift)
 
-    const work = await readWork($, `${root}/${DIR}`)
-    if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
-    const previousDir = await previousShift($, root)
-    const previous = previousDir === null ? null : await readSnapshot($, previousDir, `${previousDir}/index.md`)
-    const workProblem = checkWork(work, previous?.work ?? null)
-    if (workProblem !== null) return { deny: workProblem }
-    // 1 — not ignored; 128 — not a git repository, nothing to keep out.
-    const ignored = await $.process.run(['git', '-C', root, 'check-ignore', '-q', DIR])
-    if (ignored.exitCode === 1) return { deny: NOT_IGNORED }
-
-    const index = await readOrNull($, `${root}/${INDEX}`)
-    const at = await $.clock.now()
-    const dir = shiftDir(root, at)
-    const shift: PendingShift = {
-      after: parsed.after,
-      letter,
-      hold: sections(letter).get('Hold') ?? '',
-      dir,
-      board: `${root}/${BOARD}`,
-      sessionId: await $.session.id(),
-      about: parsed.about,
-      at,
-      segment: segment({ work, index }, previous),
-    }
-    await $.fs.write(`${dir}/letter.md`, letter)
-    await $.fs.write(`${dir}/board.md`, work.board)
-    if (index !== null) await $.fs.write(`${dir}/index.md`, index)
-    for (const task of work.tasks) {
-      if (task.task !== null) await $.fs.write(`${dir}/tasks/${task.name}/task.md`, task.task)
-      if (task.track !== null) await $.fs.write(`${dir}/tasks/${task.name}/track.md`, task.track)
-    }
-    if (work.owner !== null) await $.fs.write(`${dir}/owner.md`, work.owner)
-    for (const file of work.knowledge) await $.fs.write(`${dir}/knowledge/${file.name}`, file.text)
-    // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
-    await $.fs.write(`${dir}/about.md`, renderAbout({ ...shift, result: 'pending' }))
-    await update($, pending, () => shift)
-
-    return { result: ACCEPTED(dir) }
+    return { result: accepted.result }
   }).catch((_$, e, next) =>
     next.called ? next(e) : { deny: `${PLUGIN}: the shift broke (${next.error?.kind ?? 'unknown'}), the history is intact.` },
   )
@@ -146,24 +90,7 @@ export const register: Register = on => {
     const parsed = parseArchiveInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
-    const root = await $.session.root()
-    const from = `${root}/${TASKS}/${parsed.name}`
-    const to = `${root}/${ARCHIVE}/${parsed.name}`
-    const task: TaskFiles = {
-      name: parsed.name,
-      task: await readOrNull($, `${from}/task.md`),
-      track: await readOrNull($, `${from}/track.md`),
-    }
-    const problem = checkArchive(parsed, task, await $.fs.exists(to))
-    if (problem !== null) return { deny: problem }
-
-    await $.process.run(['mkdir', '-p', `${root}/${ARCHIVE}`])
-    const moved = await $.process.run(['mv', from, to])
-    if (moved.exitCode !== 0) return { deny: `Could not move ${from} to ${to}: ${moved.stderr.trim()}` }
-    const index = await readOrNull($, `${root}/${INDEX}`)
-    await $.fs.write(`${root}/${INDEX}`, addToIndex(index, indexLine(parsed, task.task ?? '')))
-
-    return { result: ARCHIVED(parsed.name) }
+    return archiveTask(claudeStore($), await $.session.root(), parsed)
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: archiving broke (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__infinity-shift__shift_guide' }, () => ({ result: GUIDE }))
@@ -176,27 +103,15 @@ export const register: Register = on => {
     const count = parseHistoryCount(e as unknown as Record<string, unknown>)
     if (typeof count === 'string') return { deny: count }
 
-    const root = await $.session.root()
-    const names = await shiftNames($, root)
-    const entries = await Promise.all(
-      names.slice(-count).map(async name => ({ name, about: await readOrNull($, `${root}/${DIR}/shifts/${name}/about.md`) })),
-    )
-
-    return { result: renderHistory(entries, names.length) }
+    return { result: await shiftHistory(claudeStore($), await $.session.root(), count) }
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the history did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   on('command.run', { command: RESUME_COMMAND }, async $ => {
-    const root = await $.session.root()
-    const dir = await previousShift($, root)
-    if (dir === null) return { text: `No shifts in this project: ${DIR}/shifts/ is empty.` }
-    const letter = await readOrNull($, `${dir}/letter.md`)
-    if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
+    const resumed = await resumeShift(claudeStore($), await $.session.root())
+    const { prompt } = resumed
+    if (prompt !== undefined) $.clock.after(100, () => void $.prompt.submit({ text: prompt }))
 
-    const work = await readWork($, `${root}/${DIR}`)
-    const recent = await recentShifts($, root)
-    $.clock.after(100, () => void $.prompt.submit({ text: resumePrompt(letter, work, recent, dir) }))
-
-    return { text: `Picking up shift ${dir.split('/').at(-1)}.` }
+    return { text: resumed.text }
   })
 
   on('turn.complete', async ($, e, next) => {

@@ -1,4 +1,4 @@
-// The contract must be self-contained: these two mirror the core's types of the same name.
+// The contract must be self-contained: ShiftAfter, Gauge, PendingShift and WaitNote mirror the core's types of the same name.
 export type ShiftAfter = 'continue' | 'wait'
 export type Gauge = { base: number | null; hinted: number | null; unassisted: boolean; growth: Record<string, number>; whole: boolean }
 

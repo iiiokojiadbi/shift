@@ -6,13 +6,14 @@
     "sync-core": "bun scripts/sync-core.ts",
     "check": "bun scripts/sync-core.ts --check && biome check .",
     "fix": "biome check --write .",
-    "test": "claude plugin test adapters/claude-code",
+    "test": "bun test core/test && claude plugin test adapters/claude-code",
     "validate": "claude plugin validate adapters/claude-code",
-    "typecheck": "tsc -p core && tsc -p adapters/claude-code --noEmit",
+    "typecheck": "tsc -p core && tsc -p core/test && tsc -p adapters/claude-code --noEmit",
     "prepare": "lefthook install"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@types/bun": "^1.4.4",
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2"
   }
