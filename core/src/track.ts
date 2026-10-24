@@ -1,5 +1,6 @@
 import { ARCHIVE_TOOL, FOCUS, NAME, STATUSES, TASK_LIST, TASKS } from './layout'
 import { findDate } from './markdown'
+import type { Project } from './project'
 import type { Store } from './store'
 import { taskLine } from './tasks'
 
@@ -36,7 +37,9 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
   return { task, item, status, note, add }
 }
 
-export async function updateTrack(store: Store, root: string, input: TrackInput): Promise<{ deny: string } | { result: string }> {
+export async function updateTrack(project: Project, input: TrackInput): Promise<{ deny: string } | { result: string }> {
+  const { store, root } = project
+
   return input.item === null ? setTaskStatus(store, root, input) : setItem(store, root, { ...input, item: input.item })
 }
 

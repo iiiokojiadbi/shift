@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import type { Store } from './core/index'
+import { loadProject, type Project, type Store } from './core/index'
 
 // The core's store over Claude Code's files and processes.
 export function claudeStore($: EngineInterface): Store {
@@ -27,15 +27,15 @@ export function claudeStore($: EngineInterface): Store {
 
       return moved.exitCode === 0 ? null : moved.stderr.trim()
     },
-    // 1 — not ignored; 128 — not a git repository, nothing to keep out.
-    isIgnored: async (root, path) => (await $.process.run(['git', '-C', root, 'check-ignore', '-q', path])).exitCode !== 1,
-    // git names it relative to the root, or absolute in a linked worktree.
-    excludeFile: async root => {
-      const found = await $.process.run(['git', '-C', root, 'rev-parse', '--git-path', 'info/exclude'])
-      const path = found.stdout.trim()
-      if (found.exitCode !== 0 || path === '') return null
+    git: async (root, args) => {
+      const ran = await $.process.run(['git', '-C', root, ...args]).catch(() => null)
 
-      return path.startsWith('/') ? path : `${root}/${path}`
+      return ran === null ? null : { code: ran.exitCode, stdout: ran.stdout }
     },
   }
+}
+
+// The session's project, loaded once for the hook or tool call at hand.
+export async function projectOf($: EngineInterface): Promise<Project> {
+  return loadProject(claudeStore($), await $.session.root())
 }

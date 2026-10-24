@@ -42,7 +42,6 @@ import {
   parseShiftInput,
   parseTrackInput,
   RESUME_COMMAND,
-  readSettings,
   renderStatus,
   resumeShift,
   SETTINGS,
@@ -69,7 +68,7 @@ import {
   TRACK_TOOL,
   updateTrack,
 } from './core/index'
-import { nodeStore } from './store'
+import { projectAt } from './store'
 
 const DOCS_TOOLS: ReadonlySet<string> = new Set([OUTLINE_TOOL, MENTIONS_TOOL])
 const TOOLS: ReadonlySet<string> = new Set([
@@ -109,8 +108,8 @@ export default function shift(pi: ExtensionAPI): void {
       if (pending !== null) throw new Error('The shift is already accepted: end the turn with one line.')
       const parsed = parseShiftInput(params as Record<string, unknown>)
       if (typeof parsed === 'string') throw new Error(parsed)
-      const call = { root: ctx.cwd, input: parsed, at: Date.now(), sessionId: ctx.sessionManager.getSessionId() }
-      const accepted = await acceptShift(nodeStore, call)
+      const call = { input: parsed, at: Date.now(), sessionId: ctx.sessionManager.getSessionId() }
+      const accepted = await acceptShift(await projectAt(ctx.cwd), call)
       if ('deny' in accepted) throw new Error(accepted.deny)
       pending = accepted.shift
 
@@ -127,7 +126,7 @@ export default function shift(pi: ExtensionAPI): void {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const parsed = parseArchiveInput(params as Record<string, unknown>)
       if (typeof parsed === 'string') throw new Error(parsed)
-      const archived = await archiveTask(nodeStore, ctx.cwd, parsed)
+      const archived = await archiveTask(await projectAt(ctx.cwd), parsed)
       if ('deny' in archived) throw new Error(archived.deny)
 
       return text(archived.result)
@@ -143,7 +142,7 @@ export default function shift(pi: ExtensionAPI): void {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const parsed = parseTrackInput(params as Record<string, unknown>)
       if (typeof parsed === 'string') throw new Error(parsed)
-      const done = await updateTrack(nodeStore, ctx.cwd, parsed)
+      const done = await updateTrack(await projectAt(ctx.cwd), parsed)
       if ('deny' in done) throw new Error(done.deny)
 
       return text(done.result)
@@ -167,7 +166,7 @@ export default function shift(pi: ExtensionAPI): void {
       const count = parseHistoryCount(params as Record<string, unknown>)
       if (typeof count === 'string') throw new Error(count)
 
-      return text(await shiftHistory(nodeStore, ctx.cwd, count))
+      return text(await shiftHistory(await projectAt(ctx.cwd), count))
     },
   })
 
@@ -189,7 +188,7 @@ export default function shift(pi: ExtensionAPI): void {
     label: 'Shift setup',
     description: SETUP_DESCRIPTION,
     parameters: schema(SETUP_SCHEMA),
-    execute: async (_id, _params, _signal, _onUpdate, ctx) => text(await setupReport(nodeStore, ctx.cwd, null)),
+    execute: async (_id, _params, _signal, _onUpdate, ctx) => text(await setupReport(await projectAt(ctx.cwd), null)),
   })
 
   pi.registerTool({
@@ -201,7 +200,7 @@ export default function shift(pi: ExtensionAPI): void {
       const path = parsePath(params as Record<string, unknown>, 'path')
       if (path === null) throw new Error("path is the document, from the project's root.")
 
-      return text(await docOutline(nodeStore, ctx.cwd, path))
+      return text(await docOutline(await projectAt(ctx.cwd), path))
     },
   })
 
@@ -214,7 +213,7 @@ export default function shift(pi: ExtensionAPI): void {
       const file = parsePath(params as Record<string, unknown>, 'file')
       if (file === null) throw new Error('file is the file whose name to look for.')
 
-      return text(await docsMentioning(nodeStore, ctx.cwd, file))
+      return text(await docsMentioning(await projectAt(ctx.cwd), file))
     },
   })
 
@@ -223,7 +222,7 @@ export default function shift(pi: ExtensionAPI): void {
     // The owner's words typed with the command go after the letter, as their own message that starts the turn.
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
-      const resumed = await resumeShift(nodeStore, ctx.cwd)
+      const resumed = await resumeShift(await projectAt(ctx.cwd))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
       const words = args.trim()
@@ -235,7 +234,8 @@ export default function shift(pi: ExtensionAPI): void {
   // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
-    const { settings, problem } = await readSettings(nodeStore, ctx.cwd)
+    const project = await projectAt(ctx.cwd)
+    const { settings, problem } = project
     enabled = settings.enabled
     if (problem !== null) tell(ctx, `${MOD}: ${problem} The mod stays on.`, 'warning')
     if (!enabled) {
@@ -244,11 +244,11 @@ export default function shift(pi: ExtensionAPI): void {
     }
     // The docs tools only where the mod keeps docs.
     if (settings.docs.dirs.length === 0) pi.setActiveTools(pi.getActiveTools().filter(name => !DOCS_TOOLS.has(name)))
-    const stale = await staleLayout(nodeStore, ctx.cwd)
+    const stale = await staleLayout(project)
     if (stale !== null) tell(ctx, `${MOD}: ${stale}`, 'warning')
     // Records written before the first shift stay out of a commit too.
-    if (await nodeStore.exists(`${ctx.cwd}/${DIR}`)) {
-      const kept = await keepRecordsOut(nodeStore, ctx.cwd, settings)
+    if (await project.store.exists(`${project.root}/${DIR}`)) {
+      const kept = await keepRecordsOut(project)
       if ('excluded' in kept && kept.excluded !== null) tell(ctx, EXCLUDED(kept.excluded), 'info')
     }
     const last = ctx.sessionManager
@@ -267,7 +267,7 @@ export default function shift(pi: ExtensionAPI): void {
     if (!enabled) return
     event.systemPromptOptions.sections[MOD] = DOCTRINE_BODY
     // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added twice.
-    const loaded = await sessionFiles(nodeStore, ctx.cwd)
+    const loaded = await sessionFiles(await projectAt(ctx.cwd))
     const ours = new Set(loaded.map(file => file.path))
     event.systemPromptOptions.contextFiles = [
       ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
@@ -304,7 +304,7 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('tool_result', async (event, ctx) => {
     if (!enabled) return
     const written = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined
-    const note = typeof written === 'string' ? await afterWrite(nodeStore, ctx.cwd, resolve(ctx.cwd, written)) : null
+    const note = typeof written === 'string' ? await afterWrite(await projectAt(ctx.cwd), resolve(ctx.cwd, written)) : null
     const hint = event.parentToolCallId === undefined ? await takeHint(ctx) : null
     const added = [note, hint === null ? null : hintBlock(hint)].filter((each): each is string => each !== null)
     if (added.length === 0) return
@@ -321,9 +321,10 @@ export default function shift(pi: ExtensionAPI): void {
     if (shift === null) return
     pending = null
     if (event.aborted) {
-      void shiftNotMade(nodeStore, shift, 'the turn was aborted', ctx.getContextUsage()?.tokens ?? undefined).then(row =>
-        ctx.ui.notify(row, 'warning'),
-      )
+      const tokens = ctx.getContextUsage()?.tokens ?? undefined
+      void projectAt(ctx.cwd)
+        .then(project => shiftNotMade(project, shift, 'the turn was aborted', tokens))
+        .then(row => ctx.ui.notify(row, 'warning'))
       return
     }
     handOver(shift, ctx)
@@ -337,7 +338,10 @@ export default function shift(pi: ExtensionAPI): void {
   // A failure is written to the shift's about.md and told to the owner; the history stays as it was.
   function handOver(shift: PendingShift, ctx: ExtensionContext): void {
     let tokensBefore: number | undefined
-    const failed = (why: string) => void shiftNotMade(nodeStore, shift, why, tokensBefore).then(row => tell(ctx, row, 'error'))
+    const failed = (why: string) =>
+      void projectAt(ctx.cwd)
+        .then(project => shiftNotMade(project, shift, why, tokensBefore))
+        .then(row => tell(ctx, row, 'error'))
     try {
       tokensBefore = ctx.getContextUsage()?.tokens ?? undefined
       ctx.compact({
@@ -352,8 +356,7 @@ export default function shift(pi: ExtensionAPI): void {
   }
 
   async function settle(shift: PendingShift, ctx: ExtensionContext, result: CompactionResult, tokensBefore: number | undefined) {
-    const settled = await settleShift(nodeStore, {
-      root: ctx.cwd,
+    const settled = await settleShift(await projectAt(ctx.cwd), {
       shift,
       messages: [{ role: 'digest', text: result.summary }],
       before: result.tokensBefore ?? tokensBefore,
@@ -398,7 +401,7 @@ export default function shift(pi: ExtensionAPI): void {
   // from the last shift of this session, the growth from the history as it is. Once; a compaction marks the count whole itself.
   async function restore(ctx: ExtensionContext): Promise<void> {
     if (gauge.whole) return
-    const base = await shiftBase(nodeStore, ctx.cwd, ctx.sessionManager.getSessionId())
+    const base = await shiftBase(await projectAt(ctx.cwd), ctx.sessionManager.getSessionId())
     if (gauge.whole) return
     const counted = ctx.sessionManager.buildSessionProjection().messages.reduce((sum, message) => {
       const source = growthSource(message)

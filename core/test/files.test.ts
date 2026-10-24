@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test'
 import { MAP_END, refreshMap, renderMap } from '../src/docs'
 import { acceptShift, archiveTask, sessionFiles } from '../src/flows'
 import { checkGlossary } from '../src/glossary'
-import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
+import { loadProject } from '../src/project'
+import { DEFAULT_SETTINGS, type DocsSettings, parseSettings } from '../src/settings'
+import type { Store } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { renderSessionFiles } from '../src/texts/prompts'
 import { memoryStore } from './memory'
@@ -10,6 +12,8 @@ import { memoryStore } from './memory'
 const docsOf = (dirs: string[], maxChars = 100000) => ({ ...DEFAULT_SETTINGS.docs, dirs, maxChars })
 
 const ROOT = '/p'
+const at = (store: Store) => loadProject(store, ROOT)
+const withDocs = async (store: Store, docs: DocsSettings) => ({ ...(await at(store)), settings: { ...DEFAULT_SETTINGS, docs } })
 const R = `${ROOT}/.shift`
 const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
 const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
@@ -75,14 +79,14 @@ test('the docs map lists each document with its description and sections, and re
     [`${ROOT}/docs/a.md`]: '---\ndescription: what A holds\n---\n\n# A\n\n## One\n\n```\n## not a heading\n```\n\n## Two',
     [`${ROOT}/docs/deep/b.md`]: '# B',
   })
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', docsOf(['docs']))
+  await refreshMap(await withDocs(store, docsOf(['docs'])))
   const first = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(first).toContain('- `docs/a.md` — what A holds\n  sections: One · Two')
   expect(first).toContain('- `docs/deep/b.md` — no description')
 
   store.files.set(`${R}/SHIFT.md`, first.replace('# Shift', '# Shift\n\nMY RULES'))
   store.files.set(`${ROOT}/docs/c.md`, '---\ndescription: C\n---')
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', docsOf(['docs']))
+  await refreshMap(await withDocs(store, docsOf(['docs'])))
   const second = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(second).toContain('MY RULES')
   expect(second).toContain('`docs/c.md` — C')
@@ -104,7 +108,7 @@ test('the docs map lists each document with its description and sections, and re
 
 test('a folder with nothing to list is named as missing or empty; with no SHIFT.md and no documents nothing is written', async () => {
   const store = memoryStore({ [`${R}/SHIFT.md`]: '# Shift\n\nMY RULES' })
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', docsOf(['docs/']))
+  await refreshMap(await withDocs(store, docsOf(['docs/'])))
   const shift = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(shift).toContain('MY RULES')
   expect(shift).toContain('## Documents\n\nnone:\n- `docs/` — no such folder')
@@ -112,18 +116,18 @@ test('a folder with nothing to list is named as missing or empty; with no SHIFT.
 
   store.files.set(`${ROOT}/notes/n.md`, '# N')
   store.files.set(`${ROOT}/empty/.keep`, '')
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', docsOf(['docs', 'notes', 'empty']))
+  await refreshMap(await withDocs(store, docsOf(['docs', 'notes', 'empty'])))
   const some = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(some).toContain('`notes/n.md`')
   expect(some).toContain('Nothing to list:\n- `docs/` — no such folder\n- `empty/` — no documents')
 
-  await refreshMap(store, ROOT, '.shift/SHIFT.md', docsOf([]))
+  await refreshMap(await withDocs(store, docsOf([])))
   const off = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(off).toContain('## Documents\n\noff: the owner set `[docs] dirs = []`')
   expect(off).not.toContain('notes/n.md')
 
   const bare = memoryStore()
-  await refreshMap(bare, ROOT, '.shift/SHIFT.md', docsOf(['docs']))
+  await refreshMap(await withDocs(bare, docsOf(['docs'])))
   expect(bare.files.size).toBe(0)
 })
 
@@ -134,16 +138,16 @@ test('every session gets SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md, at the pl
     [`${R}/TASKS.md`]: 'none',
     [`${ROOT}/notes/n.md`]: '---\ndescription: N\n---',
   })
-  const block = renderSessionFiles(await sessionFiles(store, ROOT)) ?? ''
+  const block = renderSessionFiles(await sessionFiles(await at(store))) ?? ''
   expect(block).toContain('<file path="OWNER.md">')
   expect(block).toContain('<file path=".shift/TASKS.md">')
   expect(block).toContain('`notes/n.md` — N')
-  expect(await sessionFiles(memoryStore({ [`${R}/settings.toml`]: 'enabled = false', [`${R}/TASKS.md`]: 'none' }), ROOT)).toEqual([])
+  expect(await sessionFiles(await at(memoryStore({ [`${R}/settings.toml`]: 'enabled = false', [`${R}/TASKS.md`]: 'none' })))).toEqual([])
   expect(parseSettings('[docs]\ndirs = ["../out"]')).toContain('folders inside the project')
 })
 
 test('a shift refuses the old owner.md, a board with Tasks, continues in task.md and a rejected option without its reason', async () => {
-  const call = { root: ROOT, input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const call = { input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const base = {
     [`${R}/letter.md`]: LETTER,
     [`${R}/board.md`]: BOARD,
@@ -153,7 +157,7 @@ test('a shift refuses the old owner.md, a board with Tasks, continues in task.md
     [`${R}/tasks/t/track.md`]: '- [open] x',
   }
   const deny = async (extra: Record<string, string>) => {
-    const result = await acceptShift(memoryStore({ ...base, ...extra }), call)
+    const result = await acceptShift(await at(memoryStore({ ...base, ...extra })), call)
     return 'deny' in result ? result.deny : null
   }
   expect(await deny({})).toBeNull()
@@ -173,22 +177,22 @@ test('task_archive writes the index line with what the task continued, and updat
     [`${R}/tasks/t/track.md`]: '- [done] x',
     [`${R}/archive/old/task.md`]: TASK,
   })
-  await archiveTask(store, ROOT, { name: 't', outcome: 'done', about: 'it ended' })
+  await archiveTask(await at(store), { name: 't', outcome: 'done', about: 'it ended' })
   expect(store.files.get(`${R}/archive/index.md`)).toContain('— it ended; continues old')
   expect(store.files.get(`${R}/TASKS.md`)).toBe('none\n')
 })
 
 test('the old folder name and the shift skill folder are named, and nothing is written into them', async () => {
-  const call = { root: ROOT, input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const call = { input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const old = memoryStore({ [`${ROOT}/.infinity-shift/board.md`]: BOARD })
-  expect(await acceptShift(old, call)).toEqual({ deny: expect.stringContaining('rename the folder to .shift/') })
+  expect(await acceptShift(await at(old), call)).toEqual({ deny: expect.stringContaining('rename the folder to .shift/') })
 
   const skill = memoryStore({
     [`${R}/sessions/2026-10-01/unfinished.md`]: 'x',
     [`${R}/SHIFT.md`]: '# the skill',
     [`${ROOT}/docs/a.md`]: '# A',
   })
-  expect(await acceptShift(skill, call)).toEqual({ deny: expect.stringContaining("the shift skill's") })
-  expect(await sessionFiles(skill, ROOT)).toEqual([])
+  expect(await acceptShift(await at(skill), call)).toEqual({ deny: expect.stringContaining("the shift skill's") })
+  expect(await sessionFiles(await at(skill))).toEqual([])
   expect(skill.files.get(`${R}/SHIFT.md`)).toBe('# the skill')
 })

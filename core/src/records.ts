@@ -18,7 +18,7 @@ import {
   TASKS,
 } from './layout'
 import { findDate, frontmatter, itemsOf, missingSections, quote, sections } from './markdown'
-import { DEFAULT_SETTINGS, parseSettings } from './settings'
+import type { Project } from './project'
 import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
 import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
 
@@ -60,13 +60,13 @@ export function workText(work: Work): string {
 
 const lineCount = (text: string) => text.trimEnd().split('\n').length
 
-export function checkWork(work: Work, previous: Work | null): string | null {
+export function checkWork(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
   const { board } = work
-  const parsed = work.settings === null ? DEFAULT_SETTINGS : parseSettings(work.settings)
-  if (typeof parsed === 'string') return `${parsed} The file is the owner's: tell them, and do not shift until it is fixed.`
-  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${parsed.files.owner} now. Rename it and call again.`
+  if (project.problem !== null) return `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
+  const owner = project.settings.files.owner
+  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${owner} now. Rename it and call again.`
   if (sections(board).has(OWNER_SECTION)) {
-    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${parsed.files.owner}. Move its lines there as they are, remove the section from the board, and call again.`
+    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${owner}. Move its lines there as they are, remove the section from the board, and call again.`
   }
   if (sections(board).has('Tasks')) {
     return `The board has a "## Tasks" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
@@ -104,7 +104,7 @@ export function checkWork(work: Work, previous: Work | null): string | null {
     if (problem !== null) return problem
   }
 
-  const glossaryProblem = checkGlossary(work.glossary, parsed.files.glossary)
+  const glossaryProblem = checkGlossary(work.glossary, project.settings.files.glossary)
   if (glossaryProblem !== null) return glossaryProblem
 
   if (previous !== null && workText(previous) === workText(work)) {

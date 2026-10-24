@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { Gauge, Reading } from './core/index'
 import { addGrowth, contentChars, FRESH_GAUGE, growthOf, HINTED, renderStatus, shiftBase, shiftHint } from './core/index'
-import { claudeStore } from './disk'
+import { projectOf } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
@@ -65,7 +65,7 @@ function complete(current: Gauge): Gauge {
 // the last shift of this session, the growth from the history as it is. Once; a let-go marks the count whole itself.
 async function restore($: EngineInterface): Promise<void> {
   if (complete(await read($, gauge)).whole) return
-  const base = await shiftBase(claudeStore($), await $.session.root(), await $.session.id())
+  const base = await shiftBase(await projectOf($), await $.session.id())
   const growth = growthOf(await $.session.messages({ as: 'api' }))
   await update($, gauge, (current: Gauge) => {
     const now = complete(current)

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import type { Store } from './core/index'
+import { dirname } from 'node:path'
+import { loadProject, type Project, type Store } from './core/index'
 
 // The core's store over node's files and processes: an extension runs inside pi's own node process.
 export const nodeStore: Store = {
@@ -33,17 +33,17 @@ export const nodeStore: Store = {
       return String(error)
     }
   },
-  // 1 — not ignored; 128 — not a git repository, nothing to keep out.
-  // git names it relative to the root, or absolute in a linked worktree.
-  excludeFile: root =>
+  git: (root, args) =>
     new Promise(done => {
-      execFile('git', ['-C', root, 'rev-parse', '--git-path', 'info/exclude'], (error, stdout) => {
-        const path = stdout.trim()
-        done(error !== null || path === '' ? null : resolve(root, path))
+      execFile('git', ['-C', root, ...args], (error, stdout) => {
+        // A number is git's exit code; a string (ENOENT) means there is no git to run.
+        const code = error === null ? 0 : error.code
+        done(typeof code === 'number' ? { code, stdout } : null)
       })
     }),
-  isIgnored: (root, path) =>
-    new Promise(done => {
-      execFile('git', ['-C', root, 'check-ignore', '-q', path], error => done(error?.code !== 1))
-    }),
+}
+
+// The project at `root`, loaded once for the event or tool call at hand.
+export function projectAt(root: string): Promise<Project> {
+  return loadProject(nodeStore, root)
 }

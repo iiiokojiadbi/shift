@@ -17,8 +17,8 @@ import {
 } from '../layout'
 import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
-import { DEFAULT_SETTINGS, parseSettings } from '../settings'
-import type { Recent, SessionFile, Work } from '../types'
+import type { Placement } from '../settings'
+import type { HandedBack, Recent, SessionFile, Work } from '../types'
 
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
@@ -42,7 +42,7 @@ export const UNASSISTED_INSTRUCTIONS = `The agent did not shift before this poin
 // The board and the tasks in progress, whole, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
 // TASKS.md, GLOSSARY.md and SHIFT.md are in the session's own block, fresh after every shift.
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
-export function renderWork(work: Work | null): string {
+export function renderWork(work: Work | null, knowledge: Placement | null): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
     fileBlock(`${TASKS}/${t.name}/task.md`, t.task ?? 'missing'),
@@ -52,14 +52,12 @@ export function renderWork(work: Work | null): string {
   return [
     fileBlock(BOARD, work.board),
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
-    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(work.settings)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
+    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
 }
 
 // Where new knowledge goes, by the owner's \`knowledge\` setting.
-function placement(settings: string | null): string {
-  const parsed = settings === null ? DEFAULT_SETTINGS : parseSettings(settings)
-  const knowledge = typeof parsed === 'string' ? null : parsed.knowledge
+function placement(knowledge: Placement | null): string {
   if (knowledge === 'local') return 'here: the owner set knowledge = "local"'
   if (knowledge === 'project') return 'to the project\'s docs: the owner set knowledge = "project"'
   if (knowledge === 'split') return `split by the boundary in ${OWNER}: the owner set knowledge = "split"`
@@ -125,22 +123,16 @@ export function renderRecent(recent: Recent): string {
 // Everything a shift hands back, in one tag that names the mod: the agent sees at once what came from where.
 // Ordered by how a context is read: the records first as reference, the recent shifts in the middle, the letter last,
 // right before the turn, so its "Next" is what the agent sees closest to acting.
-function shiftMessage(
-  opening: string,
-  letter: string,
-  work: Work | null,
-  recent: Recent,
-  dir: string,
-  remarks: string | null,
-  closing: string[] = [],
-): string {
+function shiftMessage(opening: string, letter: string, back: HandedBack, closing: string[] = []): string {
+  const { work, recent, dir, remarks } = back
+
   return [
     `<${MOD} folder="${dir}/">`,
     opening,
     '',
     'The board, the tasks in progress and the map of knowledge, as they are now; SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md are in your session block, read again after this shift:',
     '',
-    renderWork(work),
+    renderWork(work, back.knowledge),
     '',
     renderRecent(recent),
     '',
@@ -157,22 +149,19 @@ function shiftMessage(
   ].join('\n')
 }
 
-export function continuePrompt(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
-  return shiftMessage('Shift done. You continue from where you stopped.', letter, work, recent, dir, remarks, ['Continue from "Next".'])
+export function continuePrompt(letter: string, back: HandedBack): string {
+  return shiftMessage('Shift done. You continue from where you stopped.', letter, back, ['Continue from "Next".'])
 }
 
-export function waitContext(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
-  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, work, recent, dir, remarks)
+export function waitContext(letter: string, back: HandedBack): string {
+  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, back)
 }
 
-export function resumePrompt(letter: string, work: Work | null, recent: Recent, dir: string, remarks: string | null): string {
+export function resumePrompt(letter: string, back: HandedBack): string {
   return shiftMessage(
     'You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.',
     letter,
-    work,
-    recent,
-    dir,
-    remarks,
+    back,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,
       'Check "Next" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.',

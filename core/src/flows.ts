@@ -6,43 +6,40 @@ import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './
 import { resolvePath } from './input'
 import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, OLD_DIR, TASK_LIST, TASKS } from './layout'
 import { formatK, sections } from './markdown'
+import type { Project } from './project'
 import { checkLetter, checkWork } from './records'
-import type { Settings } from './settings'
-import { DEFAULT_SETTINGS, parseSettings, readSettings } from './settings'
-import type { Store } from './store'
-import { lastShifts, previousShift, readProject, readSnapshot, recentShifts } from './store'
+import { lastShifts, previousShift, readRecords, readSnapshot, recentShifts } from './store'
 import { archiveInList, parseTaskList } from './tasks'
 import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, WAITING } from './texts/rows'
-import type { ArchiveInput, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
+import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
 
-// The flows that do not depend on the harness: an adapter hands them its store and what only it knows.
+// The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
-export type ShiftCall = { root: string; input: ShiftInput; at: number; sessionId: string }
+export type ShiftCall = { input: ShiftInput; at: number; sessionId: string }
 
 // Checks the letter and the records, snapshots them into the new shift folder and leaves a pending about.md there.
-export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny: string } | { shift: PendingShift; result: string }> {
-  const { root, input } = call
-  const stale = await staleLayout(store, root)
+export async function acceptShift(project: Project, call: ShiftCall): Promise<{ deny: string } | { shift: PendingShift; result: string }> {
+  const { store, root, settings } = project
+  const { input } = call
+  const stale = await staleLayout(project)
   if (stale !== null) return { deny: stale }
   const letter = await store.read(resolvePath(root, input.letter))
   if (letter === null) return { deny: `No letter at ${input.letter}. Write it (usually ${LETTER}) and call again.` }
   const letterProblem = checkLetter(letter)
   if (letterProblem !== null) return { deny: letterProblem }
 
-  const { settings: current } = await readSettings(store, root)
-  if (current.enabled) {
-    await refreshTocs(store, root, current.docs)
-    await refreshMap(store, root, current.files.shift, current.docs)
+  if (settings.enabled) {
+    await refreshTocs(project)
+    await refreshMap(project)
   }
-  const work = await readProject(store, root)
+  const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
-  const previousDir = await previousShift(store, root)
+  const previousDir = await previousShift(project)
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/index.md`)
-  const workProblem = checkWork(work, previous?.work ?? null)
+  const workProblem = checkWork(work, previous?.work ?? null, project)
   if (workProblem !== null) return { deny: workProblem }
-  const settings = work.settings === null ? DEFAULT_SETTINGS : parseSettings(work.settings)
-  const kept = await keepRecordsOut(store, root, typeof settings === 'string' ? DEFAULT_SETTINGS : settings)
+  const kept = await keepRecordsOut(project)
   if ('deny' in kept) return kept
 
   const index = await store.read(`${root}/${INDEX}`)
@@ -69,7 +66,7 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
   if (work.taskList !== null) await store.write(`${dir}/TASKS.md`, work.taskList)
   if (work.glossary !== null) await store.write(`${dir}/GLOSSARY.md`, work.glossary)
   if (work.shift !== null) await store.write(`${dir}/SHIFT.md`, work.shift)
-  if (work.settings !== null) await store.write(`${dir}/settings.toml`, work.settings)
+  if (project.settingsText !== null) await store.write(`${dir}/settings.toml`, project.settingsText)
   for (const file of work.knowledge) await store.write(`${dir}/knowledge/${file.name}`, file.text)
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
   await store.write(`${dir}/about.md`, renderAbout({ ...shift, result: 'pending' }))
@@ -78,7 +75,8 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
 }
 
 // Moves a finished or dropped task's folder to the archive and adds its line to the index.
-export async function archiveTask(store: Store, root: string, input: ArchiveInput): Promise<{ deny: string } | { result: string }> {
+export async function archiveTask(project: Project, input: ArchiveInput): Promise<{ deny: string } | { result: string }> {
+  const { store, root } = project
   const from = `${root}/${TASKS}/${input.name}`
   const to = `${root}/${ARCHIVE}/${input.name}`
   const task: TaskFiles = {
@@ -104,36 +102,41 @@ export async function archiveTask(store: Store, root: string, input: ArchiveInpu
   return { result: ARCHIVED(input.name) }
 }
 
-export async function shiftHistory(store: Store, root: string, count: number): Promise<string> {
-  const { entries, total } = await lastShifts(store, root, count)
+export async function shiftHistory(project: Project, count: number): Promise<string> {
+  const { entries, total } = await lastShifts(project, count)
 
   return renderHistory(entries, total)
 }
 
 // The last shift picked up in a session that has not seen it: the text for the owner, and the prompt when there is one.
-export async function resumeShift(store: Store, root: string): Promise<{ text: string; prompt?: string }> {
-  const dir = await previousShift(store, root)
+export async function resumeShift(project: Project): Promise<{ text: string; prompt?: string }> {
+  const dir = await previousShift(project)
   if (dir === null) return { text: `No shifts in this project: ${DIR}/shifts/ is empty.` }
-  const letter = await store.read(`${dir}/letter.md`)
+  const letter = await project.store.read(`${dir}/letter.md`)
   if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
 
-  const work = await readProject(store, root)
-  const recent = await recentShifts(store, root)
+  return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, await handBack(project, dir)) }
+}
 
-  const remarks = await docsReport(store, root)
-
-  return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, work, recent, dir, remarks) }
+// The records, the last shifts and the documents' remarks as they are now, for the message after a shift.
+async function handBack(project: Project, dir: string): Promise<HandedBack> {
+  return {
+    work: await readRecords(project),
+    knowledge: project.settings.knowledge,
+    recent: await recentShifts(project),
+    dir,
+    remarks: await docsReport(project),
+  }
 }
 
 // The harness did not let the history go: about.md says why, the row tells the owner.
-export async function shiftNotMade(store: Store, shift: PendingShift, why: string, tokensBefore: number | undefined): Promise<string> {
-  await store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `not shifted: ${why}` }))
+export async function shiftNotMade(project: Project, shift: PendingShift, why: string, tokensBefore: number | undefined): Promise<string> {
+  await project.store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `not shifted: ${why}` }))
 
   return NOT_MADE(shiftName(shift), why)
 }
 
 export type LetGo = {
-  root: string
   shift: PendingShift
   // What the history was let go into, as the harness gives it back.
   messages: readonly { role: string; text: string }[]
@@ -145,8 +148,9 @@ export type LetGo = {
 
 // After the let-go: the summary and the outcome on disk, then continue, or wait — asked for, or forced after
 // `MAX_AUTO_STREAK` continues in a row without the owner.
-export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> {
-  const { root, shift, before, after } = letGo
+export async function settleShift(project: Project, letGo: LetGo): Promise<Settled> {
+  const { store } = project
+  const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
   await store.write(`${shift.dir}/summary.md`, summary)
   const streak = letGo.streak + 1
@@ -157,9 +161,7 @@ export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> 
       `${shift.dir}/about.md`,
       renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
     )
-  const work = await readProject(store, root)
-  const recent = await recentShifts(store, root)
-  const remarks = await docsReport(store, root)
+  const back = await handBack(project, shift.dir)
   const name = shiftName(shift)
 
   if (shift.after === 'continue' && !isCapped) {
@@ -168,36 +170,39 @@ export async function settleShift(store: Store, letGo: LetGo): Promise<Settled> 
     return {
       after: 'continue',
       streak,
-      prompt: continuePrompt(shift.letter, work, recent, shift.dir, remarks),
+      prompt: continuePrompt(shift.letter, back),
       row: CONTINUING(name, shrank, shift.dir),
     }
   }
 
   const why = isCapped ? `waiting: ${MAX_AUTO_STREAK} shifts in a row without the owner` : 'waiting for the owner'
   await outcome(`shifted (${shrank}), ${why}`)
-  const note = { context: waitContext(shift.letter, work, recent, shift.dir, remarks), dir: shift.dir, files: deliveredFiles(work) }
+  const note = { context: waitContext(shift.letter, back), dir: shift.dir, files: deliveredFiles(back.work) }
 
   return { after: 'wait', note, row: WAITING(name, shrank, isCapped) }
 }
 
 // The fill the stretch started from, if the last shift was this session's: a fresh process counts from there.
-export async function shiftBase(store: Store, root: string, sessionId: string): Promise<number | null> {
-  const dir = await previousShift(store, root)
-  const about = dir === null ? null : await store.read(`${dir}/about.md`)
+export async function shiftBase(project: Project, sessionId: string): Promise<number | null> {
+  const dir = await previousShift(project)
+  const about = dir === null ? null : await project.store.read(`${dir}/about.md`)
 
   return about === null ? null : shiftFill(about, sessionId)
 }
 
 // Unless the owner lets the project commit them, the records stay out of its git: when they are not ignored, the mod
 // adds them to the repository's own exclude file. The exclude file's path when it did; null when nothing was needed.
-export async function keepRecordsOut(
-  store: Store,
-  root: string,
-  settings: Settings,
-): Promise<{ excluded: string | null } | { deny: string }> {
-  if (settings.commit || (await store.isIgnored(root, DIR))) return { excluded: null }
-  const file = await store.excludeFile(root)
-  if (file === null) return { deny: NOT_IGNORED }
+export async function keepRecordsOut(project: Project): Promise<{ excluded: string | null } | { deny: string }> {
+  const { store, root } = project
+  if (project.settings.commit) return { excluded: null }
+  // 1 — not ignored; any other answer, or no git at all, means nothing to keep the records out of.
+  const ignored = await store.git(root, ['check-ignore', '-q', DIR])
+  if (ignored === null || ignored.code !== 1) return { excluded: null }
+  // git names it relative to the root, or absolute in a linked worktree.
+  const found = await store.git(root, ['rev-parse', '--git-path', 'info/exclude'])
+  const path = found === null || found.code !== 0 ? '' : found.stdout.trim()
+  if (path === '') return { deny: NOT_IGNORED }
+  const file = path.startsWith('/') ? path : `${root}/${path}`
   const text = (await store.read(file)) ?? ''
   await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`)
 
@@ -206,11 +211,11 @@ export async function keepRecordsOut(
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md and TASKS.md, with
 // paths from the project's root; none when the mod is off here.
-export async function sessionFiles(store: Store, root: string): Promise<SessionFile[]> {
-  const { settings } = await readSettings(store, root)
-  if (!settings.enabled || (await staleLayout(store, root)) !== null) return []
-  await refreshTocs(store, root, settings.docs)
-  await refreshMap(store, root, settings.files.shift, settings.docs)
+export async function sessionFiles(project: Project): Promise<SessionFile[]> {
+  const { store, root, settings } = project
+  if (!settings.enabled || (await staleLayout(project)) !== null) return []
+  await refreshTocs(project)
+  await refreshMap(project)
   const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 
@@ -219,7 +224,7 @@ export async function sessionFiles(store: Store, root: string): Promise<SessionF
 
 // Records the mod cannot work on yet: an older name of its folder, or the folder the shift skill left. Then the mod writes
 // nothing — a map appended to the skill's own SHIFT.md would come into every session — and says what to move.
-export async function staleLayout(store: Store, root: string): Promise<string | null> {
+export async function staleLayout({ store, root }: Project): Promise<string | null> {
   if (await store.exists(`${root}/${OLD_DIR}`)) {
     return (await store.exists(`${root}/${DIR}`))
       ? `Both ${OLD_DIR}/ and ${DIR}/ are here: the records live in ${DIR}/ now. Merge what ${OLD_DIR}/ holds into ${DIR}/ by ${GUIDE_TOOL}, then remove ${OLD_DIR}/.`

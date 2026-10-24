@@ -9,6 +9,7 @@ import {
   checkWork,
   compactInstructions,
   contentChars,
+  DEFAULT_SETTINGS,
   DOCTRINE,
   FRESH_GAUGE,
   frontmatter,
@@ -84,13 +85,14 @@ const WORK: Work = {
   owner: OWNER,
   tasks: [TESTS],
   knowledge: [{ name: 'traps.md', text: TRAPS }],
-  settings: null,
   taskList: LIST,
   glossary: null,
   shift: null,
   archived: [],
   oldOwner: false,
 }
+// The records checked against a project whose settings are the defaults.
+const check = (work: Work, previous: Work | null) => checkWork(work, previous, { settings: DEFAULT_SETTINGS, problem: null })
 
 test('parseShiftInput refuses an empty letter, an unknown after and a bad about', () => {
   expect(parseShiftInput({ letter: ' ', after: 'wait', about: 'a' })).toContain('letter')
@@ -136,28 +138,28 @@ test('the letter needs every section, none empty', () => {
 })
 
 test('the board is a state, not a diary', () => {
-  expect(checkWork(WORK, null)).toBeNull()
-  expect(checkWork({ ...WORK, board: '## Goal\nmod' }, null)).toContain('"## Decisions"')
-  expect(checkWork({ ...WORK, board: boardWith(['- tests go first, 2026-10-23']) }, null)).toContain('date')
-  expect(checkWork({ ...WORK, taskList: listWith(['- [done] [tests](tasks/tests/) — red']) }, null)).toContain('task_archive')
+  expect(check(WORK, null)).toBeNull()
+  expect(check({ ...WORK, board: '## Goal\nmod' }, null)).toContain('"## Decisions"')
+  expect(check({ ...WORK, board: boardWith(['- tests go first, 2026-10-23']) }, null)).toContain('date')
+  expect(check({ ...WORK, taskList: listWith(['- [done] [tests](tasks/tests/) — red']) }, null)).toContain('task_archive')
   const long = boardWith(Array.from({ length: 200 }, (_, i) => `- decision ${i}`))
-  expect(checkWork({ ...WORK, board: long }, null)).toContain('diary')
-  expect(checkWork({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` }, null)).toContain('live in .shift/OWNER.md')
-  expect(checkWork({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) }, null)).toContain('needs its reason')
-  expect(checkWork({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) }, null)).toBeNull()
+  expect(check({ ...WORK, board: long }, null)).toContain('diary')
+  expect(check({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` }, null)).toContain('live in .shift/OWNER.md')
+  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) }, null)).toContain('needs its reason')
+  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) }, null)).toBeNull()
 })
 
 test("the owner's decisions are a code of rules beside the board", () => {
-  expect(checkWork({ ...WORK, owner: null }, null)).toContain('No .shift/OWNER.md')
-  expect(checkWork({ ...WORK, owner: ' ' }, null)).toContain('"none"')
-  expect(checkWork({ ...WORK, owner: `${OWNER} (19.10.2026)` }, null)).toContain('rewrites the older line')
+  expect(check({ ...WORK, owner: null }, null)).toContain('No .shift/OWNER.md')
+  expect(check({ ...WORK, owner: ' ' }, null)).toContain('"none"')
+  expect(check({ ...WORK, owner: `${OWNER} (19.10.2026)` }, null)).toContain('rewrites the older line')
   const long = Array.from({ length: 160 }, (_, i) => `- rule ${i}`).join('\n')
-  expect(checkWork({ ...WORK, owner: long }, null)).toContain('a log')
-  expect(checkWork({ ...WORK, owner: 'none' }, null)).toBeNull()
+  expect(check({ ...WORK, owner: long }, null)).toContain('a log')
+  expect(check({ ...WORK, owner: 'none' }, null)).toBeNull()
 })
 
 test('knowledge files have a kind, an about, their entry fields and room', () => {
-  const file = (name: string, text: string) => checkWork({ ...WORK, knowledge: [{ name, text }] }, null)
+  const file = (name: string, text: string) => check({ ...WORK, knowledge: [{ name, text }] }, null)
   expect(file('traps.md', TRAPS)).toBeNull()
   expect(file('traps-tooling.md', TRAPS)).toBeNull()
   expect(file('notes.md', TRAPS.replace('kind: traps', 'kind: notes'))).toContain('one of traps, lessons, runbook, facts')
@@ -177,20 +179,20 @@ test('knowledge files have a kind, an about, their entry fields and room', () =>
 })
 
 test('TASKS.md and the task folders match, and each task is whole', () => {
-  expect(checkWork({ ...WORK, tasks: [] }, null)).toContain('without a folder')
-  expect(checkWork({ ...WORK, tasks: [TESTS, { ...TESTS, name: 'extra' }] }, null)).toContain('missing from .shift/TASKS.md: extra')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, track: null }] }, null)).toContain('no track.md')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, task: '## Goal\ng' }] }, null)).toContain('title')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, task: '# T\n## Goal\ng' }] }, null)).toContain('"## Done when"')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, track: '- fix it' }] }, null)).toContain('Track items without a status')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fixed 23.10.2026' }] }, null)).toContain('date')
+  expect(check({ ...WORK, tasks: [] }, null)).toContain('without a folder')
+  expect(check({ ...WORK, tasks: [TESTS, { ...TESTS, name: 'extra' }] }, null)).toContain('missing from .shift/TASKS.md: extra')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, track: null }] }, null)).toContain('no track.md')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, task: '## Goal\ng' }] }, null)).toContain('title')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, task: '# T\n## Goal\ng' }] }, null)).toContain('"## Done when"')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- fix it' }] }, null)).toContain('Track items without a status')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fixed 23.10.2026' }] }, null)).toContain('date')
 })
 
 test('something must change between shifts, on the board or in a task', () => {
-  expect(checkWork(WORK, WORK)).toContain('Nothing changed')
-  expect(checkWork({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fix the parser' }] }, WORK)).toBeNull()
-  expect(checkWork({ ...WORK, owner: 'none' }, WORK)).toBeNull()
-  expect(checkWork({ ...WORK, knowledge: [] }, WORK)).toBeNull()
+  expect(check(WORK, WORK)).toContain('Nothing changed')
+  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fix the parser' }] }, WORK)).toBeNull()
+  expect(check({ ...WORK, owner: 'none' }, WORK)).toBeNull()
+  expect(check({ ...WORK, knowledge: [] }, WORK)).toBeNull()
 })
 
 test('archiving: done needs every item closed, the index line carries the title and the links', () => {

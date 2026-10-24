@@ -19,12 +19,13 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
   src/docs.ts              the map of the documents the mod writes into SHIFT.md
   src/doccare.ts           the documents of `[docs] dirs` after a write: toc, remarks, broken links; the outline and mentions tools
-  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; every key with the version it came in
+  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; each key one row: version, about, get, put
+  src/project.ts           loadProject: the store, the root and the parsed settings, read once per hook or tool call; one policy for a broken settings file
   src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed
   src/archive.ts           archiving checks and the index line
   src/track.ts             task_track: a track item found by words of its name, or a task's line in TASKS.md, takes a status
   src/history.ts           shift folders, the stretch's segment, about.md, shift_history
-  src/store.ts             the storage port an adapter implements, and reading the records over it
+  src/store.ts             the storage port an adapter implements (files, a move, git), and reading the records over it
   src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session
   src/hint.ts              when to hint a shift, what the history grew from, shift_status, how the hint rides in a tool result
   src/texts/doctrine.ts    the "Shift" system-prompt section and the full guide
@@ -66,7 +67,8 @@ lefthook.yml  biome.json  package.json
 - Try the pi adapter: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). pi refuses to compact a history smaller than `keepRecentTokens` (20K by default); a test project can lower it in `.pi/settings.json` and run with `--approve`. `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first.
 - Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
 - Lint findings are fixed, never silenced.
-- A new settings key goes into `SETTING_KEYS` in `core/src/settings.ts` with the version it ships in: `shift_setup` shows it as new.
+- A new settings key is one row of `SETTING_KEYS` in `core/src/settings.ts` — the version it ships in, what it does, how it is read and checked: `shift_setup` shows it as new.
+- A flow takes the loaded `Project`, never a store and a root: an adapter loads it once per hook or tool call (`projectOf($)`, `projectAt(cwd)`).
 
 ## Facts that are not obvious from the code
 

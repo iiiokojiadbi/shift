@@ -1,5 +1,6 @@
 import { MOD } from './layout'
 import { frontmatter } from './markdown'
+import type { Project } from './project'
 import type { DocsSettings } from './settings'
 import type { Store } from './store'
 
@@ -125,14 +126,16 @@ export function withMap(shift: string | null, map: string): string {
 }
 
 // Writes the map into SHIFT.md when it changed; nothing when there are no documents and no SHIFT.md yet.
-export async function refreshMap(store: Store, root: string, shiftPath: string, settings: DocsSettings): Promise<void> {
+export async function refreshMap(project: Project): Promise<void> {
+  const { store, root } = project
+  const settings = project.settings.docs
   const dirs = settings.dirs
   const docs = await readDocs(store, root, dirs)
   const missing: string[] = []
   for (const dir of dirs.map(trimDir)) {
     if (!(await store.exists(`${root}/${dir}`))) missing.push(dir)
   }
-  const path = `${root}/${shiftPath}`
+  const path = `${root}/${project.settings.files.shift}`
   const current = await store.read(path)
   if (docs.length === 0 && current === null) return
   const next = withMap(current, renderMap(docs, settings, missing))

@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { DIR, RECENT_SHIFTS } from './layout'
-import { readSettings } from './settings'
+import type { Project } from './project'
 import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
@@ -14,10 +14,8 @@ export type Store = {
   exists(path: string): Promise<boolean>
   // Moves a folder, making the target's parent; null on success, else what went wrong.
   move(from: string, to: string): Promise<string | null>
-  // Whether the project's version control keeps `path` out; true when there is none, so nothing to keep out of.
-  isIgnored(root: string, path: string): Promise<boolean>
-  // The absolute path of the repository's own exclude file, which is never committed; null when there is no repository.
-  excludeFile(root: string): Promise<string | null>
+  // Runs git with `args` in `root`: its exit code and what it printed; null when there is no git to run.
+  git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string } | null>
 }
 
 // Where the files loaded into every session are, absolute.
@@ -50,7 +48,6 @@ export async function readWork(store: Store, base: string, places?: Places): Pro
     owner,
     tasks,
     knowledge,
-    settings: await store.read(`${base}/settings.toml`),
     taskList: await store.read(`${base}/TASKS.md`),
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
@@ -59,19 +56,15 @@ export async function readWork(store: Store, base: string, places?: Places): Pro
   }
 }
 
-// The project's records at the places its settings give; a settings file that does not parse counts as the defaults.
-export async function readProject(store: Store, root: string): Promise<Work | null> {
-  return readWork(store, `${root}/${DIR}`, await placesOf(store, root))
-}
+// The project's records at the places its settings give.
+export function readRecords(project: Project): Promise<Work | null> {
+  const { root, settings } = project
 
-export async function placesOf(store: Store, root: string): Promise<Places> {
-  const { settings } = await readSettings(store, root)
-
-  return {
+  return readWork(project.store, `${root}/${DIR}`, {
     owner: `${root}/${settings.files.owner}`,
     glossary: `${root}/${settings.files.glossary}`,
     shift: `${root}/${settings.files.shift}`,
-  }
+  })
 }
 
 export async function readSnapshot(store: Store, base: string, index: string): Promise<Snapshot | null> {
@@ -81,20 +74,22 @@ export async function readSnapshot(store: Store, base: string, index: string): P
 }
 
 // Shift folder names, oldest first: they are UTC stamps, so they sort by time.
-export function shiftNames(store: Store, root: string): Promise<string[]> {
+export function shiftNames({ store, root }: Project): Promise<string[]> {
   return store.list(`${root}/${DIR}/shifts`, 'dir')
 }
 
 // The newest earlier shift folder, whose snapshots the new state is checked against.
-export async function previousShift(store: Store, root: string): Promise<string | null> {
-  const last = (await shiftNames(store, root)).at(-1)
+export async function previousShift(project: Project): Promise<string | null> {
+  const { root } = project
+  const last = (await shiftNames(project)).at(-1)
 
   return last === undefined ? null : `${root}/${DIR}/shifts/${last}`
 }
 
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
-export async function lastShifts(store: Store, root: string, count: number): Promise<Recent> {
-  const names = await shiftNames(store, root)
+export async function lastShifts(project: Project, count: number): Promise<Recent> {
+  const { store, root } = project
+  const names = await shiftNames(project)
   const entries: HistoryEntry[] = await Promise.all(
     names.slice(-count).map(async name => ({ name, about: await store.read(`${root}/${DIR}/shifts/${name}/about.md`) })),
   )
@@ -103,6 +98,6 @@ export async function lastShifts(store: Store, root: string, count: number): Pro
 }
 
 // The shifts the message after a shift recalls.
-export function recentShifts(store: Store, root: string): Promise<Recent> {
-  return lastShifts(store, root, RECENT_SHIFTS)
+export function recentShifts(project: Project): Promise<Recent> {
+  return lastShifts(project, RECENT_SHIFTS)
 }

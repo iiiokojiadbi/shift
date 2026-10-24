@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { acceptShift, archiveTask, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
 import type { PendingShift, ShiftInput } from '../src/types'
-import { memoryStore } from './memory'
+import { memoryProject } from './memory'
 
 const ROOT = '/p'
 const R = `${ROOT}/.shift`
@@ -43,7 +43,7 @@ const TRAPS = [
 const INPUT: ShiftInput = { letter: '.shift/letter.md', after: 'continue', about: 'the parser fixed' }
 
 function project(extra: Record<string, string> = {}, ignored = true) {
-  return memoryStore(
+  return memoryProject(
     {
       [`${R}/letter.md`]: LETTER,
       [`${R}/board.md`]: BOARD,
@@ -53,52 +53,58 @@ function project(extra: Record<string, string> = {}, ignored = true) {
       [`${R}/tasks/tests/track.md`]: TRACK,
       ...extra,
     },
+    ROOT,
     ignored,
   )
 }
 
-async function accepted(store = project()): Promise<PendingShift> {
-  const result = await acceptShift(store, { root: ROOT, input: INPUT, at: AT, sessionId: 's1' })
+async function accepted(store: Awaited<ReturnType<typeof project>>): Promise<PendingShift> {
+  const result = await acceptShift(store, { input: INPUT, at: AT, sessionId: 's1' })
   if ('deny' in result) throw new Error(result.deny)
 
   return result.shift
 }
 
 test('a shift is refused without a letter, with a bad letter or without a board', async () => {
-  const call = { root: ROOT, input: INPUT, at: AT, sessionId: 's1' }
-  const deny = async (store: ReturnType<typeof project>) => {
+  const call = { input: INPUT, at: AT, sessionId: 's1' }
+  const deny = async (store: Awaited<ReturnType<typeof project>>) => {
     const result = await acceptShift(store, call)
     return 'deny' in result ? result.deny : null
   }
-  const noLetter = project()
+  const noLetter = await project()
   noLetter.files.delete(`${R}/letter.md`)
   expect(await deny(noLetter)).toContain('No letter at .shift/letter.md')
-  expect(await deny(project({ [`${R}/letter.md`]: '## Where I am\nx' }))).not.toBeNull()
-  const noBoard = project()
+  expect(await deny(await project({ [`${R}/letter.md`]: '## Where I am\nx' }))).not.toBeNull()
+  const noBoard = await project()
   noBoard.files.delete(`${R}/board.md`)
   expect(await deny(noBoard)).toContain('No board')
 })
 
 test("records the project's git does not ignore are excluded locally, unless the owner lets them be committed", async () => {
-  const call = { root: ROOT, input: INPUT, at: AT, sessionId: 's1' }
-  const store = project({ [`${ROOT}/.git/info/exclude`]: '# git ls-files --others --exclude-from=.git/info/exclude' }, false)
+  const call = { input: INPUT, at: AT, sessionId: 's1' }
+  const store = await project({ [`${ROOT}/.git/info/exclude`]: '# git ls-files --others --exclude-from=.git/info/exclude' }, false)
   const accepted = await acceptShift(store, call)
   if ('deny' in accepted) throw new Error(accepted.deny)
   expect(accepted.result).toContain('the mod added ".shift/" to /p/.git/info/exclude')
   expect(store.files.get(`${ROOT}/.git/info/exclude`)).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n.shift/\n')
 
-  const committed = project({ [`${R}/settings.toml`]: 'commit = true' }, false)
+  const committed = await project({ [`${R}/settings.toml`]: 'commit = true' }, false)
   const kept = await acceptShift(committed, call)
   if ('deny' in kept) throw new Error(kept.deny)
   expect(kept.result).not.toContain('exclude')
   expect(committed.files.has(`${ROOT}/.git/info/exclude`)).toBe(false)
 
-  const noRepoFile = { ...project({}, false), excludeFile: async () => null }
+  const noRepo = await project({}, false)
+  const git = async (_root: string, args: readonly string[]) => ({ code: args[0] === 'check-ignore' ? 1 : 128, stdout: '' })
+  const noRepoFile = { ...noRepo, store: { ...noRepo.store, git } }
   expect(await acceptShift(noRepoFile, call)).toEqual({ deny: expect.stringContaining('commit = true') })
+  // No repository at all, or no git to run: nothing to keep the records out of.
+  const noGit = { ...noRepo, store: { ...noRepo.store, git: async () => null } }
+  expect(await acceptShift(noGit, call)).toHaveProperty('shift')
 })
 
 test('an accepted shift snapshots the records and leaves a pending about.md', async () => {
-  const store = project({ [`${R}/knowledge/traps.md`]: TRAPS, [`${R}/archive/index.md`]: '- [done] [Old](old/) — gone' })
+  const store = await project({ [`${R}/knowledge/traps.md`]: TRAPS, [`${R}/archive/index.md`]: '- [done] [Old](old/) — gone' })
   const shift = await accepted(store)
 
   expect(shift.dir).toBe(DIR)
@@ -122,9 +128,9 @@ test('an accepted shift snapshots the records and leaves a pending about.md', as
 })
 
 test('archiving moves the folder and adds the index line; a second time is refused', async () => {
-  const store = project({ [`${R}/tasks/tests/track.md`]: '- [done] fix the parser' })
+  const store = await project({ [`${R}/tasks/tests/track.md`]: '- [done] fix the parser' })
   const input = { name: 'tests', outcome: 'done' as const, about: 'green' }
-  const result = await archiveTask(store, ROOT, input)
+  const result = await archiveTask(store, input)
 
   expect(result).toEqual({ result: expect.stringContaining('Archived to .shift/archive/tests/') })
   expect(store.files.has(`${R}/archive/tests/task.md`)).toBe(true)
@@ -132,15 +138,15 @@ test('archiving moves the folder and adds the index line; a second time is refus
   expect(store.files.get(`${R}/archive/index.md`)).toContain('[Green tests](tests/) — green')
   store.files.set(`${R}/tasks/tests/task.md`, TASK)
   store.files.set(`${R}/tasks/tests/track.md`, '- [done] again')
-  expect(await archiveTask(store, ROOT, input)).toHaveProperty('deny')
+  expect(await archiveTask(store, input)).toHaveProperty('deny')
 })
 
 test('the history reads the last shifts, oldest first', async () => {
-  const store = project()
+  const store = await project()
   for (const name of ['20260101-000000', '20260101-000001', '20260101-000002']) {
     store.files.set(`${R}/shifts/${name}/about.md`, `---\ndescription: did ${name}\nafter: wait\nresult: shifted\n---\n`)
   }
-  const text = await shiftHistory(store, ROOT, 2)
+  const text = await shiftHistory(store, 2)
 
   expect(text).toContain('2 of 3')
   expect(text).not.toContain('did 20260101-000000')
@@ -148,20 +154,20 @@ test('the history reads the last shifts, oldest first', async () => {
 })
 
 test('resume says why there is nothing, else hands the letter last', async () => {
-  expect((await resumeShift(project(), ROOT)).text).toContain('No shifts in this project')
-  const store = project({ [`${R}/shifts/20260101-000000/about.md`]: 'x' })
-  expect((await resumeShift(store, ROOT)).text).toContain('No letter.md')
+  expect((await resumeShift(await project())).text).toContain('No shifts in this project')
+  const store = await project({ [`${R}/shifts/20260101-000000/about.md`]: 'x' })
+  expect((await resumeShift(store)).text).toContain('No letter.md')
 
   store.files.set(`${R}/shifts/20260101-000000/letter.md`, LETTER)
-  const resumed = await resumeShift(store, ROOT)
+  const resumed = await resumeShift(store)
   expect(resumed.text).toBe('Picking up shift 20260101-000000.')
   expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
 })
 
 test('after the let-go: continue counts the streak, a capped continue and a wait leave the note', async () => {
-  const store = project()
+  const store = await project()
   const shift = await accepted(store)
-  const letGo = { root: ROOT, shift, messages: [{ role: 'user', text: 'DIGEST' }], before: 300_000, after: 20_000, streak: 0 }
+  const letGo = { shift, messages: [{ role: 'user', text: 'DIGEST' }], before: 300_000, after: 20_000, streak: 0 }
 
   const going = await settleShift(store, letGo)
   expect(going).toMatchObject({
@@ -187,13 +193,13 @@ test('after the let-go: continue counts the streak, a capped continue and a wait
 })
 
 test('a let-go that failed is written down; the base comes back only from this session', async () => {
-  const store = project()
+  const store = await project()
   const shift = await accepted(store)
   expect(await shiftNotMade(store, shift, 'busy', 100_000)).toBe('shift 20260102-030405 not made — busy')
   expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
-  expect(await shiftBase(store, ROOT, 's1')).toBeNull()
+  expect(await shiftBase(store, 's1')).toBeNull()
 
-  await settleShift(store, { root: ROOT, shift, messages: [], before: 300_000, after: 20_000, streak: 0 })
-  expect(await shiftBase(store, ROOT, 's1')).toBe(20_000)
-  expect(await shiftBase(store, ROOT, 's2')).toBeNull()
+  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000, streak: 0 })
+  expect(await shiftBase(store, 's1')).toBe(20_000)
+  expect(await shiftBase(store, 's2')).toBeNull()
 })

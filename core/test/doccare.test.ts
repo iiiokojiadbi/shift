@@ -1,12 +1,15 @@
 import { expect, test } from 'bun:test'
 import { afterWrite, docOutline, docsMentioning, docsReport, outline, withToc } from '../src/doccare'
 import { sessionFiles } from '../src/flows'
+import { loadProject } from '../src/project'
 import { parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
+import type { Store } from '../src/store'
 import { renderSessionFiles } from '../src/texts/prompts'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
+const at = (store: Store) => loadProject(store, ROOT)
 const R = `${ROOT}/.shift`
 const SETTINGS = `${R}/settings.toml`
 const DOC = '---\ndescription: what A holds\n---\n\n# A\n\n## One\n> the first\n\n```\n## not a heading\n```\n\n### Deep\n\n## Two\n'
@@ -26,7 +29,10 @@ test('the outline and the toc: ## and ### outside fences, a > line as the note, 
 
 test('settings: toc, limits and the files every session gets', () => {
   const parsed = parseSettings('[files]\nalways = ["docs/dates.md"]\n[docs]\ntoc = true\nmax_description = 200\nmax_lines = 150')
-  expect(parsed).toMatchObject({ files: { always: ['docs/dates.md'] }, docs: { toc: true, maxDescription: 200, maxLines: 150 } })
+  expect(parsed).toMatchObject({
+    settings: { files: { always: ['docs/dates.md'] }, docs: { toc: true, maxDescription: 200, maxLines: 150 } },
+    set: new Set(['files.always', 'docs.toc', 'docs.max_description', 'docs.max_lines']),
+  })
   expect(parseSettings('[docs]\nmax_lines = -1')).toContain('above 0')
   expect(parseSettings('[docs]\nnope = 1')).toContain('`docs.max_lines`')
 })
@@ -37,18 +43,18 @@ test('after a write: the toc and the map follow the document, remarks once, sile
     [`${ROOT}/docs/a.md`]: DOC,
     [`${ROOT}/docs/b.md`]: '---\ndescription: B\n---\n\n# B\n\n<!-- toc -->\n<!-- /toc -->\n\nSee [A](a.md) and docs/a.md.\n',
   })
-  const first = await afterWrite(store, ROOT, `${ROOT}/docs/a.md`)
+  const first = await afterWrite(await at(store), `${ROOT}/docs/a.md`)
   expect(first).toContain('rewrote the toc of `docs/a.md`')
   expect(store.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->\n- One - the first')
   expect(store.files.get(`${R}/SHIFT.md`)).toContain('`docs/a.md` — what A holds')
-  expect(await afterWrite(store, ROOT, `${ROOT}/docs/a.md`)).toBeNull()
-  expect(await afterWrite(store, ROOT, `${ROOT}/docs/b.md`)).toBeNull()
+  expect(await afterWrite(await at(store), `${ROOT}/docs/a.md`)).toBeNull()
+  expect(await afterWrite(await at(store), `${ROOT}/docs/b.md`)).toBeNull()
 
   store.files.set(
     `${ROOT}/docs/c.md`,
     `# C\n\n<!-- toc -->\n<!-- /toc -->\n${'x\n'.repeat(40)}[gone](../docs/gone.md), docs/old.md, docs/<name>.md`,
   )
-  const remarks = (await afterWrite(store, ROOT, `${ROOT}/docs/c.md`)) ?? ''
+  const remarks = (await afterWrite(await at(store), `${ROOT}/docs/c.md`)) ?? ''
   expect(remarks).toContain('no `description:`')
   expect(remarks).toContain('over `[docs] max_lines = 30`')
   expect(remarks).toContain('a link to `../docs/gone.md` that is not there')
@@ -56,13 +62,13 @@ test('after a write: the toc and the map follow the document, remarks once, sile
   expect(remarks).not.toContain('<name>')
 
   store.files.set(`${ROOT}/src/run.ts`, "// see docs/a.md and docs/missing.md\nconst x = '/abs/docs/elsewhere.md'")
-  const code = (await afterWrite(store, ROOT, `${ROOT}/src/run.ts`)) ?? ''
+  const code = (await afterWrite(await at(store), `${ROOT}/src/run.ts`)) ?? ''
   expect(code).toContain('`src/run.ts`: a link to `docs/missing.md` that is not there.')
   expect(code).not.toContain('elsewhere')
-  expect(await afterWrite(store, ROOT, `${R}/board.md`)).toBeNull()
+  expect(await afterWrite(await at(store), `${R}/board.md`)).toBeNull()
 
   store.files.set(SETTINGS, '[docs]\ndirs = []')
-  expect(await afterWrite(store, ROOT, `${ROOT}/docs/c.md`)).toBeNull()
+  expect(await afterWrite(await at(store), `${ROOT}/docs/c.md`)).toBeNull()
 })
 
 test('the report at a shift, the outline and mentions tools, and [files] always', async () => {
@@ -73,21 +79,21 @@ test('the report at a shift, the outline and mentions tools, and [files] always'
     [`${ROOT}/AGENTS.md`]: 'map: docs/a.md, docs/gone.md',
     [`${R}/TASKS.md`]: 'none',
   })
-  expect(await docsReport(store, ROOT)).toBe('- `AGENTS.md`: a link to `docs/gone.md` that is not there')
+  expect(await docsReport(await at(store))).toBe('- `AGENTS.md`: a link to `docs/gone.md` that is not there')
 
-  const files = await sessionFiles(store, ROOT)
+  const files = await sessionFiles(await at(store))
   expect(files.map(file => file.path)).toContain('docs/dates.md')
   expect(store.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->')
 
-  const head = await docOutline(store, ROOT, 'docs/a.md')
+  const head = await docOutline(await at(store), 'docs/a.md')
   expect(head).toContain('docs/a.md — ')
   expect(head).toContain('  what A holds')
   expect(head).toMatch(/\n {3,}\d+ {2}One - the first/)
   expect(head).toMatch(/\n {5,}\d+ {2}Deep/)
-  expect(await docOutline(store, ROOT, 'docs/none.md')).toBe('No file at docs/none.md.')
+  expect(await docOutline(await at(store), 'docs/none.md')).toBe('No file at docs/none.md.')
 
-  expect(await docsMentioning(store, ROOT, 'src/n8n/fetch.js')).toBe('`fetch.js` is mentioned in:\n- docs/dates.md')
-  expect(await docsMentioning(store, ROOT, 'prefetch.js')).toBe('No document in `docs/` mentions `prefetch.js`.')
+  expect(await docsMentioning(await at(store), 'src/n8n/fetch.js')).toBe('`fetch.js` is mentioned in:\n- docs/dates.md')
+  expect(await docsMentioning(await at(store), 'prefetch.js')).toBe('No document in `docs/` mentions `prefetch.js`.')
 })
 
 test('the setup report: every key with its value here and its version, and which session files changed', async () => {
@@ -96,7 +102,7 @@ test('the setup report: every key with its value here and its version, and which
     [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
     [`${R}/TASKS.md`]: 'none',
   })
-  const fresh = await setupReport(store, ROOT, null)
+  const fresh = await setupReport(await at(store), null)
   expect(fresh).toContain('- `[docs] toc` = true — set here, since 0.5.0:')
   expect(fresh).toContain('- `[docs] max_lines` = unset — default, since 0.5.0:')
   expect(fresh).toContain('- `enabled` = true — default, since 0.2.9:')
@@ -105,17 +111,17 @@ test('the setup report: every key with its value here and its version, and which
   expect(fresh).toContain('## Documents\n\nNo remarks.')
   expect(fresh).toContain('## Coming from the earlier layout')
 
-  const loaded = renderSessionFiles(await sessionFiles(store, ROOT))
+  const loaded = renderSessionFiles(await sessionFiles(await at(store)))
   store.files.set(`${R}/OWNER.md`, '# Owner decisions\n\n## Scope\n\n- new')
-  expect(await setupReport(store, ROOT, loaded)).toContain("Changed since this session's block was read: `.shift/OWNER.md`.")
+  expect(await setupReport(await at(store), loaded)).toContain("Changed since this session's block was read: `.shift/OWNER.md`.")
   store.files.set(SETTINGS, 'enabled = maybe')
-  expect(await setupReport(store, ROOT, null)).toContain('It does not parse')
+  expect(await setupReport(await at(store), null)).toContain('It does not parse')
 })
 
 test('the report after a shift folds the undescribed documents into one line and names at most ten others', async () => {
   const seed: Record<string, string> = { [`${R}/TASKS.md`]: 'none' }
   for (let i = 0; i < 30; i++) seed[`${ROOT}/docs/${String(i).padStart(2, '0')}.md`] = `# D\n\nsee [x](gone-${i}.md)`
-  const report = (await docsReport(memoryStore(seed), ROOT)) ?? ''
+  const report = (await docsReport(await at(memoryStore(seed)))) ?? ''
   expect(report.split('\n')[0]).toBe(
     '- 30 documents without `description:`: `docs/00.md`, `docs/01.md`, `docs/02.md` and the rest the map marks',
   )

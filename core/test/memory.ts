@@ -1,3 +1,4 @@
+import { loadProject, type Project } from '../src/project'
 import type { Store } from '../src/store'
 
 // A store over a map of absolute paths to texts, for testing the core's flows without a harness.
@@ -29,7 +30,19 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
 
       return null
     },
-    isIgnored: async () => ignored,
-    excludeFile: async root => `${root}/.git/info/exclude`,
+    // check-ignore answers 0 when ignored and 1 when not; rev-parse names the exclude file from the root.
+    git: async (_root, args) =>
+      args[0] === 'check-ignore' ? { code: ignored ? 0 : 1, stdout: '' } : { code: 0, stdout: '.git/info/exclude\n' },
   }
+}
+
+// The project at `root` over a memory store, loaded as an operation of the mod loads it.
+export async function memoryProject(
+  seed: Record<string, string> = {},
+  root = '/p',
+  ignored = true,
+): Promise<Project & { files: Map<string, string> }> {
+  const store = memoryStore(seed, ignored)
+
+  return { ...(await loadProject(store, root)), files: store.files }
 }

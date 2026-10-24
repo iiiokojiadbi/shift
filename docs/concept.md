@@ -131,7 +131,7 @@ The core knows nothing about the harness. It holds:
 - the checks of the letter, the board, the tasks, the owner's decisions and the knowledge;
 - the hint rule — a pure function of the measurement history — and the counting of growth;
 - every text the model or the owner reads: tool descriptions, the summarizer's instructions, the messages after a shift, the owner's rows;
-- the flows over a storage port (`store.ts`: read, list, write, exists, move, whether the records are ignored by version control and where the repository's local exclude file is): accepting a shift with its snapshots, archiving a task, the history, picking up the last shift, what follows a let-go (continue, wait, or a forced wait after three continues without the owner) and the stretch's base after a restart.
+- the flows over a storage port (`store.ts`: read, list, write, exists, move, and running git — what its exit codes mean is the core's, once) and the project they run on, loaded once per hook or tool call (`project.ts`: the store, the root, the parsed settings and what is wrong with them): accepting a shift with its snapshots, archiving a task, the history, picking up the last shift, what follows a let-go (continue, wait, or a forced wait after three continues without the owner) and the stretch's base after a restart.
 
 The flows are tested over an in-memory store (`core/test`), with no harness. An adapter is wiring plus the port: it registers the tools, the command and the hooks, keeps the state, measures the window, lets the history go, delivers the letter and the hints, and reads its harness's history for growth.
 

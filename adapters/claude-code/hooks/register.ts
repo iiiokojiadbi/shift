@@ -28,6 +28,7 @@ import {
   OUTLINE_DESCRIPTION,
   OUTLINE_SCHEMA,
   OUTLINE_TOOL,
+  type Project,
   parseArchiveInput,
   parseHistoryCount,
   parsePath,
@@ -35,7 +36,6 @@ import {
   parseTrackInput,
   RESUME_COMMAND,
   RESUME_GO,
-  readSettings,
   renderSessionFiles,
   resumeShift,
   SETUP_DESCRIPTION,
@@ -59,7 +59,7 @@ import {
   updateTrack,
   withHint,
 } from './core/index'
-import { claudeStore } from './disk'
+import { projectOf } from './disk'
 import { handOver } from './handover'
 import { countGrowth, statusText, takeHint } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
@@ -77,18 +77,17 @@ const waitNote = atom({ plugin: 'shift', key: 'waitNote' } as const, null)
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
   on('session.start', async ($, e, next) => {
-    const store = claudeStore($)
-    const root = await $.session.root()
-    const { settings, problem } = await readSettings(store, root)
+    const project = await projectOf($)
+    const { settings, problem } = project
     await update($, enabled, () => settings.enabled)
     if (problem !== null) $.ui.log(`${PLUGIN}: ${problem} The mod stays on.`)
     if (!settings.enabled) return next(e)
-    const stale = await staleLayout(store, root)
+    const stale = await staleLayout(project)
     if (stale !== null) $.ui.log(`${PLUGIN}: ${stale}`)
-    await loadFiles($)
+    await loadFiles($, project)
     // Records written before the first shift stay out of a commit too.
-    if (await store.exists(`${root}/${DIR}`)) {
-      const kept = await keepRecordsOut(store, root, settings)
+    if (await project.store.exists(`${project.root}/${DIR}`)) {
+      const kept = await keepRecordsOut(project)
       if ('excluded' in kept && kept.excluded !== null) $.ui.log(EXCLUDED(kept.excluded))
     }
     await $.tool.register({
@@ -119,7 +118,7 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (!(await read($, enabled))) return composed
-    if ((await read($, filesSession)) !== (await $.session.id())) await loadFiles($)
+    if ((await read($, filesSession)) !== (await $.session.id())) await loadFiles($, await projectOf($))
     const loaded: string | null = await read($, files)
     const own = [{ id: `${PLUGIN}:doctrine`, text: DOCTRINE, scope: 'session' as const }]
     if (loaded !== null) own.push({ id: `${PLUGIN}:files`, text: loaded, scope: 'session' })
@@ -134,8 +133,8 @@ export const register: Register = on => {
     const parsed = parseShiftInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
-    const call = { root: await $.session.root(), input: parsed, at: await $.clock.now(), sessionId: await $.session.id() }
-    const accepted = await acceptShift(claudeStore($), call)
+    const call = { input: parsed, at: await $.clock.now(), sessionId: await $.session.id() }
+    const accepted = await acceptShift(await projectOf($), call)
     if ('deny' in accepted) return accepted
     await update($, pending, () => accepted.shift)
 
@@ -148,20 +147,20 @@ export const register: Register = on => {
     const parsed = parseArchiveInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
-    return archiveTask(claudeStore($), await $.session.root(), parsed)
+    return archiveTask(await projectOf($), parsed)
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: archiving broke (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__task_track' }, async ($, e) => {
     const parsed = parseTrackInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
-    return updateTrack(claudeStore($), await $.session.root(), parsed)
+    return updateTrack(await projectOf($), parsed)
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the status was not set (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__shift_guide' }, () => ({ result: GUIDE }))
 
   on('tool.call', { tool: 'mcp__shift__shift_setup' }, async $ => ({
-    result: await setupReport(claudeStore($), await $.session.root(), await read($, files)),
+    result: await setupReport(await projectOf($), await read($, files)),
   })).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the setup did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__shift_status' }, async $ => ({ result: await statusText($) })).catch((_$, e, next) =>
@@ -172,14 +171,14 @@ export const register: Register = on => {
     const path = parsePath(e as unknown as Record<string, unknown>, 'path')
     if (path === null) return { deny: "path is the document, from the project's root." }
 
-    return { result: await docOutline(claudeStore($), await $.session.root(), path) }
+    return { result: await docOutline(await projectOf($), path) }
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the outline did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   on('tool.call', { tool: 'mcp__shift__docs_mentioning' }, async ($, e) => {
     const file = parsePath(e as unknown as Record<string, unknown>, 'file')
     if (file === null) return { deny: 'file is the file whose name to look for.' }
 
-    return { result: await docsMentioning(claudeStore($), await $.session.root(), file) }
+    return { result: await docsMentioning(await projectOf($), file) }
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the documents did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
@@ -190,13 +189,13 @@ export const register: Register = on => {
     const count = parseHistoryCount(e as unknown as Record<string, unknown>)
     if (typeof count === 'string') return { deny: count }
 
-    return { result: await shiftHistory(claudeStore($), await $.session.root(), count) }
+    return { result: await shiftHistory(await projectOf($), count) }
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: the history did not read (${next.error?.kind ?? 'unknown'}).` }))
 
   // The letter enters the history with the command itself, so the owner's words — typed with the command or sent
   // right after it — come after the letter, never before it. A bare command starts the turn with a prompt of its own.
   on('command.run', { command: RESUME_COMMAND }, async ($, e) => {
-    const resumed = await resumeShift(claudeStore($), await $.session.root())
+    const resumed = await resumeShift(await projectOf($))
     const { prompt } = resumed
     if (prompt === undefined) return { text: resumed.text }
     const words = e.args.trim()
@@ -295,14 +294,14 @@ async function withDocsNote<Done extends { deny?: unknown; isError?: unknown; co
   done: Done,
 ): Promise<Done> {
   if (done.deny !== undefined || done.isError === true || !(await read($, enabled))) return done
-  const note = await afterWrite(claudeStore($), await $.session.root(), file)
+  const note = await afterWrite(await projectOf($), file)
 
   return note === null ? done : { ...done, context: [...(done.context ?? []), note] }
 }
 
 // SHIFT.md, OWNER.md, GLOSSARY.md, TASKS.md and the owner's own files, read for the session that runs now.
-async function loadFiles($: EngineInterface): Promise<void> {
-  const loaded = renderSessionFiles(await sessionFiles(claudeStore($), await $.session.root()))
+async function loadFiles($: EngineInterface, project: Project): Promise<void> {
+  const loaded = renderSessionFiles(await sessionFiles(project))
   const session = await $.session.id()
   await update($, files, () => loaded)
   await update($, filesSession, () => session)

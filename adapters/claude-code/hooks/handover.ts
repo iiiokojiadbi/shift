@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { PendingShift } from '../types'
 import { compactInstructions, renderSessionFiles, sessionFiles, settleShift, shiftNotMade } from './core/index'
-import { claudeStore } from './disk'
+import { projectOf } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const autoStreak = atom({ plugin: 'shift', key: 'autoStreak' } as const, 0)
@@ -15,22 +15,20 @@ export async function handOver($: EngineInterface): Promise<void> {
   if (shift === null) return
   await update($, pending, () => null)
 
-  const store = claudeStore($)
+  const project = await projectOf($)
   const tokensBefore = (await $.session.usage()).context.tokens
   const done = await $.session
     .compact({ instructions: compactInstructions(shift.hold, shift.board, `${shift.dir}/letter.md`) })
     .catch((error: unknown) => ({ skip: `compaction failed: ${String(error)}`, messages: undefined }))
   if (done.messages === undefined) {
-    $.ui.log(await shiftNotMade(store, shift, done.skip, tokensBefore))
+    $.ui.log(await shiftNotMade(project, shift, done.skip, tokensBefore))
     return
   }
 
-  const root = await $.session.root()
   // The files the session carries come back as the shift left them.
-  const loaded = renderSessionFiles(await sessionFiles(store, root))
+  const loaded = renderSessionFiles(await sessionFiles(project))
   await update($, files, () => loaded)
-  const settled = await settleShift(store, {
-    root,
+  const settled = await settleShift(project, {
     shift,
     messages: done.messages,
     before: done.tokensBefore ?? tokensBefore,

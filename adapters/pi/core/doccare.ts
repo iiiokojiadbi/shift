@@ -2,7 +2,8 @@
 import { docPaths, refreshMap, trimDir } from './docs'
 import { DIR, MOD } from './layout'
 import { frontmatter } from './markdown'
-import { type DocsSettings, readSettings } from './settings'
+import type { Project } from './project'
+import type { DocsSettings } from './settings'
 import type { Store } from './store'
 
 // The project's documents the mod keeps beside the map: a toc inside each document, checks after the agent writes a
@@ -109,8 +110,8 @@ export async function brokenLinks(store: Store, root: string, path: string, text
 
 // After the agent wrote a file: a document gets its toc rewritten and the map follows it; a document's remarks and any
 // file's broken links come back as one note. Null when all is well: a check that speaks on every edit is noise.
-export async function afterWrite(store: Store, root: string, file: string): Promise<string | null> {
-  const { settings } = await readSettings(store, root)
+export async function afterWrite(project: Project, file: string): Promise<string | null> {
+  const { store, root, settings } = project
   const docs = settings.docs
   if (!settings.enabled || docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
   const path = file.slice(root.length + 1)
@@ -128,7 +129,7 @@ export async function afterWrite(store: Store, root: string, file: string): Prom
       lines.push(`The mod rewrote the toc of \`${path}\`: read the file before editing it again.`)
     }
   }
-  if (doc) await refreshMap(store, root, settings.files.shift, docs)
+  if (doc) await refreshMap(project)
   const remarks = [
     ...(doc ? docRemarks(text, docs) : []),
     ...(await brokenLinks(store, root, path, text, docs.dirs)).map(link => `a link to \`${link}\` that is not there`),
@@ -139,7 +140,8 @@ export async function afterWrite(store: Store, root: string, file: string): Prom
 }
 
 // Every document's toc written from its headings, when the settings ask for one; at the session's start and a shift.
-export async function refreshTocs(store: Store, root: string, docs: DocsSettings): Promise<void> {
+export async function refreshTocs({ store, root, settings }: Project): Promise<void> {
+  const docs = settings.docs
   if (!docs.toc) return
   for (const path of await docPaths(store, root, docs.dirs)) {
     const text = await store.read(`${root}/${path}`)
@@ -151,8 +153,8 @@ export async function refreshTocs(store: Store, root: string, docs: DocsSettings
 // The documents with remarks and the root's Markdown files with a broken link, short enough to read after a shift:
 // documents without a description as one line with a count, the other remarks for the first few documents and a count
 // of the rest. Null when there are none.
-export async function docsReport(store: Store, root: string): Promise<string | null> {
-  const { settings } = await readSettings(store, root)
+export async function docsReport(project: Project): Promise<string | null> {
+  const { store, root, settings } = project
   const docs = settings.docs
   if (!settings.enabled || docs.dirs.length === 0) return null
   const rootFiles = (await store.list(root, 'file')).filter(name => name.endsWith('.md'))
@@ -193,7 +195,7 @@ const NO_DESCRIPTION = 'no `description:` in its frontmatter'
 const REPORT_DOCS = 10
 
 // A document's description and its `##` and `###` with line numbers, so the agent reads only the section it needs.
-export async function docOutline(store: Store, root: string, file: string): Promise<string> {
+export async function docOutline({ store, root }: Project, file: string): Promise<string> {
   const path = fromRoot(root, file)
   const text = await store.read(`${root}/${path}`)
   if (text === null) return `No file at ${path}.`
@@ -206,8 +208,7 @@ export async function docOutline(store: Store, root: string, file: string): Prom
 }
 
 // The documents that name a file — its name without the folder, as a whole word — to check them against a change.
-export async function docsMentioning(store: Store, root: string, file: string): Promise<string> {
-  const { settings } = await readSettings(store, root)
+export async function docsMentioning({ store, root, settings }: Project, file: string): Promise<string> {
   const dirs = settings.docs.dirs
   if (dirs.length === 0) return 'The owner turned the docs off: `[docs] dirs = []`.'
   const name =
