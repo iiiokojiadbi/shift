@@ -520,7 +520,8 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
   const files = project()
   let tokens = 20000
   const prompts: (readonly string[] | undefined)[] = []
-  stubSession(on, files, [], () => tokens)
+  const logs: string[] = []
+  stubSession(on, files, logs, () => tokens)
   on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => {
     prompts.push(e.context)
     return { text: e.text }
@@ -540,6 +541,7 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
   expect(hinted?.length).toBe(1)
   expect(JSON.stringify(hinted?.[0])).toContain('"content":"ok\\n\\n<system-reminder>\\nShift hint')
   expect(JSON.stringify(hinted?.[0])).toContain('Mostly from: Bash')
+  expect(logs.filter(line => line.startsWith('to the agent — Shift hint'))).toHaveLength(1)
   tokens = 170000
   expect(JSON.stringify(await toolResult())).not.toContain('Shift hint')
   tokens = 175000

@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { Gauge, Reading } from './core/index'
-import { addGrowth, contentChars, FRESH_GAUGE, growthOf, renderStatus, shiftBase, shiftHint } from './core/index'
+import { addGrowth, contentChars, FRESH_GAUGE, growthOf, HINTED, renderStatus, shiftBase, shiftHint } from './core/index'
 import { claudeStore } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
@@ -32,6 +32,7 @@ export async function takeHint($: EngineInterface): Promise<string | null> {
 
     return hint.gauge
   })
+  if (text !== null) $.ui.log(HINTED(text))
 
   return text
 }

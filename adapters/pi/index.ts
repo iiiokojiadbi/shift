@@ -19,6 +19,7 @@ import {
   GUIDE_DESCRIPTION,
   GUIDE_SCHEMA,
   GUIDE_TOOL,
+  HINTED,
   HISTORY_DESCRIPTION,
   HISTORY_SCHEMA,
   HISTORY_TOOL,
@@ -270,6 +271,7 @@ export default function infinityShift(pi: ExtensionAPI): void {
     await restore(ctx)
     const hint = shiftHint(gauge, reading(ctx))
     gauge = hint.gauge
+    if (hint.text !== null) tell(ctx, HINTED(hint.text), 'info')
 
     return hint.text
   }
