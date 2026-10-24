@@ -41,7 +41,8 @@ function headings(text: string): string[] {
   return found
 }
 
-// The block itself; past its size limit only folders and file names, so it never crowds the session. A folder of the
+// The block itself; past its size limit first without the sections, then only folders and file names, so it never
+// crowds the session and loses the descriptions last. A folder of the
 // settings with nothing to list is named with why — no such folder, or no documents in it — so the agent knows the
 // project has no docs there and does not go searching. `[docs] dirs = []` is the owner turning the map off — the
 // project's docs may be shared with people and not the agent's to describe — and the block says just that.
@@ -64,28 +65,34 @@ export function renderMap(docs: readonly Doc[], dirs: readonly string[], missing
   }
   // A folder before the folders inside it.
   const sorted = [...folders].sort(([a], [b]) => a.localeCompare(b))
-  const full = sorted.map(([folder, inside]) =>
-    [
-      `### ${folder}/`,
-      '',
-      ...inside.flatMap(doc => [
-        `- \`${doc.path}\` — ${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
-        ...(doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
-      ]),
-    ].join('\n'),
-  )
-  const body =
-    full.join('\n\n').length <= DOCS_MAP_MAX_CHARS
-      ? full
-      : sorted.map(
-          ([folder, inside]) =>
-            `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
-        )
-  const note =
-    body === full
-      ? 'Open a document for numbers, commands and names: the map only points.'
-      : `The full map is over ${DOCS_MAP_MAX_CHARS} characters, so only folders: read a document's frontmatter for what it holds.`
-
+  const listed = (sections: boolean): string[] =>
+    sorted.map(([folder, inside]) =>
+      [
+        `### ${folder}/`,
+        '',
+        ...inside.flatMap(doc => [
+          `- \`${doc.path}\` — ${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
+          ...(!sections || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
+        ]),
+      ].join('\n'),
+    )
+  const fits = (body: string[]): boolean => body.join('\n\n').length <= DOCS_MAP_MAX_CHARS
+  const full = listed(true)
+  const described = listed(false)
+  const [body, note] = fits(full)
+    ? [full, 'Open a document for numbers, commands and names: the map only points.']
+    : fits(described)
+      ? [
+          described,
+          `With the sections the map is over ${DOCS_MAP_MAX_CHARS} characters, so descriptions only: open a document for its sections.`,
+        ]
+      : [
+          sorted.map(
+            ([folder, inside]) =>
+              `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
+          ),
+          `Even without the sections the map is over ${DOCS_MAP_MAX_CHARS} characters, so only folders: read a document's frontmatter for what it holds.`,
+        ]
   const nothing = empty.length === 0 ? [] : ['', 'Nothing to list:', ...empty]
 
   return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), ...nothing, '', MAP_END].join('\n')

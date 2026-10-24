@@ -88,6 +88,11 @@ test('the docs map lists each document with its description and sections, and re
 
   const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'] }))
   expect(renderMap(many, ['docs'], [])).toContain('- `docs/x/` — 400 docs:')
+  const long = Array.from({ length: 100 }, (_, i) => ({ path: `docs/${i}.md`, description: 'd'.repeat(100), sections: ['s'.repeat(200)] }))
+  const described = renderMap(long, ['docs'], [])
+  expect(described).toContain(`- \`docs/7.md\` — ${'d'.repeat(100)}`)
+  expect(described).not.toContain('sections:')
+  expect(described).toContain('descriptions only')
 })
 
 test('a folder with nothing to list is named as missing or empty; with no SHIFT.md and no documents nothing is written', async () => {
