@@ -26,8 +26,10 @@ import {
   parseHistoryCount,
   parseShiftInput,
   RESUME_COMMAND,
+  readSettings,
   renderStatus,
   resumeShift,
+  SETTINGS,
   SOURCES,
   STATUS_DESCRIPTION,
   STATUS_SCHEMA,
@@ -43,6 +45,8 @@ import {
 } from './core/index'
 import { nodeStore } from './store'
 
+const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCHIVE_TOOL, STATUS_TOOL])
+
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
 
@@ -53,6 +57,8 @@ export default function infinityShift(pi: ExtensionAPI): void {
   let gauge: Gauge = FRESH_GAUGE
   // Set by the owner's own input, consumed by the run it starts.
   let ownerTyped = false
+  // false when the project's settings turn the mod off; read at each session start.
+  let enabled = true
 
   const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }], details: undefined })
   const schema = (shape: object) => shape as TSchema
@@ -128,14 +134,23 @@ export default function infinityShift(pi: ExtensionAPI): void {
   pi.registerCommand(RESUME_COMMAND, {
     description: 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent',
     handler: async (_args, ctx) => {
+      if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       const resumed = await resumeShift(nodeStore, ctx.cwd)
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt !== undefined) pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: true })
     },
   })
 
+  // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
-  pi.on('session_start', (_event, ctx) => {
+  pi.on('session_start', async (_event, ctx) => {
+    const { settings, problem } = await readSettings(nodeStore, ctx.cwd)
+    enabled = settings.enabled
+    if (problem !== null) tell(ctx, `${MOD}: ${problem} The mod stays on.`, 'warning')
+    if (!enabled) {
+      pi.setActiveTools(pi.getActiveTools().filter(name => !TOOLS.has(name)))
+      return
+    }
     const last = ctx.sessionManager
       .getBranch()
       .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
@@ -144,11 +159,12 @@ export default function infinityShift(pi: ExtensionAPI): void {
   })
 
   pi.on('input', event => {
-    if (event.source !== 'extension') ownerTyped = true
+    if (enabled && event.source !== 'extension') ownerTyped = true
   })
 
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
+    if (!enabled) return
     event.systemPromptOptions.sections[MOD] = DOCTRINE_BODY
     const parts: string[] = []
     const hint = await takeHint(ctx)
@@ -170,6 +186,7 @@ export default function infinityShift(pi: ExtensionAPI): void {
 
   // Every message of the history is counted by source.
   pi.on('message_end', async (event, ctx) => {
+    if (!enabled) return
     await restore(ctx)
     const source = growthSource(event.message)
     if (source !== null) gauge = addGrowth(gauge, source, messageChars(event.message))
@@ -177,7 +194,7 @@ export default function infinityShift(pi: ExtensionAPI): void {
 
   // A hint rides inside a tool result: mid-turn, at the agent's next look, with no message of its own.
   pi.on('tool_result', async (event, ctx) => {
-    if (event.parentToolCallId !== undefined) return
+    if (!enabled || event.parentToolCallId !== undefined) return
     const hint = await takeHint(ctx)
     if (hint === null) return
 

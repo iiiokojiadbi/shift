@@ -52,6 +52,7 @@ export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny
     if (task.track !== null) await store.write(`${dir}/tasks/${task.name}/track.md`, task.track)
   }
   if (work.owner !== null) await store.write(`${dir}/owner.md`, work.owner)
+  if (work.settings !== null) await store.write(`${dir}/settings.toml`, work.settings)
   for (const file of work.knowledge) await store.write(`${dir}/knowledge/${file.name}`, file.text)
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
   await store.write(`${dir}/about.md`, renderAbout({ ...shift, result: 'pending' }))

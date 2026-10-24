@@ -20,6 +20,7 @@ import {
   parseHistoryCount,
   parseShiftInput,
   RESUME_COMMAND,
+  readSettings,
   resumeShift,
   SOURCES,
   STATUS_DESCRIPTION,
@@ -39,12 +40,18 @@ import { OWNER_ORIGINS, PLUGIN } from './state'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
+const enabled = atom({ plugin: 'infinity-shift', key: 'enabled' } as const, true)
 const gauge = atom({ plugin: 'infinity-shift', key: 'gauge' } as const, FRESH_GAUGE)
 const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
 const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, null)
 
 export const register: Register = on => {
+  // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
   on('session.start', async ($, e, next) => {
+    const { settings, problem } = await readSettings(claudeStore($), await $.session.root())
+    await update($, enabled, () => settings.enabled)
+    if (problem !== null) $.ui.log(`${PLUGIN}: ${problem} The mod stays on.`)
+    if (!settings.enabled) return next(e)
     await $.tool.register({
       name: TOOL,
       description: TOOL_DESCRIPTION,
@@ -63,8 +70,9 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('prompt.compose', async (_$, e, next) => {
+  on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
+    if (!(await read($, enabled))) return composed
 
     return { ...composed, sections: [...composed.sections, { id: `${PLUGIN}:doctrine`, text: DOCTRINE, scope: 'session' }] }
   })
@@ -125,7 +133,7 @@ export const register: Register = on => {
 
   // Every row of the main history is counted by source; a hint rides inside a tool result: mid-turn, at the agent's next look, with no row of its own.
   on('session.append', async ($, e, next) => {
-    if (e.agentId !== undefined) return next(e)
+    if (e.agentId !== undefined || !(await read($, enabled))) return next(e)
     const source = growthSource(e.door, e.origin)
     if (source !== null) await countGrowth($, source, e.message.content)
     if (e.door !== 'tool-result') return next(e)
@@ -136,6 +144,7 @@ export const register: Register = on => {
   }).catch((_$, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {
+    if (!(await read($, enabled))) return next(e)
     const hint = await takeHint($)
     const hinted = hint === null ? e : { ...e, context: [...(e.context ?? []), hint] }
     // Only the owner's own message: the terminal, the remote bridge or the SDK host.
@@ -167,8 +176,10 @@ export const register: Register = on => {
     return done
   }).catch((_$, e, next) => next(e))
 
-  on('session.compact', { trigger: 'auto' }, (_$, e, next) =>
-    next({ ...e, instructions: [e.instructions, UNASSISTED_INSTRUCTIONS].filter(Boolean).join('\n\n') }),
+  on('session.compact', { trigger: 'auto' }, async ($, e, next) =>
+    (await read($, enabled))
+      ? next({ ...e, instructions: [e.instructions, UNASSISTED_INSTRUCTIONS].filter(Boolean).join('\n\n') })
+      : next(e),
   ).catch((_$, e, next) => next(e))
 }
 

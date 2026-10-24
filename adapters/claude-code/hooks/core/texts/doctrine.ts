@@ -21,6 +21,7 @@ import {
   OWNER_SECTION,
   RECENT_SHIFTS,
   RESUME_COMMAND,
+  SETTINGS,
   STATUS_TOOL,
   STATUSES,
   TASK_SECTIONS,
@@ -65,7 +66,7 @@ const PLACES = `| What | Where |
 | a trap, a lesson, a command, a fact, a term | \`${KNOWLEDGE}/\`, unless the owner said it goes to the project's docs |
 | fits no row | \`${KNOWLEDGE}/\`, and tell the owner |
 
-Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, read by people and every contributor) or stays in \`${KNOWLEDGE}/\` is the owner's choice, not yours: all of it in the docs, all of it local, or split by a boundary the owner names. It is an owner decision and lives in \`${OWNER}\`. Until the owner said, everything stays in \`${KNOWLEDGE}/\` — never write the project's shared files on your own guess — and ask the owner once. What the project's docs already say is never copied into your records.
+Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, read by people and every contributor) or stays in \`${KNOWLEDGE}/\` is the owner's choice, not yours: all of it in the docs, all of it local, or split by a boundary the owner names. The owner sets it as \`knowledge\` in \`${SETTINGS}\` — "local", "project" or "split"; with "split" the boundary is a rule in \`${OWNER}\`. After a shift the map of knowledge says which. Until it is set, everything stays in \`${KNOWLEDGE}/\` — never write the project's shared files on your own guess — and ask the owner once. What the project's docs already say is never copied into your records.
 
 Each fact lives in one place. Your records live in the project directory, not in a harness's memory: any agent that opens the project reads them.`
 
@@ -129,6 +130,7 @@ A shift is the boundary between stretches of work. You prepare your records, cal
 ${DIR}/
 ├── board.md          the board — which tasks are open, what you do now, project-wide decisions
 ├── owner.md          the owner's decisions in force for the whole project
+├── settings.toml     the owner's settings, optional — see below
 ├── letter.md         the letter to yourself — written anew before every shift
 ├── knowledge/        traps, lessons, commands, facts, terms — read on demand
 │   └── <kind>[-<topic>].md
@@ -145,6 +147,7 @@ ${DIR}/
         ├── letter.md     a copy of the letter
         ├── board.md      a snapshot of the board
         ├── owner.md      a snapshot of the owner's decisions
+        ├── settings.toml a snapshot of the settings
         ├── index.md      a snapshot of the archive index
         ├── tasks/        snapshots of the open tasks
         ├── knowledge/    a snapshot of the knowledge
@@ -152,6 +155,11 @@ ${DIR}/
 \`\`\`
 
 \`${DIR}/\` is yours, not the project's: the project's git ignores it (\`/${DIR}/\` in \`.gitignore\`), and the mod refuses a shift inside a git repository that does not. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.
+
+\`${SETTINGS}\` is the owner's, and you change it only on their word. Both keys are optional:
+- \`enabled = false\` turns the mod off in this project from the next session: no tools, no doctrine, no hints;
+- \`knowledge = "local" | "project" | "split"\` — where knowledge goes, see below.
+A file that does not parse leaves the mod on, and a shift is refused until it is fixed.
 
 ## What goes where
 
@@ -261,7 +269,7 @@ How to read it: frontmatter — \`key: value\` lines between \`---\`; sections �
 A project kept with the \`shift\`/\`unshift\` skills has \`.shift/\`. Move it once, before the first shift, entry by entry — nothing is summarized away:
 - \`knowledge/owner.md\` → \`${OWNER}\`, rules as they are;
 - \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\`, \`glossary*.md\` → \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (Причина → Cause, Делать → Do, Почему → Why, Когда не годится → Not when, Покажет → Shows), drop the date lines and the generated tables of contents;
-- the \`knowledge\` setting of \`.shift/AGENTS.md\` (\`project\`, \`local\`, \`split\`) and its "Что где" rows are the owner's choice of where knowledge goes → a rule in \`${OWNER}\`, as they are;
+- the \`knowledge\` setting of \`.shift/AGENTS.md\` (\`project\`, \`local\`, \`split\`) is the owner's choice of where knowledge goes → \`knowledge\` in \`${SETTINGS}\`; its "Что где" rows → a rule in \`${OWNER}\`, as they are;
 - open items of the last snapshot's \`unfinished.md\` and its "С чего начать" → tasks; its owner decisions → \`${OWNER}\` or the task's; dead ends → the board or the task;
 - \`.shift/sessions/\` is not moved: it is history. \`.shift/\` itself is removed only on the owner's word.
 

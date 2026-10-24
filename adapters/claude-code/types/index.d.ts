@@ -34,6 +34,8 @@ declare module 'claude-code' {
       autoStreak: number
       gauge: Gauge
       threshold: number | null
+      // false when the project's settings turn the mod off.
+      enabled: boolean
     }
   }
 }

@@ -17,6 +17,7 @@ import {
   TASKS,
 } from './layout'
 import { findDate, frontmatter, itemsOf, missingSections, quote, sections } from './markdown'
+import { parseSettings } from './settings'
 import type { FocusTask, Kind, KnowledgeFile, TaskFiles, Work } from './types'
 
 export function checkLetter(text: string): string | null {
@@ -61,6 +62,8 @@ const lineCount = (text: string) => text.trimEnd().split('\n').length
 
 export function checkWork(work: Work, previous: Work | null): string | null {
   const { board } = work
+  const settings = work.settings === null ? null : parseSettings(work.settings)
+  if (typeof settings === 'string') return `${settings} The file is the owner's: tell them, and do not shift until it is fixed.`
   if (sections(board).has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions now live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }

@@ -31,6 +31,8 @@ export const DIR = '.infinity-shift'
 export const BOARD = `${DIR}/board.md`
 
 export const LETTER = `${DIR}/letter.md`
+// The owner's settings for the project.
+export const SETTINGS = `${DIR}/settings.toml`
 
 export const OWNER = `${DIR}/owner.md`
 

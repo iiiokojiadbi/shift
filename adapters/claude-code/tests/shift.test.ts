@@ -74,7 +74,7 @@ const TRAPS = [
   '',
   '**Do.** check the count before writing.',
 ].join('\n')
-const WORK: Work = { board: BOARD, owner: OWNER, tasks: [TESTS], knowledge: [{ name: 'traps.md', text: TRAPS }] }
+const WORK: Work = { board: BOARD, owner: OWNER, tasks: [TESTS], knowledge: [{ name: 'traps.md', text: TRAPS }], settings: null }
 
 test('parseShiftInput refuses an empty letter, an unknown after and a bad about', () => {
   expect(parseShiftInput({ letter: ' ', after: 'wait', about: 'a' })).toContain('letter')
@@ -666,4 +666,28 @@ test('/shift-resume hands the last letter, the board and the tasks in progress t
   expect(submitted[0]).toContain('fixing tests')
   expect(submitted[0]).toContain('## Goal')
   expect(submitted[0]).toContain('# Green tests')
+})
+
+test('settings turn the mod off in a project: no tools, no doctrine', async ($, on) => {
+  const files = project()
+  stubSession(on, files)
+  const registered: string[] = []
+  on('tool.register', (_$: unknown, e: { name: string }) => {
+    registered.push(e.name)
+    return { value: undefined as never }
+  })
+  on('command.register', () => ({ value: undefined as never }))
+  on('session.start', (_$: unknown, e: unknown) => e as never)
+  on('prompt.compose', () => ({ sections: [] }))
+  const compose = () => $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as never)
+
+  await $.session.start({ cwd: '/proj', surface: null } as never)
+  expect(registered).toContain('shift')
+  expect((await compose()).sections.map(section => section.id)).toContain('infinity-shift:doctrine')
+
+  registered.length = 0
+  files.set('/proj/.infinity-shift/settings.toml', '# not here\nenabled = false\n')
+  await $.session.start({ cwd: '/proj', surface: null } as never)
+  expect(registered).toEqual([])
+  expect((await compose()).sections).toEqual([])
 })

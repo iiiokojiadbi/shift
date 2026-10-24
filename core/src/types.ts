@@ -24,7 +24,7 @@ export type Kind = keyof typeof KINDS
 // A file of `knowledge/`: its name with `.md` and its text.
 export type KnowledgeFile = { name: string; text: string }
 
-export type Work = { board: string; owner: string | null; tasks: TaskFiles[]; knowledge: KnowledgeFile[] }
+export type Work = { board: string; owner: string | null; tasks: TaskFiles[]; knowledge: KnowledgeFile[]; settings: string | null }
 
 // What one stretch of work did, from the files against the previous shift's snapshot.
 export type Segment = { done: string[]; dropped: string[]; archived: string[]; open: string[] }

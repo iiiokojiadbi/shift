@@ -1,6 +1,7 @@
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HISTORY_MAX, HISTORY_TOOL, INDEX, KNOWLEDGE, MOD, OWNER, TASKS } from '../layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HISTORY_MAX, HISTORY_TOOL, INDEX, KNOWLEDGE, MOD, OWNER, SETTINGS, TASKS } from '../layout'
 import { frontmatter } from '../markdown'
 import { boardTasks, knowledgeMap } from '../records'
+import { DEFAULT_SETTINGS, parseSettings } from '../settings'
 import type { Recent, Work } from '../types'
 
 export const ARCHIVED = (name: string) =>
@@ -35,8 +36,19 @@ export function renderWork(work: Work | null): string {
     file(BOARD, work.board),
     file(OWNER, work.owner ?? 'none'),
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
-    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
+    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(work.settings)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
+}
+
+// Where new knowledge goes, by the owner's \`knowledge\` setting.
+function placement(settings: string | null): string {
+  const parsed = settings === null ? DEFAULT_SETTINGS : parseSettings(settings)
+  const knowledge = typeof parsed === 'string' ? null : parsed.knowledge
+  if (knowledge === 'local') return 'here: the owner set knowledge = "local"'
+  if (knowledge === 'project') return 'to the project\'s docs: the owner set knowledge = "project"'
+  if (knowledge === 'split') return `split by the boundary in ${OWNER}: the owner set knowledge = "split"`
+
+  return `here until the owner sets knowledge in ${SETTINGS}; ask them once`
 }
 
 function file(path: string, text: string): string {

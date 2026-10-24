@@ -34,7 +34,7 @@ export async function readWork(store: Store, base: string): Promise<Work | null>
       .map(async name => ({ name, text: (await store.read(`${base}/knowledge/${name}`)) ?? '' })),
   )
 
-  return { board, owner: await store.read(`${base}/owner.md`), tasks, knowledge }
+  return { board, owner: await store.read(`${base}/owner.md`), tasks, knowledge, settings: await store.read(`${base}/settings.toml`) }
 }
 
 export async function readSnapshot(store: Store, base: string, index: string): Promise<Snapshot | null> {
