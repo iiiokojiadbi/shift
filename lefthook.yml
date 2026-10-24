@@ -7,7 +7,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: core copies
-      glob: "{core/src/**,adapters/*/hooks/core/**}"
+      glob: "{core/src/**,adapters/*/hooks/core/**,adapters/pi/core/**}"
       run: bun scripts/sync-core.ts --check
     - name: biome
       glob: "*.{ts,js,json,jsonc}"
@@ -26,3 +26,6 @@ pre-commit:
       glob: "{adapters/claude-code/**,core/src/**}"
       # Passed tests are left out, a failed one is printed whole.
       run: bash -o pipefail -c "claude plugin test adapters/claude-code 2>&1 | grep -v '^(pass) '"
+    - name: pi types
+      glob: "{adapters/pi/**,core/src/**}"
+      run: bunx tsc -p adapters/pi
