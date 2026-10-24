@@ -1,4 +1,4 @@
-import { docOutline, docsMentioning } from './doccare'
+import { docOutline, docsMentioning } from './docs'
 import { acceptShift, archiveTask, keepRecordsOut, shiftHistory, staleLayout } from './flows'
 import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput } from './input'
 import {

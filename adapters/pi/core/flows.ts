@@ -1,7 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { addToIndex, checkArchive, indexLine } from './archive'
-import { docsReport, refreshTocs } from './doccare'
-import { refreshMap } from './docs'
+import { docsReport, refreshDocs } from './docs'
 import { shiftFill } from './hint'
 import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
@@ -30,10 +29,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const letterProblem = checkLetter(letter)
   if (letterProblem !== null) return { deny: letterProblem }
 
-  if (settings.enabled) {
-    await refreshTocs(project)
-    await refreshMap(project)
-  }
+  if (settings.enabled) await refreshDocs(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const previousDir = await previousShift(project)
@@ -215,8 +211,7 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
 export async function sessionFiles(project: Project): Promise<SessionFile[]> {
   const { store, root, settings } = project
   if (!settings.enabled || (await staleLayout(project)) !== null) return []
-  await refreshTocs(project)
-  await refreshMap(project)
+  await refreshDocs(project)
   const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 

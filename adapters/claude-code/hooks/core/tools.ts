@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { docOutline, docsMentioning } from './doccare'
+import { docOutline, docsMentioning } from './docs'
 import { acceptShift, archiveTask, keepRecordsOut, shiftHistory, staleLayout } from './flows'
 import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput } from './input'
 import {

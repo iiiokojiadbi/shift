@@ -165,10 +165,10 @@ export const SETTING_KEYS: readonly Key[] = [
     key: 'docs.dirs',
     since: '0.3.0',
     about:
-      'the folders of documents the mod keeps: the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone',
+      'the folders of documents the mod keeps, or single documents such as "AGENTS.md" (since 0.9.0): the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone',
     ...places(
       'docs.dirs',
-      'folders',
+      'folders or documents',
       s => s.docs.dirs,
       (s, value) => (s.docs.dirs = value),
     ),

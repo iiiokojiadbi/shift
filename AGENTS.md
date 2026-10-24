@@ -1,3 +1,7 @@
+---
+description: The project's map and standing facts: what shift is, the tree of the repo, how to work on it and release, facts not obvious from the code. Read first.
+---
+
 # shift
 
 An agent decides by itself when to **shift**: at a stage boundary it updates its work board and task folders, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and tasks in progress back whole and continues from where it stopped. The agent does not change — only what is in front of it does.
@@ -17,8 +21,7 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/records.ts           checks of the letter, the board and the task folders
   src/tasks.ts             TASKS.md: the open tasks, their links, its checks, the list after archiving
   src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
-  src/docs.ts              the map of the documents the mod writes into SHIFT.md
-  src/doccare.ts           the documents of `[docs] dirs` after a write: toc, remarks, broken links; the outline and mentions tools
+  src/docs.ts              the documents of `[docs] dirs`, folders or single files, read by one reader: the map in SHIFT.md, the toc, remarks and broken links after a write, the outline and mentions tools
   src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; each key one row: version, about, get, put
   src/project.ts           loadProject: the store, the root and the parsed settings, read once per hook or tool call; one policy for a broken settings file
   src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed

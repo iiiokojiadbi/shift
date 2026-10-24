@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { docsReport } from './doccare'
+import { docsReport } from './docs'
 import { sessionFiles } from './flows'
 import { MOD, SETTINGS } from './layout'
 import type { Project } from './project'
