@@ -14,6 +14,13 @@ export type Link = { kind: LinkKind; place: 'tasks' | 'archive'; name: string; l
 export type ListedTask = { status: string; name: string; about: string; line: string; links: Link[] }
 
 const TASK_LINE = /^- \[([^\]]+)\] \[([^\]]+)\]\(tasks\/([^)/]+)\/?\) — (.+)$/
+
+// One line of TASKS.md as `- [status] [label](tasks/name/) — about`; null when it is not a task line.
+export function taskLine(line: string): { status: string; label: string; name: string; about: string } | null {
+  const [, status = '', label = '', name = '', about = ''] = TASK_LINE.exec(line.trimEnd()) ?? []
+
+  return name === '' ? null : { status, label, name, about }
+}
 const LINK_LINE = /^\s+- ([a-z]+): (.+)$/
 const TARGET = /\[([^\]]+)\]\((tasks|archive)\/([^)/]+)\/?\)/g
 
@@ -23,9 +30,9 @@ export function parseTaskList(text: string): ListedTask[] | string {
   for (const raw of text.split('\n')) {
     const line = raw.trimEnd()
     if (line.trim() === '' || line.startsWith('#') || line.trim() === 'none') continue
-    const task = TASK_LINE.exec(line)
+    const task = taskLine(line)
     if (task !== null) {
-      const [, status = '', label = '', name = '', about = ''] = task
+      const { status, label, name, about } = task
       if (label !== name) return `${TASK_LIST}: the link text and the folder differ in "${line}": write [${name}](tasks/${name}/).`
       tasks.push({ status, name, about, line, links: [] })
       continue
@@ -120,7 +127,8 @@ export function archiveInList(text: string, name: string): string {
   const out: string[] = []
   let skipping = false
   for (const line of text.split('\n')) {
-    if (TASK_LINE.test(line.trimEnd())) skipping = TASK_LINE.exec(line.trimEnd())?.[3] === name
+    const task = taskLine(line)
+    if (task !== null) skipping = task.name === name
     else if (!LINK_LINE.test(line)) skipping = false
     if (skipping) continue
     const moved = line.replaceAll(`](tasks/${name}/)`, `](archive/${name}/)`).replaceAll(`](tasks/${name})`, `](archive/${name}/)`)

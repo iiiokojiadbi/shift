@@ -2,6 +2,7 @@
 import { ARCHIVE_TOOL, FOCUS, NAME, STATUSES, TASK_LIST, TASKS } from './layout'
 import { findDate } from './markdown'
 import type { Store } from './store'
+import { taskLine } from './tasks'
 
 // Statuses set by a tool instead of an edit by hand: a track item found by the words of its name, or a task's own
 // line in TASKS.md. Items carry no ids — the records stay clean, and the agent knows the words it wrote; a fragment
@@ -36,8 +37,6 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
   return { task, item, status, note, add }
 }
 
-const TASK_LINE = /^- \[([^\]]+)\] (\[([^\]]+)\]\(tasks\/([^)/]+)\/?\)) — (.+)$/
-
 export async function updateTrack(store: Store, root: string, input: TrackInput): Promise<{ deny: string } | { result: string }> {
   return input.item === null ? setTaskStatus(store, root, input) : setItem(store, root, { ...input, item: input.item })
 }
@@ -45,10 +44,10 @@ export async function updateTrack(store: Store, root: string, input: TrackInput)
 async function setTaskStatus(store: Store, root: string, input: TrackInput): Promise<{ deny: string } | { result: string }> {
   const path = `${root}/${TASK_LIST}`
   const lines = ((await store.read(path)) ?? '').split('\n')
-  const at = lines.findIndex(line => TASK_LINE.exec(line.trimEnd())?.[4] === input.task)
-  if (at === -1) return { deny: `No line for ${input.task} in ${TASK_LIST}: open the task there first.` }
-  const [, , link = '', , , about = ''] = TASK_LINE.exec(lines[at]?.trimEnd() ?? '') ?? []
-  lines[at] = `- [${input.status}] ${link} — ${input.note ?? about}`
+  const at = lines.findIndex(line => taskLine(line)?.name === input.task)
+  const task = taskLine(lines[at] ?? '')
+  if (task === null) return { deny: `No line for ${input.task} in ${TASK_LIST}: open the task there first.` }
+  lines[at] = `- [${input.status}] [${task.label}](tasks/${task.name}/) — ${input.note ?? task.about}`
   await store.write(path, lines.join('\n'))
 
   return { result: `${TASK_LIST}: ${lines[at]}` }
