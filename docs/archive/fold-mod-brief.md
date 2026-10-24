@@ -1,3 +1,7 @@
+---
+description: The superseded first brief: a pointwise fold of the history, its research and risks. Only for why the shift replaced it.
+---
+
 # fold-mod: brief for the agent who will build the MVP
 
 A file for the agent who will come to the project later and work with the owner on the MVP. Written from the results of a research session. It collects what is not visible in the repositories: why this is needed, what has already been found out, what has been checked, and what is only an assumption.

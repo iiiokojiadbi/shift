@@ -1,3 +1,7 @@
+---
+description: The concept and its reasoning: the loop, the records, hints, core and adapters with each harness's slots, lessons. Before changing how the mod works.
+---
+
 # infinity-shift: concept
 
 The agent manages its own context. After finishing a stage of work, it decides it is time to compress, and it sets the direction of the compaction itself: what to keep and how broadly to fold. After the compaction the agent immediately receives a handoff from itself — where to continue from — and either continues working or waits for the owner.

@@ -49,7 +49,9 @@ export function renderMap(docs: readonly Doc[]): string {
     const folder = doc.path.slice(0, doc.path.lastIndexOf('/'))
     folders.set(folder, [...(folders.get(folder) ?? []), doc])
   }
-  const full = [...folders].map(([folder, inside]) =>
+  // A folder before the folders inside it.
+  const sorted = [...folders].sort(([a], [b]) => a.localeCompare(b))
+  const full = sorted.map(([folder, inside]) =>
     [
       `### ${folder}/`,
       '',
@@ -62,7 +64,7 @@ export function renderMap(docs: readonly Doc[]): string {
   const body =
     full.join('\n\n').length <= DOCS_MAP_MAX_CHARS
       ? full
-      : [...folders].map(
+      : sorted.map(
           ([folder, inside]) =>
             `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(folder.length + 1)).join(', ')}`,
         )
