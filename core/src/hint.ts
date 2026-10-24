@@ -27,9 +27,16 @@ export const SOURCES = {
   tools: 'tool results',
 } as const
 
+// A history smaller than the base or the last hint was let go by a way the mod did not see (a cleared session, a
+// compaction it was not told of): counting from the old base would put the next hint far off, so it starts again here.
+function rebased(gauge: Gauge, tokens: number): Gauge {
+  return gauge.base !== null && tokens < (gauge.hinted ?? gauge.base) ? { ...gauge, base: tokens, hinted: null, growth: {} } : gauge
+}
+
 // One hint at most per new growth; an ignored one is not repeated until the history grows again.
-export function shiftHint(gauge: Gauge, { tokens, window, threshold }: Reading): { gauge: Gauge; text: string | null } {
-  if (tokens === undefined) return { gauge, text: null }
+export function shiftHint(current: Gauge, { tokens, window, threshold }: Reading): { gauge: Gauge; text: string | null } {
+  if (tokens === undefined) return { gauge: current, text: null }
+  const gauge = rebased(current, tokens)
   if (gauge.base === null) return { gauge: { ...gauge, base: tokens, unassisted: false }, text: gauge.unassisted ? UNASSISTED_HINT : null }
 
   const limit = threshold ?? window
@@ -134,8 +141,9 @@ export function growthOf(messages: readonly { role: string; content: unknown }[]
 }
 
 // What the status tool answers: the fill, the limit, the growth since the last shift, when the next hints come, and what grew.
-export function renderStatus(gauge: Gauge, { tokens, window, threshold }: Reading): string {
+export function renderStatus(current: Gauge, { tokens, window, threshold }: Reading): string {
   if (tokens === undefined) return 'No reading yet: the first response since the last let-go has not come back.'
+  const gauge = rebased(current, tokens)
   const limit = threshold ?? window
   const final = finalAt(limit)
   const lines = [

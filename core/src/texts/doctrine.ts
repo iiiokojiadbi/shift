@@ -146,9 +146,11 @@ ${PLACES}
 
 ## When to shift
 
-At a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step — and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
+Not before the first soft hint. A finished task is not a reason by itself: a short stretch does not pay for its letter and records, and its history still holds what the next step may need. Until the soft hint, go on working; earlier only on the owner's word. \`${STATUS_TOOL}\` says when the next hint comes.
 
-The mod hints with a "Shift hint" line at the end of a tool result or next to a message: when the history has grown noticeably since the last shift, and when room is running out. A hint names what the history grew from most. A hint is not an order: you decide.
+After the soft hint — at a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step — and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
+
+The mod hints with a "Shift hint" line at the end of a tool result or next to a message: the soft hint when the history has grown noticeably since the last shift, the final one when room is running out. A hint names what the history grew from most. A soft hint is not an order: you decide.
 
 ## Tools
 

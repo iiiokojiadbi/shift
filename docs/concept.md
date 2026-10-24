@@ -20,7 +20,7 @@ Marks in the text:
 **[done in the Claude Code mod]**
 
 1. **Work.** The agent keeps its records as it goes: the board, the task folders, decisions where they belong (see "Records"). The mod watches the context and hints when a shift is worth it (see "Hint").
-2. **Decision.** The agent chooses the moment itself — at a stage boundary, not in the middle of a step. The hint can be ignored, and it is possible to shift without it.
+2. **Decision.** The agent chooses the moment itself — at a stage boundary, not in the middle of a step. Not before the first soft hint unless the owner says so: a short stretch does not pay for its letter and records. A soft hint can be ignored.
 3. **Shift.** The agent writes its letter to itself (`.shift/letter.md`: "Where I am", "Next", "Unverified", "Hold") and calls the `shift` tool with three fields:
    - `letter` — the path to the letter;
    - `after` — `continue` or `wait`;

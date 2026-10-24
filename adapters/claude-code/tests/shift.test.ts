@@ -513,6 +513,13 @@ test('hints: soft every max(100K, 25%) of the limit, none right before the final
   expect(big(undefined)).toBeNull()
   expect(big(40_000)).toContain('without your shift')
   expect(big(41_000)).toBeNull()
+
+  gauge = FRESH_GAUGE
+  expect(big(280_000)).toBeNull()
+  expect(renderStatus(gauge, { tokens: 70_000, window: 1_000_000, threshold: undefined })).toContain('next soft hint at 320K')
+  expect(big(70_000)).toBeNull()
+  expect(big(310_000)).toBeNull()
+  expect(big(320_000)).toContain('grown by 250K')
 })
 
 test('a hint and the status name what the history grew from', () => {
