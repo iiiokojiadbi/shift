@@ -67,12 +67,17 @@ export function deliveredFiles(work: Work | null): string[] {
 export function renderRecent(recent: Recent): string {
   if (recent.entries.length === 0) return 'No earlier shifts.'
   const earlier = recent.total - recent.entries.length
+  const shifts = (n: number) => (n === 1 ? '1 shift' : `${n} shifts`)
   // No `after`: a row of past waits would pull the agent towards waiting when it could go on.
   const lines = recent.entries.map(entry => `- ${entry.name} · ${frontmatter(entry.about ?? '').get('description') ?? 'no about.md'}`)
 
   return [
-    `What you did before: the last ${recent.entries.length} shifts, oldest first, the one you shifted from last.`,
-    ...(earlier > 0 ? [`${earlier} earlier shifts are not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`] : []),
+    `What you did before: the last ${shifts(recent.entries.length)}, oldest first, the one you shifted from last.`,
+    ...(earlier > 0
+      ? [
+          `${shifts(earlier)} before them ${earlier === 1 ? 'is' : 'are'} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`,
+        ]
+      : []),
     '<shifts>',
     ...lines,
     '</shifts>',

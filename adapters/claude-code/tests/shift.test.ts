@@ -614,11 +614,14 @@ test('recent shifts: descriptions oldest first, a pointer to the earlier ones, n
     ],
     total: 14,
   })
-  expect(text).toContain('12 earlier shifts are not listed: shift_history reads them')
+  expect(text).toContain('12 shifts before them are not listed: shift_history reads them')
   expect(text.indexOf('- a · parser started')).toBeLessThan(text.indexOf('- b · parser done'))
-  expect(text.indexOf('12 earlier')).toBeLessThan(text.indexOf('<shifts>'))
+  expect(text.indexOf('12 shifts before')).toBeLessThan(text.indexOf('<shifts>'))
   expect(text).not.toMatch(/wait|continue/)
-  expect(renderRecent({ entries: [{ name: 'a', about: null }], total: 1 })).not.toContain('earlier shifts are not listed')
+  const one = renderRecent({ entries: [{ name: 'a', about: null }], total: 2 })
+  expect(one).toContain('the last 1 shift, oldest first')
+  expect(one).toContain('1 shift before them is not listed')
+  expect(renderRecent({ entries: [{ name: 'a', about: null }], total: 1 })).not.toContain('not listed')
 })
 
 test('the history and guide tools answer', async ($, on) => {
