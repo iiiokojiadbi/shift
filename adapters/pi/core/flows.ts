@@ -4,7 +4,7 @@ import { refreshMap } from './docs'
 import { shiftFill } from './hint'
 import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, TASK_LIST, TASKS } from './layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, OLD_DIR, TASK_LIST, TASKS } from './layout'
 import { formatK, sections } from './markdown'
 import { checkLetter, checkWork } from './records'
 import type { Settings } from './settings'
@@ -23,6 +23,8 @@ export type ShiftCall = { root: string; input: ShiftInput; at: number; sessionId
 // Checks the letter and the records, snapshots them into the new shift folder and leaves a pending about.md there.
 export async function acceptShift(store: Store, call: ShiftCall): Promise<{ deny: string } | { shift: PendingShift; result: string }> {
   const { root, input } = call
+  const stale = await staleLayout(store, root)
+  if (stale !== null) return { deny: stale }
   const letter = await store.read(resolvePath(root, input.letter))
   if (letter === null) return { deny: `No letter at ${input.letter}. Write it (usually ${LETTER}) and call again.` }
   const letterProblem = checkLetter(letter)
@@ -200,12 +202,27 @@ export async function keepRecordsOut(
 // paths from the project's root; none when the mod is off here.
 export async function sessionFiles(store: Store, root: string): Promise<SessionFile[]> {
   const { settings } = await readSettings(store, root)
-  if (!settings.enabled) return []
+  if (!settings.enabled || (await staleLayout(store, root)) !== null) return []
   await refreshMap(store, root, settings.files.shift, settings.docs)
   const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 
   return files.filter((file): file is SessionFile => file.text !== null)
+}
+
+// Records the mod cannot work on yet: an older name of its folder, or the folder the shift skill left. Then the mod writes
+// nothing — a map appended to the skill's own SHIFT.md would come into every session — and says what to move.
+export async function staleLayout(store: Store, root: string): Promise<string | null> {
+  if (await store.exists(`${root}/${OLD_DIR}`)) {
+    return (await store.exists(`${root}/${DIR}`))
+      ? `Both ${OLD_DIR}/ and ${DIR}/ are here: the records live in ${DIR}/ now. Merge what ${OLD_DIR}/ holds into ${DIR}/ by ${GUIDE_TOOL}, then remove ${OLD_DIR}/.`
+      : `The records are in ${OLD_DIR}/, the mod's old name: rename the folder to ${DIR}/ as it is, and call again.`
+  }
+  if ((await store.exists(`${root}/${DIR}/sessions`)) && !(await store.exists(`${root}/${BOARD}`))) {
+    return `${DIR}/ here is the shift skill's: it has sessions/ and no board. Move it in place by "Coming from the shift skill" in ${GUIDE_TOOL}, then call again.`
+  }
+
+  return null
 }
 
 function shiftName(shift: PendingShift): string {

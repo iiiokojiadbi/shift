@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 // The mod's name: the tag its texts in the model's context are wrapped in name it.
-export const MOD = 'infinity-shift'
+export const MOD = 'shift'
 
 export const TOOL = 'shift'
 
@@ -12,7 +12,7 @@ export const ARCHIVE_TOOL = 'task_archive'
 
 export const STATUS_TOOL = 'shift_status'
 
-export const RESUME_COMMAND = 'shift-resume'
+export const RESUME_COMMAND = 'unshift'
 
 // Consecutive self-continued shifts before the mod stops and waits for the owner.
 export const MAX_AUTO_STREAK = 3
@@ -35,7 +35,9 @@ export const DOCS_MAP_MAX_CHARS = 24000
 // A knowledge file past this is split by topic.
 export const KNOWLEDGE_MAX_LINES = 400
 
-export const DIR = '.infinity-shift'
+export const DIR = '.shift'
+// Where the records lived before the mod was named shift.
+export const OLD_DIR = '.infinity-shift'
 
 export const BOARD = `${DIR}/board.md`
 

@@ -1,9 +1,9 @@
 {
-  "name": "infinity-shift",
+  "name": "shift",
   "owner": { "name": "iiiokojiadbi" },
   "plugins": [
     {
-      "name": "infinity-shift",
+      "name": "shift",
       "source": "./adapters/claude-code",
       "description": "The agent shifts itself at a stage boundary: keeps a work board and tasks, writes itself a letter, steers the compaction and resumes from the letter"
     }

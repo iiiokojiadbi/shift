@@ -44,6 +44,7 @@ import {
   shiftHint,
   shiftHistory,
   shiftNotMade,
+  staleLayout,
   TOOL,
   TOOL_DESCRIPTION,
   TOOL_SCHEMA,
@@ -55,7 +56,7 @@ const TOOLS: ReadonlySet<string> = new Set([TOOL, GUIDE_TOOL, HISTORY_TOOL, ARCH
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
 
-export default function infinityShift(pi: ExtensionAPI): void {
+export default function shift(pi: ExtensionAPI): void {
   let pending: PendingShift | null = null
   let waitNote: WaitNote | null = null
   let streak = 0
@@ -156,6 +157,8 @@ export default function infinityShift(pi: ExtensionAPI): void {
       pi.setActiveTools(pi.getActiveTools().filter(name => !TOOLS.has(name)))
       return
     }
+    const stale = await staleLayout(nodeStore, ctx.cwd)
+    if (stale !== null) tell(ctx, `${MOD}: ${stale}`, 'warning')
     // Records written before the first shift stay out of a commit too.
     if (await nodeStore.exists(`${ctx.cwd}/${DIR}`)) {
       const kept = await keepRecordsOut(nodeStore, ctx.cwd, settings)

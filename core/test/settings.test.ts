@@ -5,7 +5,7 @@ import { renderWork } from '../src/texts/prompts'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
-const R = `${ROOT}/.infinity-shift`
+const R = `${ROOT}/.shift`
 const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
 const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
 
@@ -34,7 +34,7 @@ test('no file means the defaults; a broken file leaves the mod on and says why',
 })
 
 test('a shift snapshots the settings and is refused while they do not parse', async () => {
-  const call = { root: ROOT, input: { letter: '.infinity-shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const call = { root: ROOT, input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const files = {
     [`${R}/letter.md`]: LETTER,
     [`${R}/board.md`]: BOARD,
@@ -63,7 +63,7 @@ test('the map of knowledge says where knowledge goes', () => {
     oldOwner: false,
   }
   expect(renderWork({ ...work, settings: null })).toContain(
-    'goes="here until the owner sets knowledge in .infinity-shift/settings.toml; ask them once"',
+    'goes="here until the owner sets knowledge in .shift/settings.toml; ask them once"',
   )
   expect(renderWork({ ...work, settings: 'knowledge = "project"' })).toContain('goes="to the project\'s docs')
 })

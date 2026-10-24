@@ -1,5 +1,5 @@
 {
-  "name": "infinity-shift",
+  "name": "shift",
   "version": "0.3.0",
   "description": "The agent shifts itself at a stage boundary: keeps a work board, writes itself a letter, steers the compaction and resumes from the letter",
   "author": {

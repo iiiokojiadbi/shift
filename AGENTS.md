@@ -1,4 +1,4 @@
-# infinity-shift
+# shift
 
 An agent decides by itself when to **shift**: at a stage boundary it updates its work board and task folders, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and tasks in progress back whole and continues from where it stopped. The agent does not change — only what is in front of it does.
 
@@ -11,7 +11,7 @@ Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next
 ```
 core/                      shared logic, pure TypeScript, no harness imports
   src/types.ts             data shapes: work, tasks, gauge, shift input, segment
-  src/layout.ts            names and paths: tools, .infinity-shift/ files, sections, statuses, limits
+  src/layout.ts            names and paths: tools, .shift/ files, sections, statuses, limits
   src/input.ts             parsing and checking tool arguments
   src/markdown.ts          sections, items, frontmatter, dates, number formatting
   src/records.ts           checks of the letter, the board and the task folders
@@ -50,7 +50,7 @@ docs/archive/              superseded design notes, kept for reasoning
 lefthook.yml  biome.json  package.json
 ```
 
-`.infinity-shift/` is the agent's own records for this project (board, owner decisions, knowledge, tasks, archive, shifts). It is local and never committed.
+`.shift/` is the agent's own records for this project (board, owner decisions, knowledge, tasks, archive, shifts). It is local and never committed.
 
 ## Working on it
 
@@ -58,10 +58,10 @@ lefthook.yml  biome.json  package.json
 - Edit shared logic only in `core/src/`, then `bun run sync-core`. A harness may load only files inside its plugin folder, so each adapter carries a copy; the pre-commit hook fails on a stale one.
 - `bun run check` (copies + biome), `bun run fix`, `bun run typecheck`, `bun run test` (core, then the adapter), `bun run validate`.
 - A flow that does not depend on the harness goes into `core/src/flows.ts` over the `Store` port; the adapter keeps only wiring, state, measurement, the let-go and delivery.
-- Install for Claude Code: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install infinity-shift@iiiokojiadbi`. That marketplace is a separate repo listing all of the owner's plugins; it points at `adapters/claude-code` here.
-- Local development: `claude plugin marketplace add <path to this repo>` and `claude plugin install infinity-shift@infinity-shift` — a marketplace added from a local path loads the plugin in place, edits apply on `/reload-plugins`. Do not have both installed at once.
+- Install for Claude Code: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install shift@iiiokojiadbi`. That marketplace is a separate repo listing all of the owner's plugins; it points at `adapters/claude-code` here.
+- Local development: `claude plugin marketplace add <path to this repo>` and `claude plugin install shift@shift` — a marketplace added from a local path loads the plugin in place, edits apply on `/reload-plugins`. Do not have both installed at once.
 - Try the pi adapter: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). pi refuses to compact a history smaller than `keepRecentTokens` (20K by default); a test project can lower it in `.pi/settings.json` and run with `--approve`. `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first.
-- Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `infinity-shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
+- Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
 - Lint findings are fixed, never silenced.
 
 ## Facts that are not obvious from the code
@@ -69,9 +69,9 @@ lefthook.yml  biome.json  package.json
 - Claude Code hooks module: imports only relative files inside the plugin folder and `claude-code`. Each file declares the state atoms it reads or writes — the engine's scan does not follow an atom through an import. `types/index.d.ts` must be self-contained, so it mirrors `ShiftAfter` and `Gauge` from the core. `$` may be passed across files only into a function declaration (`function f($) {…}`), never into an arrow bound to a name.
 - Text the model reads says only "shift": "compression", "summary", "compaction" make a model write a summary as text instead of calling the tool.
 - A hint goes inside the last tool result as a `<system-reminder>`: a separate block in that row is shown to the owner as their own message.
-- Everything the mod puts before the model is wrapped in an `<infinity-shift …>` tag; inside a shift's message each record is a `<file path="…">`. Records have headings and code blocks of their own, so only a tag marks where a file ends.
+- Everything the mod puts before the model is wrapped in an `<shift …>` tag; inside a shift's message each record is a `<file path="…">`. Records have headings and code blocks of their own, so only a tag marks where a file ends.
 - A shift's message is ordered by how a context is read: records first, the last shifts' descriptions in the middle, the letter last. The recent-shift lines carry no `after`: a column of past waits pulls the agent towards waiting.
 - Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English.
-- `AGENTS.md` is the project's map and its standing facts. Keep it current; no dates, no history — that is what git and `.infinity-shift/` are for.
+- `AGENTS.md` is the project's map and its standing facts. Keep it current; no dates, no history — that is what git and `.shift/` are for.

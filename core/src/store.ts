@@ -22,7 +22,7 @@ export type Store = {
 // Where the files loaded into every session are, absolute.
 export type Places = { owner: string; glossary: string; shift: string }
 
-// The records under `base` (the project's `.infinity-shift/` or a shift's snapshot); null without a board.
+// The records under `base` (the project's `.shift/` or a shift's snapshot); null without a board.
 // A snapshot keeps every file under its own name; a project's places come from its settings.
 export async function readWork(store: Store, base: string, places?: Places): Promise<Work | null> {
   const board = await store.read(`${base}/board.md`)

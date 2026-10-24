@@ -5,7 +5,7 @@ import type { PendingShift, ShiftInput } from '../src/types'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
-const R = `${ROOT}/.infinity-shift`
+const R = `${ROOT}/.shift`
 const AT = Date.UTC(2026, 0, 2, 3, 4, 5)
 const DIR = `${R}/shifts/20260102-030405`
 
@@ -40,7 +40,7 @@ const TRAPS = [
   '',
   '**Do.** d.',
 ].join('\n')
-const INPUT: ShiftInput = { letter: '.infinity-shift/letter.md', after: 'continue', about: 'the parser fixed' }
+const INPUT: ShiftInput = { letter: '.shift/letter.md', after: 'continue', about: 'the parser fixed' }
 
 function project(extra: Record<string, string> = {}, ignored = true) {
   return memoryStore(
@@ -72,7 +72,7 @@ test('a shift is refused without a letter, with a bad letter or without a board'
   }
   const noLetter = project()
   noLetter.files.delete(`${R}/letter.md`)
-  expect(await deny(noLetter)).toContain('No letter at .infinity-shift/letter.md')
+  expect(await deny(noLetter)).toContain('No letter at .shift/letter.md')
   expect(await deny(project({ [`${R}/letter.md`]: '## Where I am\nx' }))).not.toBeNull()
   const noBoard = project()
   noBoard.files.delete(`${R}/board.md`)
@@ -84,8 +84,8 @@ test("records the project's git does not ignore are excluded locally, unless the
   const store = project({ [`${ROOT}/.git/info/exclude`]: '# git ls-files --others --exclude-from=.git/info/exclude' }, false)
   const accepted = await acceptShift(store, call)
   if ('deny' in accepted) throw new Error(accepted.deny)
-  expect(accepted.result).toContain('the mod added ".infinity-shift/" to /p/.git/info/exclude')
-  expect(store.files.get(`${ROOT}/.git/info/exclude`)).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n.infinity-shift/\n')
+  expect(accepted.result).toContain('the mod added ".shift/" to /p/.git/info/exclude')
+  expect(store.files.get(`${ROOT}/.git/info/exclude`)).toBe('# git ls-files --others --exclude-from=.git/info/exclude\n.shift/\n')
 
   const committed = project({ [`${R}/settings.toml`]: 'commit = true' }, false)
   const kept = await acceptShift(committed, call)
@@ -126,7 +126,7 @@ test('archiving moves the folder and adds the index line; a second time is refus
   const input = { name: 'tests', outcome: 'done' as const, about: 'green' }
   const result = await archiveTask(store, ROOT, input)
 
-  expect(result).toEqual({ result: expect.stringContaining('Archived to .infinity-shift/archive/tests/') })
+  expect(result).toEqual({ result: expect.stringContaining('Archived to .shift/archive/tests/') })
   expect(store.files.has(`${R}/archive/tests/task.md`)).toBe(true)
   expect(store.files.has(`${R}/tasks/tests/task.md`)).toBe(false)
   expect(store.files.get(`${R}/archive/index.md`)).toContain('[Green tests](tests/) — green')
@@ -155,7 +155,7 @@ test('resume says why there is nothing, else hands the letter last', async () =>
   store.files.set(`${R}/shifts/20260101-000000/letter.md`, LETTER)
   const resumed = await resumeShift(store, ROOT)
   expect(resumed.text).toBe('Picking up shift 20260101-000000.')
-  expect(resumed.prompt?.indexOf('<file path=".infinity-shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
+  expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
 })
 
 test('after the let-go: continue counts the streak, a capped continue and a wait leave the note', async () => {

@@ -5,10 +5,10 @@ import { compactInstructions, renderSessionFiles, sessionFiles, settleShift, shi
 import { claudeStore } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
-const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
-const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
-const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, null)
-const files = atom({ plugin: 'infinity-shift', key: 'files' } as const, null)
+const autoStreak = atom({ plugin: 'shift', key: 'autoStreak' } as const, 0)
+const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
+const waitNote = atom({ plugin: 'shift', key: 'waitNote' } as const, null)
+const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 
 export async function handOver($: EngineInterface): Promise<void> {
   const shift: PendingShift | null = await read($, pending)

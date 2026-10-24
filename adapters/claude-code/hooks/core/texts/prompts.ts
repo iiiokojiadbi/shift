@@ -126,7 +126,7 @@ export function renderRecent(recent: Recent): string {
 // right before the turn, so its "Next" is what the agent sees closest to acting.
 function shiftMessage(opening: string, letter: string, work: Work | null, recent: Recent, dir: string, closing: string[] = []): string {
   return [
-    `<${MOD} shift="${dir}/">`,
+    `<${MOD} folder="${dir}/">`,
     opening,
     '',
     'The board, the tasks in progress and the map of knowledge, as they are now; SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md are in your session block, read again after this shift:',

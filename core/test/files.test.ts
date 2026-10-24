@@ -8,7 +8,7 @@ import { renderSessionFiles } from '../src/texts/prompts'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
-const R = `${ROOT}/.infinity-shift`
+const R = `${ROOT}/.shift`
 const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
 const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
 const TASK = [
@@ -36,8 +36,8 @@ const LIST = [
 test('TASKS.md lists every folder once, with links that lead somewhere', () => {
   const folders = ['adapters', 'core']
   expect(checkTaskList(LIST, folders, ['old'])).toBeNull()
-  expect(checkTaskList(null, folders, [])).toContain('No .infinity-shift/TASKS.md')
-  expect(checkTaskList(LIST, [...folders, 'extra'], ['old'])).toContain('missing from .infinity-shift/TASKS.md: extra')
+  expect(checkTaskList(null, folders, [])).toContain('No .shift/TASKS.md')
+  expect(checkTaskList(LIST, [...folders, 'extra'], ['old'])).toContain('missing from .shift/TASKS.md: extra')
   expect(checkTaskList(LIST, folders, [])).toContain('archive/old/, which is not there')
   expect(checkTaskList(LIST.replace('[in progress]', '[done]'), folders, ['old'])).toContain('without a status')
   expect(checkTaskList(LIST.replace('needs: [core](tasks/core/)', 'needs: [old](archive/old/)'), folders, ['old'])).toContain(
@@ -73,14 +73,14 @@ test('the docs map lists each document with its description and sections, and re
     [`${ROOT}/docs/a.md`]: '---\ndescription: what A holds\n---\n\n# A\n\n## One\n\n```\n## not a heading\n```\n\n## Two',
     [`${ROOT}/docs/deep/b.md`]: '# B',
   })
-  await refreshMap(store, ROOT, '.infinity-shift/SHIFT.md', ['docs'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs'])
   const first = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(first).toContain('- `docs/a.md` — what A holds\n  sections: One · Two')
   expect(first).toContain('- `docs/deep/b.md` — no description')
 
   store.files.set(`${R}/SHIFT.md`, first.replace('# Shift', '# Shift\n\nMY RULES'))
   store.files.set(`${ROOT}/docs/c.md`, '---\ndescription: C\n---')
-  await refreshMap(store, ROOT, '.infinity-shift/SHIFT.md', ['docs'])
+  await refreshMap(store, ROOT, '.shift/SHIFT.md', ['docs'])
   const second = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(second).toContain('MY RULES')
   expect(second).toContain('`docs/c.md` — C')
@@ -99,14 +99,14 @@ test('every session gets SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md, at the pl
   })
   const block = renderSessionFiles(await sessionFiles(store, ROOT)) ?? ''
   expect(block).toContain('<file path="OWNER.md">')
-  expect(block).toContain('<file path=".infinity-shift/TASKS.md">')
+  expect(block).toContain('<file path=".shift/TASKS.md">')
   expect(block).toContain('`notes/n.md` — N')
   expect(await sessionFiles(memoryStore({ [`${R}/settings.toml`]: 'enabled = false', [`${R}/TASKS.md`]: 'none' }), ROOT)).toEqual([])
   expect(parseSettings('[docs]\ndirs = ["../out"]')).toContain('folders inside the project')
 })
 
 test('a shift refuses the old owner.md, a board with Tasks, continues in task.md and a rejected option without its reason', async () => {
-  const call = { root: ROOT, input: { letter: '.infinity-shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const call = { root: ROOT, input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const base = {
     [`${R}/letter.md`]: LETTER,
     [`${R}/board.md`]: BOARD,
@@ -121,10 +121,8 @@ test('a shift refuses the old owner.md, a board with Tasks, continues in task.md
   }
   expect(await deny({})).toBeNull()
   expect(await deny({ [`${R}/owner.md`]: 'x' })).toContain('owner.md is the old name')
-  expect(await deny({ [`${R}/board.md`]: `${BOARD}\n## Tasks\n- [in progress] t — t` })).toContain('live in .infinity-shift/TASKS.md now')
-  expect(await deny({ [`${R}/tasks/t/task.md`]: TASK.replace('# T', '# T\ncontinues: .infinity-shift/archive/x/') })).toContain(
-    'Move it there',
-  )
+  expect(await deny({ [`${R}/board.md`]: `${BOARD}\n## Tasks\n- [in progress] t — t` })).toContain('live in .shift/TASKS.md now')
+  expect(await deny({ [`${R}/tasks/t/task.md`]: TASK.replace('# T', '# T\ncontinues: .shift/archive/x/') })).toContain('Move it there')
   expect(await deny({ [`${R}/board.md`]: BOARD.replace('## Decisions\nnone', '## Decisions\n- A — b; rejected: C') })).toContain(
     'needs its reason',
   )
@@ -141,4 +139,19 @@ test('task_archive writes the index line with what the task continued, and updat
   await archiveTask(store, ROOT, { name: 't', outcome: 'done', about: 'it ended' })
   expect(store.files.get(`${R}/archive/index.md`)).toContain('— it ended; continues old')
   expect(store.files.get(`${R}/TASKS.md`)).toBe('none\n')
+})
+
+test('the old folder name and the shift skill folder are named, and nothing is written into them', async () => {
+  const call = { root: ROOT, input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const old = memoryStore({ [`${ROOT}/.infinity-shift/board.md`]: BOARD })
+  expect(await acceptShift(old, call)).toEqual({ deny: expect.stringContaining('rename the folder to .shift/') })
+
+  const skill = memoryStore({
+    [`${R}/sessions/2026-10-01/unfinished.md`]: 'x',
+    [`${R}/SHIFT.md`]: '# the skill',
+    [`${ROOT}/docs/a.md`]: '# A',
+  })
+  expect(await acceptShift(skill, call)).toEqual({ deny: expect.stringContaining("the shift skill's") })
+  expect(await sessionFiles(skill, ROOT)).toEqual([])
+  expect(skill.files.get(`${R}/SHIFT.md`)).toBe('# the skill')
 })

@@ -32,6 +32,7 @@ import {
   STATUS_TOOL,
   sessionFiles,
   shiftHistory,
+  staleLayout,
   TOOL,
   TOOL_DESCRIPTION,
   TOOL_SCHEMA,
@@ -44,12 +45,12 @@ import { countGrowth, statusText, takeHint } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
-const autoStreak = atom({ plugin: 'infinity-shift', key: 'autoStreak' } as const, 0)
-const enabled = atom({ plugin: 'infinity-shift', key: 'enabled' } as const, true)
-const files = atom({ plugin: 'infinity-shift', key: 'files' } as const, null)
-const gauge = atom({ plugin: 'infinity-shift', key: 'gauge' } as const, FRESH_GAUGE)
-const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
-const waitNote = atom({ plugin: 'infinity-shift', key: 'waitNote' } as const, null)
+const autoStreak = atom({ plugin: 'shift', key: 'autoStreak' } as const, 0)
+const enabled = atom({ plugin: 'shift', key: 'enabled' } as const, true)
+const files = atom({ plugin: 'shift', key: 'files' } as const, null)
+const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
+const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
+const waitNote = atom({ plugin: 'shift', key: 'waitNote' } as const, null)
 
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
@@ -60,6 +61,8 @@ export const register: Register = on => {
     await update($, enabled, () => settings.enabled)
     if (problem !== null) $.ui.log(`${PLUGIN}: ${problem} The mod stays on.`)
     if (!settings.enabled) return next(e)
+    const stale = await staleLayout(store, root)
+    if (stale !== null) $.ui.log(`${PLUGIN}: ${stale}`)
     const loaded = renderSessionFiles(await sessionFiles(store, root))
     await update($, files, () => loaded)
     // Records written before the first shift stay out of a commit too.
@@ -95,7 +98,7 @@ export const register: Register = on => {
     return { ...composed, sections: [...composed.sections, ...own] }
   })
 
-  on('tool.call', { tool: 'mcp__infinity-shift__shift' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__shift__shift' }, async ($, e) => {
     if (e.agentId !== undefined) return { deny: 'Only the main agent shifts, not a subagent.' }
     if ((await read($, pending)) !== null) return { deny: 'The shift is already accepted: end the turn with one line.' }
 
@@ -112,20 +115,20 @@ export const register: Register = on => {
     next.called ? next(e) : { deny: `${PLUGIN}: the shift broke (${next.error?.kind ?? 'unknown'}), the history is intact.` },
   )
 
-  on('tool.call', { tool: 'mcp__infinity-shift__task_archive' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__shift__task_archive' }, async ($, e) => {
     const parsed = parseArchiveInput(e as unknown as Record<string, unknown>)
     if (typeof parsed === 'string') return { deny: parsed }
 
     return archiveTask(claudeStore($), await $.session.root(), parsed)
   }).catch((_$, e, next) => (next.called ? next(e) : { deny: `${PLUGIN}: archiving broke (${next.error?.kind ?? 'unknown'}).` }))
 
-  on('tool.call', { tool: 'mcp__infinity-shift__shift_guide' }, () => ({ result: GUIDE }))
+  on('tool.call', { tool: 'mcp__shift__shift_guide' }, () => ({ result: GUIDE }))
 
-  on('tool.call', { tool: 'mcp__infinity-shift__shift_status' }, async $ => ({ result: await statusText($) })).catch((_$, e, next) =>
+  on('tool.call', { tool: 'mcp__shift__shift_status' }, async $ => ({ result: await statusText($) })).catch((_$, e, next) =>
     next.called ? next(e) : { deny: `${PLUGIN}: the status did not read (${next.error?.kind ?? 'unknown'}).` },
   )
 
-  on('tool.call', { tool: 'mcp__infinity-shift__shift_history' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__shift__shift_history' }, async ($, e) => {
     const count = parseHistoryCount(e as unknown as Record<string, unknown>)
     if (typeof count === 'string') return { deny: count }
 

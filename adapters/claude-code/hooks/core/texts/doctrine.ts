@@ -18,6 +18,7 @@ import {
   KNOWLEDGE_MAX_LINES,
   LETTER,
   MOD,
+  OLD_DIR,
   OLD_OWNER,
   OWNER,
   OWNER_MAX_LINES,
@@ -327,19 +328,21 @@ How to read it: frontmatter — \`key: value\` lines between \`---\`; sections �
 ## Coming from the earlier layout
 
 Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved once, before the next shift; the refusals name each step:
+- \`${OLD_DIR}/\` → \`${DIR}/\`, the folder renamed as it is;
 - \`${OLD_OWNER}\` → \`${OWNER}\`, renamed as it is;
 - the board's "Tasks" section → \`${TASK_LIST}\`: each line as \`- [status] [name](tasks/name/) — what matters\`, and the \`continues:\` lines of each \`task.md\` under it as \`- continues: [name](archive/name/)\`;
 - \`${KNOWLEDGE}/glossary*.md\` → \`${GLOSSARY}\`, one article per term;
 - where knowledge goes, if \`${OWNER}\` spells it out by kind of knowledge → \`${SHIFT_FILE}\`, on the owner's word.
 
-## Coming from \`.shift\`
+## Coming from the shift skill
 
-A project kept with the \`shift\`/\`unshift\` skills has \`.shift/\`. Move it once, before the first shift, entry by entry — nothing is summarized away:
+A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their making: \`sessions/\`, \`AGENTS.md\`, \`SHIFT.md\` (the skill's own text), a \`shift\` script, \`knowledge/\`, sometimes a \`.git\` of its own. The mod uses the same folder, and works on it only once it has a board. Move it in place, once, entry by entry — nothing is summarized away:
 - \`knowledge/owner.md\` → \`${OWNER}\`, rules as they are;
-- \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\`, → \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (Причина → Cause, Делать → Do, Почему → Why, Когда не годится → Not when, Покажет → Shows), drop the date lines and the generated tables of contents;
+- \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\` stay in \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (Причина → Cause, Делать → Do, Почему → Why, Когда не годится → Not when, Покажет → Shows), drop the date lines and the generated tables of contents;
 - \`knowledge/glossary*.md\` → \`${GLOSSARY}\`, one article per term: the meaning into \`Means\`, other spellings into \`Variants\`; a meaning the files only guessed gets \`Unconfirmed\`;
-- the \`knowledge\` setting of \`.shift/AGENTS.md\` (\`project\`, \`local\`, \`split\`) is the owner's choice of where knowledge goes → \`knowledge\` in \`${SETTINGS}\`; its "Что где" rows → a rule in \`${OWNER}\`, as they are;
-- open items of the last snapshot's \`unfinished.md\` and its "С чего начать" → tasks; its owner decisions → \`${OWNER}\` or the task's; dead ends → the board or the task;
-- \`.shift/sessions/\` is not moved: it is history. \`.shift/\` itself is removed only on the owner's word.
+- the \`knowledge\` setting of \`AGENTS.md\` (\`project\`, \`local\`, \`split\`) → \`knowledge\` in \`${SETTINGS}\`; its "Что где" rows → \`${SHIFT_FILE}\` on the owner's word;
+- open items of the last snapshot's \`unfinished.md\` and its "С чего начать" → tasks in \`${TASK_LIST}\`; its owner decisions → \`${OWNER}\` or the task's; dead ends → the board or the task;
+- the skill's \`SHIFT.md\`, \`shift\` script and \`AGENTS.md\` go once their content is moved: \`${SHIFT_FILE}\` is the project's own file now. A \`.git\` inside goes only on the owner's word;
+- \`sessions/\` stays as it is: it is history.
 
 The text of records may stay in its language, and the owner is quoted verbatim; section names and entry fields are the ones above.`

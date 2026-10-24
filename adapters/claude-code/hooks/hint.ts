@@ -5,9 +5,9 @@ import { addGrowth, contentChars, FRESH_GAUGE, growthOf, HINTED, renderStatus, s
 import { claudeStore } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
-const gauge = atom({ plugin: 'infinity-shift', key: 'gauge' } as const, FRESH_GAUGE)
-const pending = atom({ plugin: 'infinity-shift', key: 'pending' } as const, null)
-const threshold = atom({ plugin: 'infinity-shift', key: 'threshold' } as const, null)
+const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
+const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
+const threshold = atom({ plugin: 'shift', key: 'threshold' } as const, null)
 
 // The harness's own threshold, read once the window is half full or when asked: the breakdown that names it is an estimate over everything.
 async function compactLimit($: EngineInterface, tokens: number, window: number, now = false): Promise<number | undefined> {

@@ -142,13 +142,13 @@ test('the board is a state, not a diary', () => {
   expect(checkWork({ ...WORK, taskList: listWith(['- [done] [tests](tasks/tests/) — red']) }, null)).toContain('task_archive')
   const long = boardWith(Array.from({ length: 200 }, (_, i) => `- decision ${i}`))
   expect(checkWork({ ...WORK, board: long }, null)).toContain('diary')
-  expect(checkWork({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` }, null)).toContain('live in .infinity-shift/OWNER.md')
+  expect(checkWork({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` }, null)).toContain('live in .shift/OWNER.md')
   expect(checkWork({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) }, null)).toContain('needs its reason')
   expect(checkWork({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) }, null)).toBeNull()
 })
 
 test("the owner's decisions are a code of rules beside the board", () => {
-  expect(checkWork({ ...WORK, owner: null }, null)).toContain('No .infinity-shift/OWNER.md')
+  expect(checkWork({ ...WORK, owner: null }, null)).toContain('No .shift/OWNER.md')
   expect(checkWork({ ...WORK, owner: ' ' }, null)).toContain('"none"')
   expect(checkWork({ ...WORK, owner: `${OWNER} (19.10.2026)` }, null)).toContain('rewrites the older line')
   const long = Array.from({ length: 160 }, (_, i) => `- rule ${i}`).join('\n')
@@ -173,16 +173,12 @@ test('knowledge files have a kind, an about, their entry fields and room', () =>
     '"**Source.**"',
   )
   expect(file('glossary.md', '---\nkind: glossary\nabout: terms\n---\n\n- **shift** — the boundary')).toContain('GLOSSARY.md now')
-  expect(knowledgeMap(WORK.knowledge)).toBe(
-    '- .infinity-shift/knowledge/traps.md — traps of edits and tests; lessons — lessons.md (1 entries)',
-  )
+  expect(knowledgeMap(WORK.knowledge)).toBe('- .shift/knowledge/traps.md — traps of edits and tests; lessons — lessons.md (1 entries)')
 })
 
 test('TASKS.md and the task folders match, and each task is whole', () => {
   expect(checkWork({ ...WORK, tasks: [] }, null)).toContain('without a folder')
-  expect(checkWork({ ...WORK, tasks: [TESTS, { ...TESTS, name: 'extra' }] }, null)).toContain(
-    'missing from .infinity-shift/TASKS.md: extra',
-  )
+  expect(checkWork({ ...WORK, tasks: [TESTS, { ...TESTS, name: 'extra' }] }, null)).toContain('missing from .shift/TASKS.md: extra')
   expect(checkWork({ ...WORK, tasks: [{ ...TESTS, track: null }] }, null)).toContain('no track.md')
   expect(checkWork({ ...WORK, tasks: [{ ...TESTS, task: '## Goal\ng' }] }, null)).toContain('title')
   expect(checkWork({ ...WORK, tasks: [{ ...TESTS, task: '# T\n## Goal\ng' }] }, null)).toContain('"## Done when"')
@@ -234,7 +230,7 @@ test('the summarizer gets the hold and is told not to plan', () => {
 })
 
 const AT = Date.UTC(2026, 9, 23, 14, 5, 9)
-const DIR = '/proj/.infinity-shift/shifts/20261023-140509'
+const DIR = '/proj/.shift/shifts/20261023-140509'
 
 type On = Parameters<TestBody>[1]
 
@@ -300,13 +296,13 @@ function stubSession(
 
 function project(): Map<string, string> {
   return new Map([
-    ['/proj/.infinity-shift/letter.md', LETTER],
-    ['/proj/.infinity-shift/board.md', BOARD],
-    ['/proj/.infinity-shift/OWNER.md', OWNER],
-    ['/proj/.infinity-shift/TASKS.md', LIST],
-    ['/proj/.infinity-shift/knowledge/traps.md', TRAPS],
-    ['/proj/.infinity-shift/tasks/tests/task.md', TESTS.task ?? ''],
-    ['/proj/.infinity-shift/tasks/tests/track.md', TRACK],
+    ['/proj/.shift/letter.md', LETTER],
+    ['/proj/.shift/board.md', BOARD],
+    ['/proj/.shift/OWNER.md', OWNER],
+    ['/proj/.shift/TASKS.md', LIST],
+    ['/proj/.shift/knowledge/traps.md', TRAPS],
+    ['/proj/.shift/tasks/tests/task.md', TESTS.task ?? ''],
+    ['/proj/.shift/tasks/tests/track.md', TRACK],
   ])
 }
 
@@ -320,8 +316,8 @@ test('the shift tool snapshots the letter, the board and the tasks, and accepts 
   mock.clock(on, { now: AT })
 
   const answer = await $.tool.call({
-    tool: 'mcp__infinity-shift__shift',
-    letter: '.infinity-shift/letter.md',
+    tool: 'mcp__shift__shift',
+    letter: '.shift/letter.md',
     after: 'continue',
     about: 'ABOUT',
   })
@@ -335,8 +331,8 @@ test('the shift tool snapshots the letter, the board and the tasks, and accepts 
   expect(files.get(`${DIR}/about.md`)).toContain('result: pending')
 
   const again = await $.tool.call({
-    tool: 'mcp__infinity-shift__shift',
-    letter: '.infinity-shift/letter.md',
+    tool: 'mcp__shift__shift',
+    letter: '.shift/letter.md',
     after: 'wait',
     about: 'ABOUT',
   })
@@ -344,18 +340,18 @@ test('the shift tool snapshots the letter, the board and the tasks, and accepts 
 })
 
 test('the shift tool refuses without a board or a letter', async ($, on) => {
-  const files = new Map([['/proj/.infinity-shift/letter.md', LETTER]])
+  const files = new Map([['/proj/.shift/letter.md', LETTER]])
   stubSession(on, files)
   mock.clock(on, { now: AT })
 
   const noBoard = await $.tool.call({
-    tool: 'mcp__infinity-shift__shift',
-    letter: '.infinity-shift/letter.md',
+    tool: 'mcp__shift__shift',
+    letter: '.shift/letter.md',
     after: 'wait',
     about: 'ABOUT',
   })
   expect(noBoard.deny).toContain('No board')
-  const noLetter = await $.tool.call({ tool: 'mcp__infinity-shift__shift', letter: 'missing.md', after: 'wait', about: 'ABOUT' })
+  const noLetter = await $.tool.call({ tool: 'mcp__shift__shift', letter: 'missing.md', after: 'wait', about: 'ABOUT' })
   expect(noLetter.deny).toContain('No letter')
 })
 
@@ -365,14 +361,14 @@ test('records the project would commit go to its local exclude file, and the shi
   mock.clock(on, { now: AT })
 
   const answer = await $.tool.call({
-    tool: 'mcp__infinity-shift__shift',
-    letter: '.infinity-shift/letter.md',
+    tool: 'mcp__shift__shift',
+    letter: '.shift/letter.md',
     after: 'wait',
     about: 'ABOUT',
   })
   expect(answer.deny).toBeUndefined()
-  expect(String(answer.result)).toContain('the mod added ".infinity-shift/" to /proj/.git/info/exclude')
-  expect(files.get('/proj/.git/info/exclude')).toBe('.infinity-shift/\n')
+  expect(String(answer.result)).toContain('the mod added ".shift/" to /proj/.git/info/exclude')
+  expect(files.get('/proj/.git/info/exclude')).toBe('.shift/\n')
 })
 
 test('continue: after the turn the history is let go with the hold, and the letter and the work start a turn', async ($, on) => {
@@ -391,7 +387,7 @@ test('continue: after the turn the history is let go with the hold, and the lett
   })
   on('turn.complete', () => ({ text: '' }))
 
-  await $.tool.call({ tool: 'mcp__infinity-shift__shift', letter: '.infinity-shift/letter.md', after: 'continue', about: 'ABOUT' })
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'continue', about: 'ABOUT' })
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
   expect(compacted).toEqual([])
   await clock.advance(500)
@@ -401,7 +397,7 @@ test('continue: after the turn the history is let go with the hold, and the lett
   expect(submitted.length).toBe(1)
   expect(submitted[0]).toContain('Shift done')
   expect(submitted[0]).toContain('fixing tests')
-  expect(submitted[0]).toContain('.infinity-shift/tasks/tests/track.md')
+  expect(submitted[0]).toContain('.shift/tasks/tests/track.md')
   expect(submitted[0]).toContain('cover the archive')
   expect(submitted[0]).not.toContain('«тесты зеленые перед коммитом»')
   expect(submitted[0]).toContain('knowledge/traps.md — traps of edits and tests')
@@ -425,7 +421,7 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   })
   on('turn.complete', () => ({ text: '' }))
 
-  await $.tool.call({ tool: 'mcp__infinity-shift__shift', letter: '.infinity-shift/letter.md', after: 'wait', about: 'ABOUT' })
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'wait', about: 'ABOUT' })
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
   await clock.advance(500)
   await $.prompt.submit({ text: 'a notification', origin: { kind: 'unclassified' }, wait: false })
@@ -434,15 +430,15 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
 
   expect(contexts[0] ?? []).toEqual([])
   expect(String(contexts[1])).toContain('fixing tests')
-  expect(String(contexts[1])).toMatch(/^<infinity-shift shift="[^"]+\/">/)
+  expect(String(contexts[1])).toMatch(/^<shift folder="[^"]+\/">/)
   expect(String(contexts[1])).toContain('<letter path=')
-  expect(String(contexts[1])).toContain('<file path=".infinity-shift/board.md">')
-  expect(String(contexts[1]).trimEnd().endsWith('</infinity-shift>')).toBe(true)
-  expect(DOCTRINE.startsWith('<infinity-shift note=')).toBe(true)
+  expect(String(contexts[1])).toContain('<file path=".shift/board.md">')
+  expect(String(contexts[1]).trimEnd().endsWith('</shift>')).toBe(true)
+  expect(DOCTRINE.startsWith('<shift note=')).toBe(true)
   expect(String(contexts[1])).toContain('fix the parser')
   // The records first, the recent shifts in the middle, the letter last.
   const handed = String(contexts[1])
-  expect(handed.indexOf('<file path=".infinity-shift/board.md">')).toBeLessThan(handed.indexOf('<shifts>'))
+  expect(handed.indexOf('<file path=".shift/board.md">')).toBeLessThan(handed.indexOf('<shifts>'))
   expect(handed.indexOf('</shifts>')).toBeLessThan(handed.indexOf('<letter path='))
   expect(handed).toMatch(/- \d{8}-\d{6} · ABOUT\n<\/shifts>/)
   expect(contexts[2] ?? []).toEqual([])
@@ -460,18 +456,18 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
 
 test('task_archive moves the folder and writes the index line', async ($, on) => {
   const files = project()
-  files.set('/proj/.infinity-shift/tasks/tests/track.md', '- [done] fix the parser')
+  files.set('/proj/.shift/tasks/tests/track.md', '- [done] fix the parser')
   stubSession(on, files)
 
-  const answer = await $.tool.call({ tool: 'mcp__infinity-shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
+  const answer = await $.tool.call({ tool: 'mcp__shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
   expect(answer.deny).toBeUndefined()
   expect(String(answer.result)).toContain('TASKS.md no longer lists it')
-  expect(files.get('/proj/.infinity-shift/TASKS.md')).toBe('# Tasks\n\nnone\n')
-  expect(files.has('/proj/.infinity-shift/tasks/tests/task.md')).toBe(false)
-  expect(files.get('/proj/.infinity-shift/archive/tests/track.md')).toBe('- [done] fix the parser')
-  expect(files.get('/proj/.infinity-shift/archive/index.md')).toContain('- [done] [Green tests](tests/) — green')
+  expect(files.get('/proj/.shift/TASKS.md')).toBe('# Tasks\n\nnone\n')
+  expect(files.has('/proj/.shift/tasks/tests/task.md')).toBe(false)
+  expect(files.get('/proj/.shift/archive/tests/track.md')).toBe('- [done] fix the parser')
+  expect(files.get('/proj/.shift/archive/index.md')).toContain('- [done] [Green tests](tests/) — green')
 
-  const again = await $.tool.call({ tool: 'mcp__infinity-shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
+  const again = await $.tool.call({ tool: 'mcp__shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
   expect(again.deny).toContain('already exists')
 })
 
@@ -572,7 +568,7 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
   tokens = 30000
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
   expect(String(prompts[1])).toContain('without your shift')
-  const status = await $.tool.call({ tool: 'mcp__infinity-shift__shift_status' })
+  const status = await $.tool.call({ tool: 'mcp__shift__shift_status' })
   expect(String(status.result)).toContain('Since the last shift: +0.')
 })
 
@@ -580,7 +576,7 @@ test('a fresh process takes the count back from the last shift and the history',
   const files = project()
   const about = (session: string) =>
     `---\ndescription: d\nresult: shifted (95K → 6K), waiting for the owner\ntokens: 95K → 6K\nsession: ${session}\n---\n`
-  files.set('/proj/.infinity-shift/shifts/20260101-000000/about.md', about('sess'))
+  files.set('/proj/.shift/shifts/20260101-000000/about.md', about('sess'))
   const history = [
     { role: 'user', content: 'summary of the stretch' },
     { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a' } }] },
@@ -588,7 +584,7 @@ test('a fresh process takes the count back from the last shift and the history',
   ]
   stubSession(on, files, [], () => 150_000, 0, history)
 
-  const status = String((await $.tool.call({ tool: 'mcp__infinity-shift__shift_status' })).result)
+  const status = String((await $.tool.call({ tool: 'mcp__shift__shift_status' })).result)
   expect(status).toContain('Since the last shift: +144K.')
   expect(status).toContain('Grown mostly from: Read 99%.')
 
@@ -600,7 +596,7 @@ test('a fresh process takes the count back from the last shift and the history',
 })
 
 test('the shift tool refuses a bad call', async $ => {
-  const answer = await $.tool.call({ tool: 'mcp__infinity-shift__shift', letter: '', after: 'wait', about: 'ABOUT' })
+  const answer = await $.tool.call({ tool: 'mcp__shift__shift', letter: '', after: 'wait', about: 'ABOUT' })
   expect(answer.deny).toContain('letter')
 })
 
@@ -660,18 +656,18 @@ test('the history and guide tools answer', async ($, on) => {
   on('prompt.submit', (_$: unknown, e: { text: string }) => ({ text: e.text }))
   on('turn.complete', () => ({ text: '' }))
 
-  const guide = await $.tool.call({ tool: 'mcp__infinity-shift__shift_guide' })
+  const guide = await $.tool.call({ tool: 'mcp__shift__shift_guide' })
   expect(String(guide.result)).toContain('strict structure')
 
-  await $.tool.call({ tool: 'mcp__infinity-shift__shift', letter: '.infinity-shift/letter.md', after: 'wait', about: 'ABOUT' })
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'wait', about: 'ABOUT' })
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
   await clock.advance(500)
-  const history = await $.tool.call({ tool: 'mcp__infinity-shift__shift_history' })
+  const history = await $.tool.call({ tool: 'mcp__shift__shift_history' })
   expect(String(history.result)).toContain('20261023-140509')
   expect(String(history.result)).toContain('ABOUT')
 })
 
-test('/shift-resume hands the last letter, the board and the tasks in progress to a fresh session', async ($, on) => {
+test('/unshift hands the last letter, the board and the tasks in progress to a fresh session', async ($, on) => {
   const files = project()
   files.set(`${DIR}/letter.md`, LETTER)
   const submitted: string[] = []
@@ -683,7 +679,7 @@ test('/shift-resume hands the last letter, the board and the tasks in progress t
   })
 
   const run = await $.command.run({
-    command: 'shift-resume',
+    command: 'unshift',
     args: '',
     origin: { kind: 'composer' },
     presentation: { isFullscreen: false, columns: 80 },
@@ -711,13 +707,13 @@ test('settings turn the mod off in a project: no tools, no doctrine', async ($, 
 
   await $.session.start({ cwd: '/proj', surface: null } as never)
   expect(registered).toContain('shift')
-  expect((await compose()).sections.map(section => section.id)).toContain('infinity-shift:doctrine')
-  const loaded = (await compose()).sections.find(section => section.id === 'infinity-shift:files')?.text
-  expect(loaded).toContain('<file path=".infinity-shift/OWNER.md">')
-  expect(loaded).toContain('<file path=".infinity-shift/TASKS.md">')
+  expect((await compose()).sections.map(section => section.id)).toContain('shift:doctrine')
+  const loaded = (await compose()).sections.find(section => section.id === 'shift:files')?.text
+  expect(loaded).toContain('<file path=".shift/OWNER.md">')
+  expect(loaded).toContain('<file path=".shift/TASKS.md">')
 
   registered.length = 0
-  files.set('/proj/.infinity-shift/settings.toml', '# not here\nenabled = false\n')
+  files.set('/proj/.shift/settings.toml', '# not here\nenabled = false\n')
   await $.session.start({ cwd: '/proj', surface: null } as never)
   expect(registered).toEqual([])
   expect((await compose()).sections).toEqual([])

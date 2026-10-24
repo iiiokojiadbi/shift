@@ -2,7 +2,7 @@
 description: The concept and its reasoning: the loop, the records, hints, core and adapters with each harness's slots, lessons. Before changing how the mod works.
 ---
 
-# infinity-shift: concept
+# shift: concept
 
 The agent manages its own context. After finishing a stage of work, it decides it is time to compress, and it sets the direction of the compaction itself: what to keep and how broadly to fold. After the compaction the agent immediately receives a handoff from itself — where to continue from — and either continues working or waits for the owner.
 
@@ -21,18 +21,18 @@ Marks in the text:
 
 1. **Work.** The agent keeps its records as it goes: the board, the task folders, decisions where they belong (see "Records"). The mod watches the context and hints when a shift is worth it (see "Hint").
 2. **Decision.** The agent chooses the moment itself — at a stage boundary, not in the middle of a step. The hint can be ignored, and it is possible to shift without it.
-3. **Shift.** The agent writes its letter to itself (`.infinity-shift/letter.md`: "Where I am", "Next", "Unverified", "Hold") and calls the `shift` tool with three fields:
+3. **Shift.** The agent writes its letter to itself (`.shift/letter.md`: "Where I am", "Next", "Unverified", "Hold") and calls the `shift` tool with three fields:
    - `letter` — the path to the letter;
    - `after` — `continue` or `wait`;
    - `about` — one line up to 400 characters for the shift history.
 
-   The mod checks the letter, the board and the tasks, snapshots them into `.infinity-shift/shifts/<UTC>/` and answers "shift accepted, end the turn with one line". Work done after the call would land in the history that is about to be let go.
+   The mod checks the letter, the board and the tasks, snapshots them into `.shift/shifts/<UTC>/` and answers "shift accepted, end the turn with one line". Work done after the call would land in the history that is about to be let go.
 4. **Let-go.** After the turn ends, the mod starts the harness's native compaction with the letter's "Hold" as the instructions, plus "the board, the tasks and the letter come back whole, do not repeat them". In no harness can a model compress itself in the middle of a turn: it is done by something that outlives the turn.
 5. **Next stretch.** With `continue` the letter, the board and the tasks in progress go as a message that starts a turn. With `wait` they ride along with the owner's next message. Three `continue` in a row without the owner force a `wait`. The owner sees transcript rows: shift done, waiting or continuing, what went with the message (the letter, the board, the owner's decisions, the tasks in progress, the map of knowledge — by name), or why a shift was not made or a letter did not go. No status line under the input: it hung there as noise.
 
 **How the model sees it.** The words "compression", "summary", "compaction" are absent from the doctrine, the tool description and the hints: some models respond to them with the familiar `<analysis>`/`<summary>` text instead of a tool call (see "Lessons"). The model sees shifts: it works in stretches and shifts itself, it does not change, only what is in front of it does.
 
-**What came from the mod.** Everything the mod puts before the model is in a tag that names it: the doctrine in the system prompt is `<infinity-shift note="…">`, what a shift hands back is `<infinity-shift shift="<folder>/">`, with the letter in `<letter path="…">`, each record in `<file path="…">` and the map in `<knowledge path="…">`. Records carry headings and code blocks of their own, so neither a heading level nor a fence can mark where one file ends; a tag can, and the agent tells the mod's text from the owner's instructions at once.
+**What came from the mod.** Everything the mod puts before the model is in a tag that names it: the doctrine in the system prompt is `<shift note="…">`, what a shift hands back is `<shift folder="<folder>/">`, with the letter in `<letter path="…">`, each record in `<file path="…">` and the map in `<knowledge path="…">`. Records carry headings and code blocks of their own, so neither a heading level nor a fence can mark where one file ends; a tag can, and the agent tells the mod's text from the owner's instructions at once.
 
 **In what order.** A model reads the start of a context as a frame, the middle weakest and the end as what to do now. So a shift hands back the records first as reference (the board, the owner's decisions, the tasks in progress, the map of knowledge), then in the middle the descriptions of the last 10 shifts oldest first, as memory of what was done before, with a line that `shift_history` reads the earlier ones when there are more, and the letter last, right before the turn. A recent-shift line is the folder and the description only: a column of past `wait` would pull the agent towards waiting when it could go on.
 
@@ -43,7 +43,7 @@ Division of roles: the digest is responsible for "what was", the letter — for 
 **[done in the Claude Code mod]**
 
 ```
-.infinity-shift/
+.shift/
 ├── board.md          the goal, project-wide decisions and dead ends
 ├── TASKS.md          the open tasks, which are in progress, and their links — every session
 ├── OWNER.md          the owner's decisions in force for the whole project — every session
@@ -188,7 +188,7 @@ Sources: `~/code/reference/billion-context` at `e518363` — the article, `CHANG
 
 1. **Hint.** Whether two signals and three levels are acceptable; where the stage boundary is in each harness.
 2. **Verbatim tail.** Whether a parameter "how many last turns to leave uncompressed" is needed. pi can (`firstKeptEntryId`), opencode — only through a setting (`tail_turns`), Claude Code — through substituting `messages`, not checked.
-3. **Where handoffs live** — settled: `.infinity-shift/`, kept out of the project's git unless the owner sets `commit = true`; it replaces the `shift`/`unshift` skills, and `shift_guide` describes the move from `.shift/`.
+3. **Where handoffs live** — settled: `.shift/`, kept out of the project's git unless the owner sets `commit = true`; it replaces the `shift`/`unshift` skills, and `shift_guide` describes the move from `.shift/`.
 4. **The owner writes while the compaction is running.** What to do with their message in the queue.
 5. **The hint channel in Claude Code.** One is needed that does not settle in the history. `$.session.append` writes into the conversation forever; the system prompt cannot be changed — it would break the cache. To be found by experiment.
 6. **Limit of autonomy.** `continue`, work, `shift`, `continue` can spin without the owner indefinitely. A limit is needed on consecutive shifts without their message, after which the mode is forced to `wait`, and a criterion "work is finished" in the note itself.
