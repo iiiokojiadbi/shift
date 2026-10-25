@@ -8,10 +8,12 @@ import { projectOf } from './disk'
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
 const threshold = atom({ plugin: 'shift', key: 'threshold' } as const, null)
 
-// The harness's own threshold, read once the window is half full or when asked: the breakdown that names it is an estimate over everything.
-async function compactLimit($: EngineInterface, tokens: number, window: number, now = false): Promise<number | undefined> {
+// The harness's own threshold, read once per process at the first reading: the breakdown that names it is an estimate
+// over everything, so not every time. Read only sometimes — once the window was half full, or when asked — it left a
+// restarted process stepping by the window where the hint before it had stepped by the threshold, and the hint came twice.
+async function compactLimit($: EngineInterface, window: number): Promise<number> {
   const known: number | null = await read($, threshold)
-  if (known !== null || (tokens < window / 2 && !now)) return known ?? undefined
+  if (known !== null) return known
   const { breakdown } = (await $.session.usage({ breakdown: 'summary' })).context
   const limit = breakdown?.autoCompactThreshold ?? window
   await update($, threshold, () => limit)
@@ -37,10 +39,10 @@ export function keeperOf($: EngineInterface): GaugeKeeper {
     },
     history: async () => growthOf(await $.session.messages({ as: 'api' })),
     base: async () => shiftBase(await projectOf($), await $.session.id()),
-    reading: async asked => {
+    reading: async () => {
       const { tokens, window } = (await $.session.usage()).context
 
-      return { tokens, window, threshold: tokens === undefined ? undefined : await compactLimit($, tokens, window, asked) }
+      return { tokens, window, threshold: tokens === undefined ? undefined : await compactLimit($, window) }
     },
   }
 }

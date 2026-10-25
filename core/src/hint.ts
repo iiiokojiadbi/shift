@@ -166,8 +166,8 @@ export type GaugeKeeper = {
   history(): Promise<Record<string, number>>
   // The fill the stretch started from, if the last shift was this session's.
   base(): Promise<number | null>
-  // How full the history is; `asked` when the agent asked for the status rather than a hint being checked.
-  reading(asked: boolean): Promise<Reading>
+  // How full the history is.
+  reading(): Promise<Reading>
 }
 
 // A gauge after any let-go of the main history: a new stretch, whole from its start; one the agent did not ask for
@@ -179,7 +179,7 @@ export function letGoGauge(unassisted: boolean): Gauge {
 // A hint for the agent if the fill since the last shift calls for one.
 export async function takeHint(keeper: GaugeKeeper): Promise<string | null> {
   await restore(keeper)
-  const reading = await keeper.reading(false)
+  const reading = await keeper.reading()
   let text: string | null = null
   await keeper.update(current => {
     const hint = shiftHint(complete(current), reading)
@@ -200,7 +200,7 @@ export async function countGrowth(keeper: GaugeKeeper, source: string, chars: nu
 // What shift_status answers.
 export async function gaugeStatus(keeper: GaugeKeeper): Promise<string> {
   await restore(keeper)
-  const reading = await keeper.reading(true)
+  const reading = await keeper.reading()
 
   return renderStatus(complete(await keeper.read()), reading)
 }
@@ -215,7 +215,7 @@ async function restore(keeper: GaugeKeeper): Promise<void> {
   if (complete(await keeper.read()).whole) return
   const base = await keeper.base()
   const growth = await keeper.history()
-  const reading = await keeper.reading(false)
+  const reading = await keeper.reading()
   await keeper.update(current => {
     const now = complete(current)
     if (now.whole) return now

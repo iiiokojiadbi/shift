@@ -195,13 +195,18 @@ test('/shift-tasks shows every open task, and the items not closed of those in p
   })
   expect(await tasksView(await loadProject(store, ROOT))).toBe(
     [
-      '[in progress] adapters — pi and opencode (1 of 3 items closed)',
+      'open tasks in .shift/TASKS.md',
+      '',
+      '[in progress] adapters — 1 of 3 items closed',
+      '    pi and opencode',
       '    [open] pi distribution',
       '    [open] opencode adapter',
-      '[deferred] later — after the adapters (0 of 1 items closed)',
+      '',
+      '[deferred] later — 0 of 1 items closed',
+      '    after the adapters',
     ].join('\n'),
   )
   expect(await tasksView(await loadProject(memoryStore({ [`${R}/TASKS.md`]: '# Tasks\n\nnone\n' }), ROOT))).toBe(
-    'No open tasks in .shift/TASKS.md.',
+    'no open tasks in .shift/TASKS.md',
   )
 })

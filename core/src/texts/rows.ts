@@ -21,7 +21,8 @@ export const DELIVERED = (files: readonly string[], dir: string) => `went with y
 
 export const NOT_CONTINUED = (why: string) => `the next turn did not start after the shift — ${why}; send any message to go on`
 
-// What /shift-tasks shows the owner: every open task, and under one in progress its items not closed yet.
+// What /shift-tasks shows the owner: every open task, and under one in progress its items not closed yet. The harness
+// puts the plugin's name before the first line only, so a heading takes it and every task starts at the same column.
 export type TaskView = {
   status: string
   name: string
@@ -32,14 +33,13 @@ export type TaskView = {
 }
 
 export function renderTasks(tasks: readonly TaskView[]): string {
-  if (tasks.length === 0) return `No open tasks in ${TASK_LIST}.`
-  return tasks
-    .map(task => {
-      const head = `[${task.status}] ${task.name} — ${task.about}`
-      const count = task.total === 0 ? '' : ` (${task.closed} of ${task.total} items closed)`
-      const items = (task.items ?? []).map(item => `    [${item.status}] ${item.name}`)
+  if (tasks.length === 0) return `no open tasks in ${TASK_LIST}`
+  const blocks = tasks.map(task => {
+    const count = task.total === 0 ? 'no items' : `${task.closed} of ${task.total} items closed`
+    const items = (task.items ?? []).map(item => `    [${item.status}] ${item.name}`)
 
-      return [head + count, ...items].join('\n')
-    })
-    .join('\n')
+    return [`[${task.status}] ${task.name} — ${count}`, `    ${task.about}`, ...items].join('\n')
+  })
+
+  return [`open tasks in ${TASK_LIST}`, '', blocks.join('\n\n')].join('\n')
 }
