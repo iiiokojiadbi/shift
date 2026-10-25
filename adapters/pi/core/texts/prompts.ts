@@ -19,6 +19,7 @@ import {
   TASK_LIST,
   TASKS,
 } from '../layout'
+import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
 import type { HandedBack, PendingShift, Recent, SessionFile, Work } from '../types'
@@ -53,8 +54,9 @@ export function unassistedInstructions(files: Settings['files']): string {
 export function renderWork(work: Work | null, knowledge: Placement | null, owner: string): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
-    fileBlock(`${TASKS}/${t.name}/task.md`, t.task ?? 'missing'),
-    fileBlock(`${TASKS}/${t.name}/track.md`, t.track ?? 'missing'),
+    fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? 'missing'),
+    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, t.track ?? 'missing'),
+    ...(t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]),
   ])
 
   return [
@@ -62,6 +64,14 @@ export function renderWork(work: Work | null, knowledge: Placement | null, owner
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
+}
+
+// A task's notes, by their descriptions: read one when its item comes up; they do not come whole.
+function notesList(task: string, notes: Work['tasks'][number]['notes']): string {
+  const folder = `${TASKS}/${task}/${NAMES.notes}`
+  const rows = notes.map(note => `- ${folder}/${note.name} — ${frontmatter(note.text).get('description') ?? 'no description'}`)
+
+  return `<notes path="${folder}/" note="read a note when its item comes up">\n${rows.join('\n')}\n</notes>`
 }
 
 // Where new knowledge goes, by the owner's \`knowledge\` setting.

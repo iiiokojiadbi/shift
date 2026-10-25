@@ -47,7 +47,7 @@ export function taskMd(title: string, extra: string[] = []): string {
 export const BOARD = boardWith()
 export const LIST = listWith(['- [in progress] [tests](tasks/tests/) — red'])
 export const TRACK = '- [in progress] fix the parser\n- [open] cover the archive'
-export const TESTS: TaskFiles = { name: 'tests', task: taskMd('Green tests'), track: TRACK }
+export const TESTS: TaskFiles = { name: 'tests', task: taskMd('Green tests'), track: TRACK, notes: [] }
 export const OWNER = '# Owner decisions\n\n## How to work\n\n- «тесты зеленые перед коммитом»'
 export const TRAPS = [
   '---',

@@ -53,7 +53,18 @@ export async function readWork(store: Store, base: string, places?: Places): Pro
 
 // A task's folder under `base`.
 export async function readTask(store: Store, base: string, name: string): Promise<TaskFiles> {
-  return { name, task: await store.read(taskFile(base, name, 'task')), track: await store.read(taskFile(base, name, 'track')) }
+  const notes = `${base}/${NAMES.tasks}/${name}/${NAMES.notes}`
+
+  return {
+    name,
+    task: await store.read(taskFile(base, name, 'task')),
+    track: await store.read(taskFile(base, name, 'track')),
+    notes: await Promise.all(
+      (await store.list(notes, 'file'))
+        .filter(file => file.endsWith('.md'))
+        .map(async file => ({ name: file, text: (await store.read(`${notes}/${file}`)) ?? '' })),
+    ),
+  }
 }
 
 // A shift's folder: the records as they are, each under its own name — the inverse of `readWork` over a snapshot —
@@ -79,6 +90,7 @@ export async function writeSnapshot(
   for (const task of work.tasks) {
     if (task.task !== null) await store.write(taskFile(dir, task.name, 'task'), task.task)
     if (task.track !== null) await store.write(taskFile(dir, task.name, 'track'), task.track)
+    for (const note of task.notes) await store.write(`${dir}/${NAMES.tasks}/${task.name}/${NAMES.notes}/${note.name}`, note.text)
   }
 }
 

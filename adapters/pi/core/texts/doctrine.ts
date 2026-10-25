@@ -23,6 +23,7 @@ import {
   MAX_AUTO_STREAK,
   MOD,
   NAME_RULE,
+  NAMES,
   NEXT,
   OLD_DIR,
   OLD_OWNER,
@@ -109,7 +110,8 @@ Each fact lives in one place. Your records live in the project directory, not in
 
 const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
 - \`task.md\` — what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map(s => `"${s}"`).join(', ')}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand; closed items stay until the task is archived — the track is the task's history.
+- \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand; closed items stay until the task is archived — the track is the task's history;
+- \`${NAMES.notes}/\` — notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` — \`- [open] item — see [what it holds](${NAMES.notes}/<file>.md)\` — or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
 
 Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
 
@@ -226,7 +228,7 @@ A refusal names the reason; fix it and call again:
 - a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in any record;
 - \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
 - \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, tasks needing each other in a circle;
-- a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`;
+- a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
 - nothing changed in the records since the last shift;
 - \`about\` empty, multi-line or longer than ${ABOUT_MAX} characters.
 
@@ -327,7 +329,8 @@ ${DIR}/
 ├── tasks/
 │   └── <name>/
 │       ├── task.md   what the task is, its decisions and dead ends
-│       └── track.md  the task's tracker
+│       ├── track.md  the task's tracker
+│       └── ${NAMES.notes}/    notes on its items, each linked from track.md or task.md
 ├── archive/          written by ${ARCHIVE_TOOL}; do not edit
 │   ├── index.md      one line per archived task
 │   └── <name>/       the task's folder as it was

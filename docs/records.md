@@ -30,7 +30,7 @@ The rules as the model reads them live in one place, `core/src/texts/doctrine.ts
 ├── settings.toml     the owner's settings, optional
 ├── letter.md         the letter to itself, written anew before every shift
 ├── knowledge/        traps, lessons, runbook, facts — read on demand
-├── tasks/<name>/     task.md — what the task is, its decisions and dead ends; track.md — its tracker
+├── tasks/<name>/     task.md — what the task is, its decisions and dead ends; track.md — its tracker; notes/ — notes on its items
 ├── archive/          finished and dropped tasks; index.md — one line each
 └── shifts/<UTC>/     about.md, letter.md, summary.md and a snapshot of the records
 ```
@@ -42,6 +42,7 @@ The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a sn
 The topic of work changes, and a single board lost what was done. So each line of work is a task, split by meaning, with its own `task.md` (a title and "Goal", "Done when", "Owner decisions", "Decisions", "Dead ends") and `track.md` (items `- [status] name — note`).
 
 - **TASKS.md** lists every open task, one line each with `in progress`, `deferred` or `waiting for owner`, and under a line its links: `needs` an open task it cannot finish without, `after` a done one it stands on, `continues` an archived one it picks up. From it alone the agent knows whether it does one task, several or none, and why something waits. On the board the tasks crowded out the decisions and the links had nowhere to go.
+- **Notes.** A track item is one line; when an item or the task needs more — research, a decision worked out, evidence — it gets a note in the task's `notes/` folder: free-form beside a frontmatter `description`, linked from its item in `track.md` or from `task.md`. After a shift a task in progress shows its notes as a list with their descriptions, not whole, so the message stays short and the agent opens the one it needs. The mod refuses a note without a description, a note linked from nowhere — it would be forgotten — and a link to a note that is not there. Notes are snapshotted and archived with their task.
 - **Statuses** are set by `task_track`, which finds an item by words of its name — never an id in the file: an id would be noise in every record and the agent would have to read it first.
 - **Where a decision lives:** on the board only if it outlives any one task, otherwise in the task, and it goes to the archive with it. A decision may name what it turned down, `rejected: <option> — <why>`: a weighed option is not a dead end, which is something tried.
 - **Archive:** `task_archive` moves the folder to `archive/<name>/`, adds its line to `archive/index.md`, takes it out of TASKS.md and points the links into the archive. Coming back to an archived topic is a new task with `continues`.

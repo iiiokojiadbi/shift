@@ -22,7 +22,8 @@ export type Item = { status: string; name: string; note: string | null; rest: st
 // The board's tasks: status, folder name and the note after the dash.
 export type FocusTask = { status: string; name: string; line: string }
 
-export type TaskFiles = { name: string; task: string | null; track: string | null }
+// A task's folder: task.md, track.md and the notes in its notes/ folder, each a file name with `.md` and its text.
+export type TaskFiles = { name: string; task: string | null; track: string | null; notes: { name: string; text: string }[] }
 
 export type Kind = keyof typeof KINDS
 

@@ -188,3 +188,27 @@ test('a let-go that failed is written down; the base comes back only from this s
   expect(await shiftBase(store, 's1')).toBe(20_000)
   expect(await shiftBase(store, 's2')).toBeNull()
 })
+
+test('a note beside a task: checked, snapshotted, listed after a shift with its description', async () => {
+  const NOTE = '---\ndescription: what the parser does with fences\n---\n\nfree text, any shape'
+  const linked = `${TRACK}\n- [open] fences — see [fences](notes/fences.md)`
+  const deny = async (extra: Record<string, string>) => {
+    const result = await acceptShift(await project(extra), { input: INPUT, at: AT, sessionId: 's1' })
+    return 'deny' in result ? result.deny : null
+  }
+  expect(await deny({ [`${R}/tasks/tests/notes/fences.md`]: 'no frontmatter', [`${R}/tasks/tests/track.md`]: linked })).toContain(
+    'needs a frontmatter "description"',
+  )
+  expect(await deny({ [`${R}/tasks/tests/notes/fences.md`]: NOTE })).toContain('is linked from nowhere')
+  expect(await deny({ [`${R}/tasks/tests/track.md`]: linked })).toContain('links to notes that are not there: "notes/fences.md"')
+
+  const store = await project({ [`${R}/tasks/tests/notes/fences.md`]: NOTE, [`${R}/tasks/tests/track.md`]: linked })
+  const shift = await accepted(store)
+  expect(store.files.get(`${DIR}/tasks/tests/notes/fences.md`)).toBe(NOTE)
+  const settled = await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000, streak: 0 })
+  const prompt = settled.after === 'continue' ? settled.prompt : ''
+  expect(prompt).toContain(
+    '<notes path=".shift/tasks/tests/notes/" note="read a note when its item comes up">\n- .shift/tasks/tests/notes/fences.md — what the parser does with fences\n</notes>',
+  )
+  expect(prompt).not.toContain('free text, any shape')
+})

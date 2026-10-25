@@ -36,7 +36,7 @@ function taskMd(title: string, extra: string[] = []): string {
 const BOARD = boardWith()
 const LIST = listWith(['- [in progress] [tests](tasks/tests/) — red'])
 const TRACK = '- [in progress] fix the parser\n- [open] cover the archive'
-const TESTS: TaskFiles = { name: 'tests', task: taskMd('Green tests'), track: TRACK }
+const TESTS: TaskFiles = { name: 'tests', task: taskMd('Green tests'), track: TRACK, notes: [] }
 const OWNER = '# Owner decisions\n\n## How to work\n\n- «тесты зеленые перед коммитом»'
 const TRAPS = [
   '---',

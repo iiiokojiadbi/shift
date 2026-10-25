@@ -79,7 +79,7 @@ test('an item reads the same everywhere: a cramped status line is found, and a n
   const work = (track: string) => ({
     board: '',
     owner: null,
-    tasks: [{ name: 'adapters', task: null, track }],
+    tasks: [{ name: 'adapters', task: null, track, notes: [] }],
     knowledge: [],
     taskList: null,
     glossary: null,

@@ -63,6 +63,7 @@ export const NAMES = {
   tasks: 'tasks',
   task: 'task.md',
   track: 'track.md',
+  notes: 'notes',
   knowledge: 'knowledge',
   archive: 'archive',
   index: 'index.md',

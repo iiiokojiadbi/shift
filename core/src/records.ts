@@ -10,6 +10,7 @@ import {
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER_SECTIONS,
+  NAMES,
   OLD_OWNER,
   OLD_TASKS_SECTION,
   OWNER,
@@ -52,7 +53,9 @@ export function workText(work: Work): string {
     (work.taskList ?? '').trim(),
     (work.glossary ?? '').trim(),
     (work.shift ?? '').trim(),
-    ...tasks.map(t => `${t.name}\n${(t.task ?? '').trim()}\n${(t.track ?? '').trim()}`),
+    ...tasks.map(
+      t => `${t.name}\n${(t.task ?? '').trim()}\n${(t.track ?? '').trim()}\n${t.notes.map(n => `${n.name}\n${n.text.trim()}`).join('\n')}`,
+    ),
     ...work.knowledge.map(k => `${k.name}\n${k.text.trim()}`),
   ].join('\n\n')
 }
@@ -118,7 +121,7 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
   return null
 }
 
-function checkTask({ name, task, track }: TaskFiles): string | null {
+function checkTask({ name, task, track, notes: notes_ }: TaskFiles): string | null {
   const where = `${TASKS}/${name}/`
   if (task === null) return `${where} has no task.md.`
   if (track === null) return `${where} has no track.md.`
@@ -131,6 +134,8 @@ function checkTask({ name, task, track }: TaskFiles): string | null {
     return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
   const rejected = badRejected(task, `${where}task.md`)
   if (rejected !== null) return rejected
+  const notes = checkNotes(where, task, track, notes_)
+  if (notes !== null) return notes
   const bad = itemsOf(track).filter(item => !(STATUSES as readonly string[]).includes(item.status))
   if (bad.length > 0)
     return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${quote(
@@ -159,6 +164,26 @@ function checkOwner(owner: string | null): string | null {
       'it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.',
     ) ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.")
   )
+}
+
+// A task's notes: each with its description, each linked from track.md or task.md, every link reaching a note. Beside
+// the description a note is free: research, a decision worked out, evidence.
+function checkNotes(where: string, task: string, track: string, notes: TaskFiles['notes']): string | null {
+  for (const note of notes) {
+    if ((frontmatter(note.text).get('description') ?? '') === '') {
+      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`
+    }
+    if (!`${task}\n${track}`.includes(`${NAMES.notes}/${note.name}`)) {
+      return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in track.md, or from task.md, as [what it holds](${NAMES.notes}/${note.name}).`
+    }
+  }
+  const names = new Set(notes.map(note => note.name))
+  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)#\\s]+)\\)`, 'g'))].map(found => found[1] ?? '')
+  const missing = linked.filter(name => !names.has(name))
+
+  return missing.length === 0
+    ? null
+    : `${where} links to notes that are not there: ${quote(missing.map(name => `${NAMES.notes}/${name}`))}.`
 }
 
 export const isKind = (kind: string): kind is Kind => Object.hasOwn(KINDS, kind)
