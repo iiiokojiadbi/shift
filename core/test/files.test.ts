@@ -7,29 +7,14 @@ import { DEFAULT_SETTINGS, type DocsSettings, parseSettings } from '../src/setti
 import type { Store } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { renderSessionFiles } from '../src/texts/prompts'
+import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
 import { memoryStore } from './memory'
 
 const docsOf = (dirs: string[], maxChars = 100000) => ({ ...DEFAULT_SETTINGS.docs, dirs, maxChars })
 
-const ROOT = '/p'
 const at = (store: Store) => loadProject(store, ROOT)
 const withDocs = async (store: Store, docs: DocsSettings) => ({ ...(await at(store)), settings: { ...DEFAULT_SETTINGS, docs } })
-const R = `${ROOT}/.shift`
-const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
-const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
-const TASK = [
-  '# T',
-  '## Goal',
-  'g',
-  '## Done when',
-  'd',
-  '## Owner decisions',
-  'none',
-  '## Decisions',
-  'none',
-  '## Dead ends',
-  'none',
-].join('\n')
+const TASK = taskMd('T')
 const LIST = [
   '# Tasks',
   '',

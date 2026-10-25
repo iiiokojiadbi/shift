@@ -4,12 +4,8 @@ import { loadProject } from '../src/project'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
 import { renderWork, unassistedInstructions } from '../src/texts/prompts'
 import { startSession, TOOLS } from '../src/tools'
+import { BOARD, LETTER, R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
-
-const ROOT = '/p'
-const R = `${ROOT}/.shift`
-const LETTER = ['## Where I am', 'x', '## Next', 'y', '## Unverified', 'none', '## Hold', 'h'].join('\n')
-const BOARD = ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
 
 test('settings parse the keys, comments and tables; a missing key keeps its default', () => {
   expect(parseSettings('')).toEqual({ settings: DEFAULT_SETTINGS, set: new Set() })

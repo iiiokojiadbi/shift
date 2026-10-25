@@ -2,9 +2,8 @@ import { expect, test } from 'bun:test'
 import type { Project } from '../src/project'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
+import { R } from './fixtures'
 import { memoryProject } from './memory'
-
-const R = '/p/.shift'
 
 const callOn = (project: Project, extra: Partial<ToolCall> = {}): ToolCall => ({
   project: async () => project,

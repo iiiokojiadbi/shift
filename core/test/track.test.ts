@@ -2,10 +2,9 @@ import { expect, test } from 'bun:test'
 import { segment } from '../src/history'
 import { loadProject } from '../src/project'
 import { parseTrackInput, updateTrack } from '../src/track'
+import { R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 
-const ROOT = '/p'
-const R = `${ROOT}/.shift`
 const TRACK = '- [in progress] pi adapter — built\n- [open] pi distribution — ask the owner\n- [open] opencode adapter\n'
 const LIST = '# Tasks\n\n- [in progress] [adapters](tasks/adapters/) — pi and opencode\n  - after: [core](archive/core/)\n'
 

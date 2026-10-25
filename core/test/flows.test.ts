@@ -2,29 +2,14 @@ import { expect, test } from 'bun:test'
 import { acceptShift, archiveTask, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
 import type { PendingShift, ShiftInput } from '../src/types'
+import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
 
-const ROOT = '/p'
-const R = `${ROOT}/.shift`
 const AT = Date.UTC(2026, 0, 2, 3, 4, 5)
 const DIR = `${R}/shifts/20260102-030405`
 
-const LETTER = ['## Where I am', 'fixing tests', '## Next', 'run them', '## Unverified', 'none', '## Hold', 'HOLD-THIS'].join('\n')
-const BOARD = ['## Goal', 'the mod', '## Decisions', 'none', '## Dead ends', 'none'].join('\n')
 const TASK_LIST = '# Tasks\n\n- [in progress] [tests](tasks/tests/) — red'
-const TASK = [
-  '# Green tests',
-  '## Goal',
-  'g',
-  '## Done when',
-  'd',
-  '## Owner decisions',
-  'none',
-  '## Decisions',
-  'none',
-  '## Dead ends',
-  'none',
-].join('\n')
+const TASK = taskMd('Green tests')
 const TRACK = '- [done] fix the parser\n- [open] cover the archive'
 const TRAPS = [
   '---',

@@ -6,11 +6,10 @@ import { parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
 import type { Store } from '../src/store'
 import { renderSessionFiles } from '../src/texts/prompts'
+import { R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 
-const ROOT = '/p'
 const at = (store: Store) => loadProject(store, ROOT)
-const R = `${ROOT}/.shift`
 const SETTINGS = `${R}/settings.toml`
 const DOC = '---\ndescription: what A holds\n---\n\n# A\n\n## One\n> the first\n\n```\n## not a heading\n```\n\n### Deep\n\n## Two\n'
 
