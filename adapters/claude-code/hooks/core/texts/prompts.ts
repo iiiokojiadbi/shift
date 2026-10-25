@@ -181,7 +181,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     `<${MOD} folder="${dir}/">`,
     opening,
     '',
-    'The board, the tasks in progress and the map of knowledge, as they are now; SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md are in your session block, read again after this shift:',
+    'The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:',
     '',
     renderWork(work, back.knowledge, back.owner),
     '',

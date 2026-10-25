@@ -62,6 +62,9 @@ type Session = {
   // The Hold of the shift being let go, and what its let-go ended in.
   hold: string | undefined
   letGo: ((end: { text: string } | { error: string }) => void) | undefined
+  // The doctrine and the session's files as the session started or last let go: a block read anew every
+  // request would show records the history has not reached yet and break the prompt's cache on every write.
+  block: string[] | undefined
 }
 
 type Ended = { sessionID: string; text?: string; error?: unknown; tokens?: { input?: number } }
@@ -92,6 +95,7 @@ const plugin: Definition = {
         busy: false,
         hold: undefined,
         letGo: undefined,
+        block: undefined,
       }
       sessions.set(sessionID, sessions.get(sessionID) ?? fresh)
 
@@ -205,13 +209,16 @@ const plugin: Definition = {
       }
     }
 
-    // The doctrine and the session's files, read anew before every request of the main agent.
+    // The doctrine and the session's files, read at the session's first request and again after each let-go.
     await ctx.session.hook('context', async event => {
       if (await child(event.sessionID)) return
-      const project = await projectAt(root)
-      event.system.push({ type: 'text', text: sessionDoctrine(project.settings).doctrine })
-      const files = renderSessionFiles(await sessionFiles(project))
-      if (files !== null) event.system.push({ type: 'text', text: files })
+      const session = await state(event.sessionID)
+      if (session.block === undefined) {
+        const project = await projectAt(root)
+        const files = renderSessionFiles(await sessionFiles(project))
+        session.block = [sessionDoctrine(project.settings).doctrine, ...(files === null ? [] : [files])]
+      }
+      for (const text of session.block) event.system.push({ type: 'text', text })
     })
 
     // A compaction the agent asked for holds what its letter says; any other gets the summarizer's instructions.
@@ -342,6 +349,7 @@ const plugin: Definition = {
         case 'session.compaction.ended':
           session.gauge = letGoGauge(data.reason === 'auto')
           session.fill = undefined
+          session.block = undefined
           session.letGo?.({ text: data.text ?? '' })
           return
         case 'session.compaction.failed':
