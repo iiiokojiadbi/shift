@@ -1,18 +1,20 @@
-// The pi package's release gate. A published version cannot be reused and a tarball stays in every mirror, so by
-// default it does everything but upload: the checks, the tarball file by file, whether the version is free.
+// The npm package's release gate, one package for pi and opencode. A published version cannot be reused and a tarball
+// stays in every mirror, so by default it does everything but upload: the checks, the tarball file by file, whether the
+// version is free.
 //
-//   bun run release:pi                     check, show the tarball
-//   bun run release:pi --publish           the same from a pushed, clean tree, then upload, verify and tag
-//   bun run release:pi --publish --otp 123456
+//   bun run release:npm                    check, show the tarball
+//   bun run release:npm --publish          the same from a pushed, clean tree, then upload, verify and tag
+//   bun run release:npm --publish --otp 123456
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
-const PACKAGE = join(ROOT, 'adapters/pi')
-// The tarball's shape: the entry, the store, the core copy, the README and the license; anything else got in by mistake.
-const REQUIRED = ['LICENSE', 'README.md', 'core/index.ts', 'index.ts', 'package.json', 'store.ts']
-const ALLOWED = /^(LICENSE|README\.md|package\.json|index\.ts|store\.ts|core\/[a-z/]+\.ts)$/
+const PACKAGE = join(ROOT, 'adapters/npm')
+// The tarball's shape: pi's entry, opencode's, the store, the core copy, the README and the license; anything else got in
+// by mistake.
+const REQUIRED = ['LICENSE', 'README.md', 'core/index.ts', 'index.ts', 'package.json', 'server.ts', 'store.ts']
+const ALLOWED = /^(LICENSE|README\.md|package\.json|index\.ts|server\.ts|store\.ts|core\/[a-z/]+\.ts)$/
 const MAX_TARBALL_KB = 150
 
 const args = process.argv.slice(2)
@@ -26,14 +28,14 @@ const show = (command: string, commandArgs: string[], cwd = ROOT) => execFileSyn
 
 const manifest = JSON.parse(readFileSync(join(PACKAGE, 'package.json'), 'utf8'))
 const reference = `${manifest.name}@${manifest.version}`
-const tag = `shift-pi--v${manifest.version}`
+const tag = `shift-npm--v${manifest.version}`
 console.log(`preparing ${reference}`)
 
-// One version for both harnesses: a pi release carries the core of the Claude Code release with the same number.
+// One version for every harness: the package carries the core of the Claude Code release with the same number.
 const plugin = JSON.parse(readFileSync(join(ROOT, 'adapters/claude-code/.claude-plugin/plugin.json'), 'utf8'))
 if (manifest.version !== plugin.version)
   throw new Error(
-    `adapters/pi/package.json is ${manifest.version}, the Claude Code plugin ${plugin.version}: release pi with the plugin's version`,
+    `adapters/npm/package.json is ${manifest.version}, the Claude Code plugin ${plugin.version}: release the package with the plugin's version`,
   )
 
 if (publish) {
@@ -47,7 +49,7 @@ if (publish) {
   }
 }
 
-for (const script of ['check', 'types:core', 'types:pi', 'test:core', 'test:pi']) show('bun', ['run', script])
+for (const script of ['check', 'types:core', 'types:npm', 'test:core', 'test:npm']) show('bun', ['run', script])
 
 const packed = JSON.parse(run('npm', ['pack', '--dry-run', '--json'], PACKAGE))[0] ?? {}
 const shipped: string[] = (packed.files ?? []).map((file: { path: string }) => file.path).sort()
@@ -71,7 +73,7 @@ try {
   if (/npm (?:error|ERR!) code (E\d+|[A-Z_]+)/i.exec(text)?.[1] !== 'E404')
     throw new Error(`could not ask the registry whether ${reference} exists:\n${text.trim()}`)
 }
-if (taken) throw new Error(`${reference} is already in the registry: bump the version in adapters/pi/package.json`)
+if (taken) throw new Error(`${reference} is already in the registry: bump the version in adapters/npm/package.json`)
 console.log(`\n${reference} is not in the registry yet`)
 
 if (!publish) {

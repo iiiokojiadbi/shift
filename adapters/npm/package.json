@@ -7,18 +7,24 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/iiiokojiadbi/shift.git",
-    "directory": "adapters/pi"
+    "directory": "adapters/npm"
   },
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "opencode-plugin"
   ],
   "files": [
     "index.ts",
+    "server.ts",
     "store.ts",
     "core",
     "README.md",
     "LICENSE"
   ],
+  "exports": {
+    "./server": "./server.ts",
+    "./package.json": "./package.json"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -27,5 +33,13 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
   }
 }

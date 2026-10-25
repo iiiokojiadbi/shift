@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
 const SOURCE = join(ROOT, 'core/src')
-const TARGETS = ['adapters/claude-code/hooks/core', 'adapters/pi/core', 'adapters/opencode/core']
+const TARGETS = ['adapters/claude-code/hooks/core', 'adapters/npm/core']
 const DATA = 'core/test/data.ts'
 const DATA_COPIES = ['adapters/claude-code/tests/data.ts']
 const header = (from: string) => `// Generated from ${from} by scripts/sync-core.ts — edit the source, not this copy.\n`

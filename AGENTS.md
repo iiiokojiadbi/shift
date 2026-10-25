@@ -14,7 +14,7 @@ An agent decides by itself when to **shift**: at a stage boundary it updates its
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.
 
-Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (a plugin, being built). Another harness in Go or Rust may come later.
+Harnesses: Claude Code (first, done as a mod), pi (an extension) and opencode (a plugin), the last two from one npm package. Another harness in Go or Rust may come later.
 
 ## Documentation
 
@@ -63,17 +63,16 @@ adapters/
     hooks/core/            GENERATED copy of core/src — never edit
     types/index.d.ts       the plugin's state contract
     tests/                 claude plugin test of the wiring only; data.ts GENERATED from core/test/data.ts
-  pi/                      the pi extension package (pi 1.4.0 ExtensionAPI)
-    index.ts store.ts      the entry: the table's tools, the events, the ports; the store over node
-    package.json README.md the npm package @iiiokojiadbi/shift, published by scripts/release-pi.ts
+  npm/                     the npm package @iiiokojiadbi/shift, one for pi and opencode — docs/adapters.md
+    index.ts               pi's extension (pi 1.4.0 ExtensionAPI): the table's tools, the events, the ports
+    server.ts              opencode's server plugin (opencode 2.1.4 @opencode/plugin, types only): the tools, the hooks, the commands, the events
+    store.ts               the store over node, for both
+    package.json README.md published by scripts/release-npm.ts
     core/                  GENERATED copy of core/src — never edit
-    test/                  bun test over a stand-in of pi's API
-  opencode/                the opencode server plugin (opencode 2.1.4 @opencode/plugin, types only) — not released yet
-    index.ts store.ts      the plugin: the table's tools, the hooks, the commands, the events; the store over node
-    core/                  GENERATED copy of core/src — never edit
+    test/                  bun test of pi's entry over a stand-in of pi's API
 .claude-plugin/marketplace.json   the repo as a local marketplace for development
 scripts/sync-core.ts       copies core/src into every adapter and core/test/data.ts into the plugin's tests; --check fails on a stale copy
-scripts/release-pi.ts      the pi package's release gate: checks and the tarball; --publish uploads, verifies and tags
+scripts/release-npm.ts     the npm package's release gate: checks and the tarball; --publish uploads, verifies and tags
 docs/                      the documentation, above
 README.md                  for people: what shift is, installing, commands, tools, settings
 lefthook.yml  biome.json  package.json  LICENSE

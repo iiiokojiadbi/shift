@@ -16,7 +16,7 @@ The core holds everything that does not depend on a harness; an adapter is wirin
 
 ## Core and adapters
 
-`core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/`, `adapters/pi/core/` and `adapters/opencode/core/`; the copies are never edited, and the pre-commit hook fails on a stale one.
+`core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/` and `adapters/npm/core/`, which pi's and opencode's entries share; the copies are never edited, and the pre-commit hook fails on a stale one.
 
 An adapter keeps only what its harness alone can do:
 - where its state lives (Claude Code: plugin atoms; pi: variables, a session entry for the waiting letter);
@@ -88,4 +88,4 @@ Every outcome is written to the shift's `about.md` and told to the owner: an abo
 
 - `core/test/` — all core logic under `bun test`, over an in-memory store (`memory.ts`: `memoryStore`, `memoryProject`) and one set of fixtures (`fixtures.ts`); runs in the pre-commit hook.
 - `adapters/claude-code/tests/` — the plugin's wiring under `claude plugin test`: hooks, atoms, delivery. It imports nothing to test logic.
-- `adapters/pi/test/` — the extension over a stand-in of pi's API and a temporary project.
+- `adapters/npm/test/` — pi's extension over a stand-in of pi's API and a temporary project.

@@ -8,7 +8,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: core copies
-      glob: "{core/src/**,core/test/data.ts,adapters/*/hooks/core/**,adapters/pi/core/**,adapters/claude-code/tests/data.ts,scripts/sync-core.ts}"
+      glob: "{core/src/**,core/test/data.ts,adapters/*/hooks/core/**,adapters/npm/core/**,adapters/claude-code/tests/data.ts,scripts/sync-core.ts}"
       run: bun run sync-core --check
     - name: biome
       glob: "*.{ts,js,json,jsonc}"
@@ -30,9 +30,9 @@ pre-commit:
       glob: "{adapters/claude-code/**,core/src/**}"
       # Passed tests are left out, a failed one is printed whole.
       run: bash -o pipefail -c "bun run test:claude-code 2>&1 | grep -v '^(pass) '"
-    - name: pi types
-      glob: "{adapters/pi/**,core/src/**}"
-      run: bun run types:pi
-    - name: pi tests
-      glob: "{adapters/pi/**,core/src/**}"
-      run: bash -o pipefail -c "bun run test:pi 2>&1 | grep -v '^(pass) '"
+    - name: npm types
+      glob: "{adapters/npm/**,core/src/**}"
+      run: bun run types:npm
+    - name: npm tests
+      glob: "{adapters/npm/**,core/src/**}"
+      run: bash -o pipefail -c "bun run test:npm 2>&1 | grep -v '^(pass) '"

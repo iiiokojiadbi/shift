@@ -3,7 +3,8 @@ import { access, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:
 import { dirname } from 'node:path'
 import { loadProject, type Project, type Store } from './core/index'
 
-// The core's store over node's files and processes: a plugin runs inside opencode's server process, under Bun.
+// The core's store over node's files and processes: pi runs an extension in its own node process, opencode a plugin
+// in its server under Bun.
 export const nodeStore: Store = {
   read: path => readFile(path, 'utf8').catch(() => null),
   list: async (path, kind) => {

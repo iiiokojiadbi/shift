@@ -4,7 +4,7 @@ An agent decides by itself when to **shift**. At a stage boundary it updates its
 
 Long work outlives the context window. A harness's own compaction keeps a generic summary of the history, not the agent's line of thought: decisions get lost, and knowledge that was written down is not looked up again. shift keeps the thread on disk, in records strict enough to resume from: a state, not a diary.
 
-Works in [Claude Code](#claude-code) (as a mod) and [pi](#pi) (as an extension). opencode is next.
+Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and [opencode](#opencode) (as a plugin).
 
 ## How it works
 
@@ -32,6 +32,14 @@ Restart the session after installing or updating.
 ```sh
 pi install npm:@iiiokojiadbi/shift
 ```
+
+### opencode
+
+```sh
+opencode plugin add @iiiokojiadbi/shift
+```
+
+The same npm package as pi's; opencode 2.x.
 
 ## Commands
 

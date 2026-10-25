@@ -50,7 +50,7 @@ The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/
 
 ## pi
 
-The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionAPI`; pi and typebox are peers the host supplies.
+The adapter is `index.ts` of the npm package `adapters/npm/`, over pi 1.4.0's `ExtensionAPI`; pi and typebox are peers the host supplies.
 
 - pi refuses to let go of a history smaller than `keepRecentTokens` (20K by default) — "Nothing to compact (session too small)" — and keeps that much of the latest history beside the digest; a test project can lower it in `.pi/settings.json`. The adapter's `cannotLetGo` finds the same cut with pi's own `findCutPoint` over the branch since the last let-go — the fill counts the system prompt too and passes a history pi still refuses — so the `shift` tool refuses before anything is written instead of a shift accepted and then not made.
 - `agent_settled` is awaited; a `sendMessage` with `triggerTurn` from it is deferred until the handler returns, so the continue still starts.
@@ -58,13 +58,13 @@ The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionA
 - pi reads the session's files anew before every run, so its block is never stale.
 - The notes: `tool_call` → `beforeTool`, kept by `toolCallId`; `tool_result` → `afterTool` (`read`, `grep`, `find`, `ls` are read-only); a nested call (`parentToolCallId`) gets only the docs after its write. `before_agent_start` → `atPrompt` with `runStarts`, which resets the count of tools running, in case a blocked call never got its result.
 - `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first. A headless `pi -p` in a fresh project waits silently unless run with `-a` and stdin closed.
-- pi labels an extension in its `[Extensions]` list by its source: an npm package by its name, plus `:<dir>` when the entry is `<dir>/index.ts` — so the entry is the package's root `index.ts` and the list shows `@iiiokojiadbi/shift`; a local path by the folder of its `index.ts` — `pi` in development.
-- Distribution is npm, pi's own way: `pi install npm:@iiiokojiadbi/shift`. Host packages (`@earendil-works/pi-coding-agent`, `typebox`) are peers with `*`, never bundled; the package ships the TypeScript as is, pi loads it. A git install would take the whole repo, with no subfolder. How to publish — `docs/development.md`.
-- Try it: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). With the npm package also installed the tools conflict and the second fails to load: `pi -ne -e <dir>` loads only the one given.
+- pi labels an extension in its `[Extensions]` list by its source: an npm package by its name, plus `:<dir>` when the entry is `<dir>/index.ts` and `:<file>` for any other name — so pi's entry is the package's root `index.ts` and the list shows `@iiiokojiadbi/shift`; a local path by the folder of its `index.ts` — `npm` in development.
+- Distribution is npm, pi's own way: `pi install npm:@iiiokojiadbi/shift`, one package with opencode's entry. Host packages (`@earendil-works/pi-coding-agent`, `typebox`) are peers with `*`, never bundled, and optional so that opencode's install does not fetch them — pi installs packages with peers off anyway (`--legacy-peer-deps`, bun's `--omit=peer`) and hands an extension its own modules by aliases; the package ships the TypeScript as is, pi loads it. A git install would take the whole repo, with no subfolder. How to publish — `docs/development.md`.
+- Try it: `pi -e ./adapters/npm` for one run, or `pi install ./adapters/npm` (loads in place). With the npm package also installed the tools conflict and the second fails to load: `pi -ne -e <dir>` loads only the one given.
 
 ## opencode
 
-The adapter is a server plugin, `adapters/opencode/`, over opencode 2.1.4's `@opencode/plugin`. 2.x is a rewrite: nothing of the 1.x plugin API (`tool.execute.before`, `experimental.session.compacting`, `client.session.summarize`) is there. The full read of its sources is in the task's notes, not here.
+The adapter is `server.ts` of the npm package `adapters/npm/`, a server plugin over opencode 2.1.4's `@opencode/plugin`. 2.x is a rewrite: nothing of the 1.x plugin API (`tool.execute.before`, `experimental.session.compacting`, `client.session.summarize`) is there. The full read of its sources is in the task's notes, not here.
 
 - A plugin is a folder or file in `plugin/` or `plugins/` of a config dir (the project's `.opencode/`, the global config dir) or a `plugins` entry of the config; its default export is `{ id, setup(ctx) }`. It runs inside the server, a background service by default, under Bun, so TypeScript loads as is. Only `effect` and `@opencode/plugin` come from the host and a plugin's own copy of them is refused: the adapter imports the package for types only.
 - One plugin serves every session of its project: the state is per session. An edited file or config reloads the plugin, and its memory goes with it.
@@ -74,4 +74,5 @@ The adapter is a server plugin, `adapters/opencode/`, over opencode 2.1.4's `@op
 - A synthetic message is read by the model as the owner's; the owner sees its `description`. With `resume: false` it waits in the inbox for the next boundary — but one sent while the runner is still going (right after a compaction) is taken at once and starts a turn.
 - A command's `execute` runs plugin code; `/shift` queues its synthetic so it waits for the run going on. The terminal sends `/name args` to `POST /api/session/:id/command`, and so can `opencode api`.
 - The rows the owner sees are synthetic messages, so the agent reads them too; a parked one shows in the terminal at once, before it is delivered.
-- Try it: link `adapters/opencode` into a project's `.opencode/plugins/` or the global `~/.config/opencode/plugins/`, then `opencode run -s <id> --auto -m <model> '…'` against the background service; the plugin keeps working after `run` exits, and `opencode api GET /api/session/<id>/context` shows what the model read.
+- opencode finds a package's server entry as `<name>/server` (the package's `exports`), else the package's root; a local folder by its `server.ts`, else `index.ts`. So the entry is `server.ts`: `index.ts` is pi's, and a folder would load it. Plugins install through `@npmcli/arborist`, which fetches peers unless they are optional. `opencode plugin add` takes the registry or git only.
+- Try it: link `adapters/npm` into a project's `.opencode/plugins/` or the global `~/.config/opencode/plugins/`, then `opencode run -s <id> --auto -m <model> '…'` against the background service; the plugin keeps working after `run` exits, and `opencode api GET /api/session/<id>/context` shows what the model read.
