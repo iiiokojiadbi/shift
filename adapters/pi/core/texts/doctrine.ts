@@ -222,7 +222,7 @@ A refusal names the reason; fix it and call again:
 description: <about from the call>
 at: <ISO time of the shift, UTC>
 after: continue | wait
-result: pending | shifted (<before> → <after>), continuing | shifted (…), waiting for the owner | shifted (…), waiting: … in a row without the owner | not shifted: <reason>
+result: pending | shifted (<before> → <after>), continuing | shifted (…), waiting for the owner | shifted (…), waiting: … in a row without the owner | not shifted: <reason> | let go, not settled: <reason>
 tokens: <before> → <after>
 summary_chars: <size of summary.md>
 session: <session id>
