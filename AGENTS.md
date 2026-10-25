@@ -4,6 +4,12 @@ description: The project's map and standing facts: what shift is, the tree of th
 
 # shift
 
+<!-- toc -->
+- Tree
+- Working on it
+- Facts that are not obvious from the code
+<!-- /toc -->
+
 An agent decides by itself when to **shift**: at a stage boundary it updates its work board and task folders, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and tasks in progress back whole and continues from where it stopped. The agent does not change — only what is in front of it does.
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.

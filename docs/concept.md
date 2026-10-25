@@ -4,6 +4,18 @@ description: The concept and its reasoning: the loop, the records, hints, core a
 
 # shift: concept
 
+<!-- toc -->
+- The loop
+- Records
+- Hint
+- Core and adapters
+- Similar things in other harnesses
+- Lessons from billion-context
+- Out of scope
+- Open forks
+- Experiments for Claude Code
+<!-- /toc -->
+
 The agent manages its own context. After finishing a stage of work, it decides it is time to compress, and it sets the direction of the compaction itself: what to keep and how broadly to fold. After the compaction the agent immediately receives a handoff from itself — where to continue from — and either continues working or waits for the owner.
 
 The project is narrow: only this loop. Not a transport between sessions, not orchestration. It replaces the `shift`/`unshift` skills.

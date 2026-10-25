@@ -4,6 +4,34 @@ description: The superseded first brief: a pointwise fold of the history, its re
 
 # fold-mod: brief for the agent who will build the MVP
 
+<!-- toc -->
+- How to read the marks
+- 1. What we want
+- 2. Environment and constraints (what is not visible from the code)
+- 3. Research: how `billion-context` works
+  - 3.1 Principle
+  - 3.2 Pipeline per turn
+  - 3.3 Blocks and generations
+  - 3.4 When to compress
+  - 3.5 Protection
+  - 3.6 Summary doctrine
+  - 3.7 The authors' figures
+- 4. Cache: what is certain and what is not
+- 5. What we need from `shift`
+- 6. What the mod API can do (checked against types)
+- 7. Proposed architecture
+  - 7.1 The main argument
+  - 7.2 Components
+  - 7.3 Where the forks may lead
+  - 7.4 MVP composition (proposal)
+- 8. Experiments before writing code
+- 9. Risks
+- 10. What not to do
+- 11. Questions for the owner (ask before starting)
+- 12. The agent's first step
+- Appendix: sources
+<!-- /toc -->
+
 A file for the agent who will come to the project later and work with the owner on the MVP. Written from the results of a research session. It collects what is not visible in the repositories: why this is needed, what has already been found out, what has been checked, and what is only an assumption.
 
 ## How to read the marks
