@@ -1,4 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { readAbout } from '../about'
 import {
   ARCHIVE,
   atPlaces,
@@ -16,7 +17,6 @@ import {
   TASK_LIST,
   TASKS,
 } from '../layout'
-import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
 import type { HandedBack, PendingShift, Recent, SessionFile, Work } from '../types'
@@ -111,7 +111,7 @@ export function renderRecent(recent: Recent): string {
   const earlier = recent.total - recent.entries.length
   const shifts = (n: number) => (n === 1 ? '1 shift' : `${n} shifts`)
   // No `after`: a row of past waits would pull the agent towards waiting when it could go on.
-  const lines = recent.entries.map(entry => `- ${entry.name} · ${frontmatter(entry.about ?? '').get('description') ?? 'no about.md'}`)
+  const lines = recent.entries.map(entry => `- ${entry.name} · ${readAbout(entry.about ?? '').description ?? 'no about.md'}`)
 
   return [
     `What you did before: the last ${shifts(recent.entries.length)}, oldest first, the one you shifted from last.`,

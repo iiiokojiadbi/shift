@@ -1,4 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+export * from './about'
 export * from './archive'
 export * from './docs'
 export * from './flows'

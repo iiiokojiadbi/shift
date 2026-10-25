@@ -1,18 +1,18 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { OUTCOME, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
 import { docsReport, refreshDocs } from './docs'
-import { shiftFill } from './hint'
-import { renderAbout, renderHistory, renderSummary, segment, shiftDir } from './history'
+import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, OLD_DIR, TASK_LIST, TASKS } from './layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, NAMES, OLD_DIR, SHIFTS, TASK_LIST, TASKS } from './layout'
 import { formatK, sections } from './markdown'
 import type { Project } from './project'
 import { checkLetter, checkWork } from './records'
-import { lastShifts, previousShift, readRecords, readSnapshot, recentShifts } from './store'
+import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, writeSnapshot } from './store'
 import { archiveInList, parseTaskList } from './tasks'
 import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
-import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
+import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, ShiftInput } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -33,7 +33,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const previousDir = await previousShift(project)
-  const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/index.md`)
+  const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/${NAMES.index}`)
   const workProblem = checkWork(work, previous?.work ?? null, project)
   if (workProblem !== null) return { deny: workProblem }
   const kept = await keepRecordsOut(project)
@@ -53,21 +53,9 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     at: call.at,
     segment: segment({ work, index }, previous),
   }
-  await store.write(`${dir}/letter.md`, letter)
-  await store.write(`${dir}/board.md`, work.board)
-  if (index !== null) await store.write(`${dir}/index.md`, index)
-  for (const task of work.tasks) {
-    if (task.task !== null) await store.write(`${dir}/tasks/${task.name}/task.md`, task.task)
-    if (task.track !== null) await store.write(`${dir}/tasks/${task.name}/track.md`, task.track)
-  }
-  if (work.owner !== null) await store.write(`${dir}/OWNER.md`, work.owner)
-  if (work.taskList !== null) await store.write(`${dir}/TASKS.md`, work.taskList)
-  if (work.glossary !== null) await store.write(`${dir}/GLOSSARY.md`, work.glossary)
-  if (work.shift !== null) await store.write(`${dir}/SHIFT.md`, work.shift)
-  if (project.settingsText !== null) await store.write(`${dir}/settings.toml`, project.settingsText)
-  for (const file of work.knowledge) await store.write(`${dir}/knowledge/${file.name}`, file.text)
+  await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
-  await store.write(`${dir}/about.md`, renderAbout({ ...shift, result: 'pending' }))
+  await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }))
 
   return { shift, result: kept.excluded === null ? ACCEPTED(dir) : `${EXCLUDED(kept.excluded)}\n\n${ACCEPTED(dir)}` }
 }
@@ -77,11 +65,7 @@ export async function archiveTask(project: Project, input: ArchiveInput): Promis
   const { store, root } = project
   const from = `${root}/${TASKS}/${input.name}`
   const to = `${root}/${ARCHIVE}/${input.name}`
-  const task: TaskFiles = {
-    name: input.name,
-    task: await store.read(`${from}/task.md`),
-    track: await store.read(`${from}/track.md`),
-  }
+  const task = await readTask(store, `${root}/${DIR}`, input.name)
   const problem = checkArchive(input, task, await store.exists(to))
   if (problem !== null) return { deny: problem }
 
@@ -109,8 +93,8 @@ export async function shiftHistory(project: Project, count: number): Promise<str
 // The last shift picked up in a session that has not seen it: the text for the owner, and the prompt when there is one.
 export async function resumeShift(project: Project): Promise<{ text: string; prompt?: string }> {
   const dir = await previousShift(project)
-  if (dir === null) return { text: `No shifts in this project: ${DIR}/shifts/ is empty.` }
-  const letter = await project.store.read(`${dir}/letter.md`)
+  if (dir === null) return { text: `No shifts in this project: ${SHIFTS}/ is empty.` }
+  const letter = await project.store.read(`${dir}/${NAMES.letter}`)
   if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
 
   return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, await handBack(project, dir)) }
@@ -130,7 +114,7 @@ async function handBack(project: Project, dir: string): Promise<HandedBack> {
 
 // The harness did not let the history go: about.md says why, the row tells the owner.
 export async function shiftNotMade(project: Project, shift: PendingShift, why: string, tokensBefore: number | undefined): Promise<string> {
-  await project.store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `not shifted: ${why}` }))
+  await project.store.write(`${shift.dir}/${NAMES.about}`, renderAbout({ ...shift, tokensBefore, result: OUTCOME.notShifted(why) }))
 
   return NOT_MADE(shiftName(shift), why)
 }
@@ -142,7 +126,7 @@ export async function shiftUnsettled(
   why: string,
   tokensBefore: number | undefined,
 ): Promise<string> {
-  await project.store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `let go, not settled: ${why}` }))
+  await project.store.write(`${shift.dir}/${NAMES.about}`, renderAbout({ ...shift, tokensBefore, result: OUTCOME.unsettled(why) }))
 
   return UNSETTLED(shiftName(shift), why)
 }
@@ -163,20 +147,20 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
   const { store } = project
   const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
-  await store.write(`${shift.dir}/summary.md`, summary)
+  await store.write(`${shift.dir}/${NAMES.summary}`, summary)
   const streak = letGo.streak + 1
   const isCapped = shift.after === 'continue' && streak > MAX_AUTO_STREAK
   const shrank = `${formatK(before ?? 0)} → ${formatK(after)}`
   const outcome = (result: string) =>
     store.write(
-      `${shift.dir}/about.md`,
+      `${shift.dir}/${NAMES.about}`,
       renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
     )
   const back = await handBack(project, shift.dir)
   const name = shiftName(shift)
 
   if (shift.after === 'continue' && !isCapped) {
-    await outcome(`shifted (${shrank}), continuing`)
+    await outcome(OUTCOME.continuing(shrank))
 
     return {
       after: 'continue',
@@ -187,7 +171,7 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
   }
 
   const why = isCapped ? `waiting: ${MAX_AUTO_STREAK} shifts in a row without the owner` : 'waiting for the owner'
-  await outcome(`shifted (${shrank}), ${why}`)
+  await outcome(OUTCOME.waiting(shrank, why))
   const note = { context: waitContext(shift.letter, back), dir: shift.dir, files: deliveredFiles(back.work) }
 
   return { after: 'wait', note, row: WAITING(name, shrank, isCapped) }
@@ -196,7 +180,7 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
 // The fill the stretch started from, if the last shift was this session's: a fresh process counts from there.
 export async function shiftBase(project: Project, sessionId: string): Promise<number | null> {
   const dir = await previousShift(project)
-  const about = dir === null ? null : await project.store.read(`${dir}/about.md`)
+  const about = dir === null ? null : await project.store.read(`${dir}/${NAMES.about}`)
 
   return about === null ? null : shiftFill(about, sessionId)
 }

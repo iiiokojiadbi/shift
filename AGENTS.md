@@ -21,7 +21,7 @@ Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next
 ```
 core/                      shared logic, pure TypeScript, no harness imports
   src/types.ts             data shapes: work, tasks, gauge, shift input, segment
-  src/layout.ts            names and paths: tools, .shift/ files, sections, statuses, limits
+  src/layout.ts            names and paths: tools, the records' file names once (NAMES) and their paths, sections, statuses, limits, atPlaces
   src/input.ts             parsing and checking tool arguments
   src/markdown.ts          sections, items, frontmatter, dates, number formatting
   src/records.ts           checks of the letter, the board and the task folders
@@ -33,8 +33,9 @@ core/                      shared logic, pure TypeScript, no harness imports
   src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed
   src/archive.ts           archiving checks and the index line
   src/track.ts             task_track: a track item found by words of its name, or a task's line in TASKS.md, takes a status
-  src/history.ts           shift folders, the stretch's segment, about.md, shift_history
-  src/store.ts             the storage port an adapter implements (files, a move, git), and reading the records over it
+  src/about.ts             about.md: its outcomes, written and read back by one module
+  src/history.ts           shift folders, the stretch's segment, shift_history
+  src/store.ts             the storage port an adapter implements (files, a move, git); reading the records and writing a shift's snapshot by the same names
   src/tools.ts             the tool table: a row per tool with its texts and `run`; which tools a project shows; what a session starts with
   src/loop.ts              the shift loop: an accepted shift held, the let-go after the turn, continue or wait, the owner's next message, over a small port an adapter fills
   src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session

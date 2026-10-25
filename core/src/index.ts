@@ -1,3 +1,4 @@
+export * from './about'
 export * from './archive'
 export * from './docs'
 export * from './flows'

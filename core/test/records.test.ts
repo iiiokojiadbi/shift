@@ -10,9 +10,11 @@ import {
   frontmatter,
   indexLine,
   knowledgeMap,
+  OUTCOME,
   parseArchiveInput,
   parseHistoryCount,
   parseShiftInput,
+  readAbout,
   renderAbout,
   renderHistory,
   renderRecent,
@@ -20,6 +22,7 @@ import {
   sections,
   segment,
   shiftDir,
+  shiftFill,
   shiftHint,
   withHint,
 } from '../src/index'
@@ -282,4 +285,14 @@ test('recent shifts: descriptions oldest first, a pointer to the earlier ones, n
   expect(one).toContain('the last 1 shift, oldest first')
   expect(one).toContain('1 shift before them is not listed')
   expect(renderRecent({ entries: [{ name: 'a', about: null }], total: 1 })).not.toContain('not listed')
+})
+
+test('about.md is read back by one reader: the base of a fill under 1K too, only from a shift of this session that let go', () => {
+  const about = (result: string, tokens: string) =>
+    `---\ndescription: d\nafter: wait\nresult: ${result}\ntokens: ${tokens}\nsession: s1\n---\n`
+  expect(shiftFill(about(OUTCOME.waiting('2K → 950', 'waiting for the owner'), '2K → 950'), 's1')).toBe(950)
+  expect(shiftFill(about(OUTCOME.continuing('300K → 20K'), '300K → 20K'), 's1')).toBe(20_000)
+  expect(shiftFill(about(OUTCOME.continuing('300K → 20K'), '300K → 20K'), 's2')).toBeNull()
+  expect(shiftFill(about(OUTCOME.unsettled('disk'), '300K → 20K'), 's1')).toBeNull()
+  expect(readAbout(about(OUTCOME.pending, 'unknown'))).toMatchObject({ description: 'd', after: 'wait', shifted: false, tokensAfter: null })
 })

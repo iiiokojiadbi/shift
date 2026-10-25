@@ -1,7 +1,8 @@
-import { CLOSED, DIR } from './layout'
-import { bullets, formatK, frontmatter, itemsOf, sections } from './markdown'
+import { readAbout } from './about'
+import { CLOSED, SHIFTS } from './layout'
+import { itemsOf } from './markdown'
 import { listedTasks } from './records'
-import type { AboutMeta, HistoryEntry, Segment, Snapshot } from './types'
+import type { HistoryEntry, Segment, Snapshot } from './types'
 
 export function stamp(ms: number): string {
   const d = new Date(ms)
@@ -11,7 +12,7 @@ export function stamp(ms: number): string {
 }
 
 export function shiftDir(root: string, ms: number): string {
-  return `${root}/${DIR}/shifts/${stamp(ms)}`
+  return `${root}/${SHIFTS}/${stamp(ms)}`
 }
 
 export function segment(now: Snapshot, previous: Snapshot | null): Segment {
@@ -43,71 +44,29 @@ export function segment(now: Snapshot, previous: Snapshot | null): Segment {
   }
 }
 
-export function renderAbout(meta: AboutMeta): string {
-  const list = (items: string[]) => (items.length === 0 ? ['none'] : items.map(item => `- ${item}`))
-  const tokens =
-    meta.tokensBefore === undefined
-      ? 'unknown'
-      : `${formatK(meta.tokensBefore)} → ${meta.tokensAfter === undefined ? '?' : formatK(meta.tokensAfter)}`
-
-  return [
-    '---',
-    `description: ${meta.about}`,
-    `at: ${new Date(meta.at).toISOString()}`,
-    `after: ${meta.after}`,
-    `result: ${meta.result}`,
-    `tokens: ${tokens}`,
-    `summary_chars: ${meta.summaryChars ?? 'unknown'}`,
-    `session: ${meta.sessionId}`,
-    '---',
-    '',
-    '## Done',
-    '',
-    ...list(meta.segment.done),
-    '',
-    '## Dropped',
-    '',
-    ...list(meta.segment.dropped),
-    '',
-    '## Archived',
-    '',
-    ...list(meta.segment.archived),
-    '',
-    '## Open',
-    '',
-    ...list(meta.segment.open),
-    '',
-  ].join('\n')
-}
-
 export function renderSummary(messages: readonly { role: string; text: string }[]): string {
   return `${messages.map(m => `## ${m.role}\n\n${m.text}`).join('\n\n')}\n`
 }
 
 export function renderHistory(entries: HistoryEntry[], total: number): string {
-  if (entries.length === 0) return `No shifts in this project yet: ${DIR}/shifts/ is empty.`
+  if (entries.length === 0) return `No shifts in this project yet: ${SHIFTS}/ is empty.`
 
   const blocks = entries.map((entry, index) => {
     if (entry.about === null) return `### ${entry.name}\n\nNo about.md.`
-    const fields = frontmatter(entry.about)
-    const found = sections(entry.about)
-    const lines = [
-      `### ${entry.name} · ${fields.get('after') ?? fields.get('then') ?? '?'} · ${fields.get('result') ?? '?'}`,
-      '',
-      fields.get('description') ?? '',
-    ]
-    for (const heading of ['Done', 'Dropped', 'Archived']) {
-      const listed = bullets(found.get(heading))
+    const about = readAbout(entry.about)
+    const lines = [`### ${entry.name} · ${about.after ?? '?'} · ${about.result ?? '?'}`, '', about.description ?? '']
+    for (const [heading, listed] of [
+      ['Done', about.done],
+      ['Dropped', about.dropped],
+      ['Archived', about.archived],
+    ] as const) {
       if (listed.length > 0) lines.push('', `${heading}: ${listed.join('; ')}`)
     }
-    if (index === entries.length - 1) {
-      const open = bullets(found.get('Open'))
-      lines.push('', `Open: ${open.length === 0 ? 'none' : open.join('; ')}`)
-    }
+    if (index === entries.length - 1) lines.push('', `Open: ${about.open.length === 0 ? 'none' : about.open.join('; ')}`)
 
     return lines.join('\n')
   })
-  const head = `Shifts, oldest first: ${entries.length} of ${total}. Folders — ${DIR}/shifts/<name>/.`
+  const head = `Shifts, oldest first: ${entries.length} of ${total}. Folders — ${SHIFTS}/<name>/.`
 
   return [head, ...blocks].join('\n\n')
 }

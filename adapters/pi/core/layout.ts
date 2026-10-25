@@ -47,17 +47,39 @@ export const DIR = '.shift'
 // Where the records lived before the mod was named shift.
 export const OLD_DIR = '.infinity-shift'
 
-export const BOARD = `${DIR}/board.md`
+// The names of the records inside the records folder, and inside each shift's folder, which keeps them under the
+// same names: the one list reading, snapshotting and the setup's tree go by.
+export const NAMES = {
+  board: 'board.md',
+  letter: 'letter.md',
+  owner: 'OWNER.md',
+  oldOwner: 'owner.md',
+  glossary: 'GLOSSARY.md',
+  shift: 'SHIFT.md',
+  taskList: 'TASKS.md',
+  settings: 'settings.toml',
+  tasks: 'tasks',
+  task: 'task.md',
+  track: 'track.md',
+  knowledge: 'knowledge',
+  archive: 'archive',
+  index: 'index.md',
+  shifts: 'shifts',
+  about: 'about.md',
+  summary: 'summary.md',
+} as const
 
-export const LETTER = `${DIR}/letter.md`
+export const BOARD = `${DIR}/${NAMES.board}`
+
+export const LETTER = `${DIR}/${NAMES.letter}`
 // The owner's settings for the project.
-export const SETTINGS = `${DIR}/settings.toml`
+export const SETTINGS = `${DIR}/${NAMES.settings}`
 // Loaded into every session, at these places unless the settings move them.
-export const SHIFT_FILE = `${DIR}/SHIFT.md`
-export const GLOSSARY = `${DIR}/GLOSSARY.md`
-export const TASK_LIST = `${DIR}/TASKS.md`
+export const SHIFT_FILE = `${DIR}/${NAMES.shift}`
+export const GLOSSARY = `${DIR}/${NAMES.glossary}`
+export const TASK_LIST = `${DIR}/${NAMES.taskList}`
 
-export const OWNER = `${DIR}/OWNER.md`
+export const OWNER = `${DIR}/${NAMES.owner}`
 
 // A text written with the default places of OWNER.md, GLOSSARY.md and SHIFT.md, at the places the project's settings
 // give instead: every text names its files once, by the defaults, and is moved here.
@@ -65,15 +87,22 @@ export function atPlaces(text: string, files: { owner: string; glossary: string;
   return text.replaceAll(OWNER, files.owner).replaceAll(GLOSSARY, files.glossary).replaceAll(SHIFT_FILE, files.shift)
 }
 // The name owner decisions had before OWNER.md.
-export const OLD_OWNER = `${DIR}/owner.md`
+export const OLD_OWNER = `${DIR}/${NAMES.oldOwner}`
 
-export const KNOWLEDGE = `${DIR}/knowledge`
+export const KNOWLEDGE = `${DIR}/${NAMES.knowledge}`
 
-export const TASKS = `${DIR}/tasks`
+export const TASKS = `${DIR}/${NAMES.tasks}`
 
-export const ARCHIVE = `${DIR}/archive`
+export const ARCHIVE = `${DIR}/${NAMES.archive}`
 
-export const INDEX = `${ARCHIVE}/index.md`
+export const INDEX = `${ARCHIVE}/${NAMES.index}`
+
+export const SHIFTS = `${DIR}/${NAMES.shifts}`
+
+// A file of a task's folder under `base`, the records folder or a shift's.
+export function taskFile(base: string, name: string, file: 'task' | 'track'): string {
+  return `${base}/${NAMES.tasks}/${name}/${NAMES[file]}`
+}
 
 export const BOARD_SECTIONS = ['Goal', 'Decisions', 'Dead ends'] as const
 

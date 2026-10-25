@@ -1,4 +1,4 @@
-import { ARCHIVE_TOOL, CLOSED, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS } from './layout'
+import { ARCHIVE_TOOL, CLOSED, DIR, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS, taskFile } from './layout'
 import { dated, formatItem, itemsOf } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
@@ -57,7 +57,7 @@ async function setTaskStatus(store: Store, root: string, input: TrackInput): Pro
 }
 
 async function setItem(store: Store, root: string, input: TrackInput & { item: string }): Promise<{ deny: string } | { result: string }> {
-  const path = `${root}/${TASKS}/${input.task}/track.md`
+  const path = taskFile(`${root}/${DIR}`, input.task, 'track')
   const text = await store.read(path)
   if (text === null) return { deny: `No ${TASKS}/${input.task}/track.md: the task is not open.` }
   const lines = text.split('\n')

@@ -1,4 +1,4 @@
-import { DIR, RECENT_SHIFTS } from './layout'
+import { DIR, NAMES, RECENT_SHIFTS, SHIFTS, taskFile } from './layout'
 import type { Project } from './project'
 import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './types'
 
@@ -23,35 +23,61 @@ export type Places = { owner: string; glossary: string; shift: string }
 // The records under `base` (the project's `.shift/` or a shift's snapshot); null without a board.
 // A snapshot keeps every file under its own name; a project's places come from its settings.
 export async function readWork(store: Store, base: string, places?: Places): Promise<Work | null> {
-  const board = await store.read(`${base}/board.md`)
+  const board = await store.read(`${base}/${NAMES.board}`)
   if (board === null) return null
-  const at = places ?? { owner: `${base}/OWNER.md`, glossary: `${base}/GLOSSARY.md`, shift: `${base}/SHIFT.md` }
-  const tasks: TaskFiles[] = await Promise.all(
-    (await store.list(`${base}/tasks`, 'dir')).map(async name => ({
-      name,
-      task: await store.read(`${base}/tasks/${name}/task.md`),
-      track: await store.read(`${base}/tasks/${name}/track.md`),
-    })),
-  )
+  const at = places ?? { owner: `${base}/${NAMES.owner}`, glossary: `${base}/${NAMES.glossary}`, shift: `${base}/${NAMES.shift}` }
+  const tasks: TaskFiles[] = await Promise.all((await store.list(`${base}/${NAMES.tasks}`, 'dir')).map(name => readTask(store, base, name)))
 
   const knowledge: KnowledgeFile[] = await Promise.all(
-    (await store.list(`${base}/knowledge`, 'file'))
+    (await store.list(`${base}/${NAMES.knowledge}`, 'file'))
       .filter(name => name.endsWith('.md'))
-      .map(async name => ({ name, text: (await store.read(`${base}/knowledge/${name}`)) ?? '' })),
+      .map(async name => ({ name, text: (await store.read(`${base}/${NAMES.knowledge}/${name}`)) ?? '' })),
   )
+  const oldOwner = `${base}/${NAMES.oldOwner}`
   // Snapshots taken before OWNER.md keep owner.md.
-  const owner = (await store.read(at.owner)) ?? (places === undefined ? await store.read(`${base}/owner.md`) : null)
+  const owner = (await store.read(at.owner)) ?? (places === undefined ? await store.read(oldOwner) : null)
 
   return {
     board,
     owner,
     tasks,
     knowledge,
-    taskList: await store.read(`${base}/TASKS.md`),
+    taskList: await store.read(`${base}/${NAMES.taskList}`),
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
-    archived: await store.list(`${base}/archive`, 'dir'),
-    oldOwner: places !== undefined && places.owner !== `${base}/owner.md` && (await store.exists(`${base}/owner.md`)),
+    archived: await store.list(`${base}/${NAMES.archive}`, 'dir'),
+    oldOwner: places !== undefined && places.owner !== oldOwner && (await store.exists(oldOwner)),
+  }
+}
+
+// A task's folder under `base`.
+export async function readTask(store: Store, base: string, name: string): Promise<TaskFiles> {
+  return { name, task: await store.read(taskFile(base, name, 'task')), track: await store.read(taskFile(base, name, 'track')) }
+}
+
+// A shift's folder: the records as they are, each under its own name — the inverse of `readWork` over a snapshot —
+// and the letter, the archive's index and the settings beside them.
+export async function writeSnapshot(
+  store: Store,
+  dir: string,
+  snapshot: { work: Work; letter: string; index: string | null; settings: string | null },
+): Promise<void> {
+  const { work } = snapshot
+  const files: [string, string | null][] = [
+    [NAMES.letter, snapshot.letter],
+    [NAMES.board, work.board],
+    [NAMES.index, snapshot.index],
+    [NAMES.owner, work.owner],
+    [NAMES.taskList, work.taskList],
+    [NAMES.glossary, work.glossary],
+    [NAMES.shift, work.shift],
+    [NAMES.settings, snapshot.settings],
+    ...work.knowledge.map((file): [string, string] => [`${NAMES.knowledge}/${file.name}`, file.text]),
+  ]
+  for (const [name, text] of files) if (text !== null) await store.write(`${dir}/${name}`, text)
+  for (const task of work.tasks) {
+    if (task.task !== null) await store.write(taskFile(dir, task.name, 'task'), task.task)
+    if (task.track !== null) await store.write(taskFile(dir, task.name, 'track'), task.track)
   }
 }
 
@@ -74,7 +100,7 @@ export async function readSnapshot(store: Store, base: string, index: string): P
 
 // Shift folder names, oldest first: they are UTC stamps, so they sort by time.
 export function shiftNames({ store, root }: Project): Promise<string[]> {
-  return store.list(`${root}/${DIR}/shifts`, 'dir')
+  return store.list(`${root}/${SHIFTS}`, 'dir')
 }
 
 // The newest earlier shift folder, whose snapshots the new state is checked against.
@@ -82,7 +108,7 @@ export async function previousShift(project: Project): Promise<string | null> {
   const { root } = project
   const last = (await shiftNames(project)).at(-1)
 
-  return last === undefined ? null : `${root}/${DIR}/shifts/${last}`
+  return last === undefined ? null : `${root}/${SHIFTS}/${last}`
 }
 
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
@@ -90,7 +116,7 @@ export async function lastShifts(project: Project, count: number): Promise<Recen
   const { store, root } = project
   const names = await shiftNames(project)
   const entries: HistoryEntry[] = await Promise.all(
-    names.slice(-count).map(async name => ({ name, about: await store.read(`${root}/${DIR}/shifts/${name}/about.md`) })),
+    names.slice(-count).map(async name => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })),
   )
 
   return { entries, total: names.length }
