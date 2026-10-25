@@ -29,6 +29,13 @@ const reference = `${manifest.name}@${manifest.version}`
 const tag = `shift-pi--v${manifest.version}`
 console.log(`preparing ${reference}`)
 
+// One version for both harnesses: a pi release carries the core of the Claude Code release with the same number.
+const plugin = JSON.parse(readFileSync(join(ROOT, 'adapters/claude-code/.claude-plugin/plugin.json'), 'utf8'))
+if (manifest.version !== plugin.version)
+  throw new Error(
+    `adapters/pi/package.json is ${manifest.version}, the Claude Code plugin ${plugin.version}: release pi with the plugin's version`,
+  )
+
 if (publish) {
   // What goes up is a commit anyone can find: nothing uncommitted, and the commit on origin/main.
   if (run('git', ['status', '--porcelain']).trim() !== '') throw new Error('the tree has uncommitted changes: commit them first')
@@ -75,11 +82,10 @@ if (!publish) {
 console.log(`\npublishing ${reference}...`)
 show('npm', ['publish', '--access', 'public', ...(otp === undefined ? [] : ['--otp', otp])], PACKAGE)
 
-// The registry may answer 404 for a moment after the upload: asked again before it counts as a failure, never
-// published twice.
+// The registry takes minutes to show a new version: asked again before it counts as a failure, never published twice.
 let latest = ''
-for (let attempt = 0; attempt < 10 && latest !== manifest.version; attempt++) {
-  if (attempt > 0) await Bun.sleep(3000)
+for (let attempt = 0; attempt < 30 && latest !== manifest.version; attempt++) {
+  if (attempt > 0) await Bun.sleep(10_000)
   try {
     latest = run('npm', ['view', manifest.name, 'dist-tags.latest']).trim()
   } catch {}
