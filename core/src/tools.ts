@@ -162,19 +162,19 @@ export type SessionStart = {
 
 // A broken settings file is told and leaves the mod on; records in an older layout are named; records the project's
 // git would take in are kept out before the first shift too.
+// The doctrine with the tools the project shows, at the places its settings give: in its tag, and the body alone for a
+// harness that puts it under a heading of its own. An adapter that has none kept yet builds it here, not from the table.
+export function sessionDoctrine(settings: Settings): { doctrine: string; doctrineBody: string } {
+  const names = shownTools(settings).map(tool => tool.name)
+
+  return { doctrine: atPlaces(doctrine(names), settings.files), doctrineBody: atPlaces(doctrineBody(names), settings.files) }
+}
+
 export async function startSession(project: Project): Promise<SessionStart> {
   const { settings, problem } = project
   const rows: SessionStart['rows'] = []
   if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: 'warning' })
-  const tools = shownTools(settings)
-  const names = tools.map(tool => tool.name)
-  const start = {
-    enabled: settings.enabled,
-    rows,
-    tools,
-    doctrine: atPlaces(doctrine(names), settings.files),
-    doctrineBody: atPlaces(doctrineBody(names), settings.files),
-  }
+  const start = { enabled: settings.enabled, rows, tools: shownTools(settings), ...sessionDoctrine(settings) }
   if (!settings.enabled) return start
 
   const stale = await staleLayout(project)

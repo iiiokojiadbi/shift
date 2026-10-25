@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import type { Project } from '../src/project'
 import { DEFAULT_SETTINGS } from '../src/settings'
-import { shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
+import { sessionDoctrine, shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
 import { R } from './fixtures'
 import { memoryProject } from './memory'
 
@@ -68,4 +68,18 @@ test('a session starts with the rows for the owner, the tools shown and the doct
 
   const off = await startSession(await memoryProject({ [`${R}/settings.toml`]: 'enabled = false' }))
   expect(off).toMatchObject({ enabled: false, tools: [], rows: [] })
+})
+
+test('a doctrine built without a session start names the files where the settings put them, and only the tools shown', () => {
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    files: { ...DEFAULT_SETTINGS.files, owner: 'OWNER.md' },
+    docs: { ...DEFAULT_SETTINGS.docs, dirs: [] },
+  }
+  const { doctrine, doctrineBody } = sessionDoctrine(settings)
+  expect(doctrine).toStartWith('<shift note=')
+  expect(doctrineBody).toStartWith('# Shift')
+  expect(doctrineBody).toContain('`OWNER.md`')
+  expect(doctrineBody).not.toContain('.shift/OWNER.md')
+  expect(doctrineBody).not.toContain('doc_outline')
 })

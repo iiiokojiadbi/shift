@@ -6,7 +6,6 @@ import {
   atPrompt,
   beforeTool,
   type Courier,
-  doctrine,
   FRESH_GAUGE,
   FRESH_LOOKS,
   letGoGauge,
@@ -19,6 +18,7 @@ import {
   resumeShift,
   runEnded,
   SOURCES,
+  sessionDoctrine,
   sessionFiles,
   startSession,
   TASKS_COMMAND,
@@ -65,8 +65,8 @@ export const register: Register = on => {
     if (!(await read($, enabled))) return composed
     if ((await read($, filesSession)) !== (await $.session.id())) await loadFiles($, await projectOf($))
     const loaded: string | null = await read($, files)
-    // A state kept by an older version of the mod has no doctrine yet: it gets every tool's line.
-    const text: string = (await read($, doctrineText)) ?? doctrine(TOOLS.map(tool => tool.name))
+    // A state kept by an older version of the mod has no doctrine yet.
+    const text: string = (await read($, doctrineText)) ?? sessionDoctrine((await projectOf($)).settings).doctrine
     const own = [{ id: `${PLUGIN}:doctrine`, text, scope: 'session' as const }]
     if (loaded !== null) own.push({ id: `${PLUGIN}:files`, text: loaded, scope: 'session' })
 

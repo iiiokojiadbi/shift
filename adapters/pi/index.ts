@@ -12,7 +12,6 @@ import {
   beforeTool,
   contentChars,
   countGrowth,
-  doctrineBody,
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
@@ -25,6 +24,7 @@ import {
   resumeShift,
   SETTINGS,
   SOURCES,
+  sessionDoctrine,
   sessionFiles,
   shiftBase,
   startSession,
@@ -49,8 +49,8 @@ export default function shift(pi: ExtensionAPI): void {
   let ownerTyped = false
   // false when the project's settings turn the mod off; read at each session start.
   let enabled = true
-  // The doctrine with the tools this project shows; read at each session start.
-  let doctrine = doctrineBody(TOOLS.map(tool => tool.name))
+  // The doctrine with the tools this project shows; read at each session start, built at the first run without one.
+  let doctrine: string | null = null
   // The records as last seen and the agent's tools running now; what changed before each tool began, by its call.
   let looks: Looks = FRESH_LOOKS
   const outside = new Map<string, Note[]>()
@@ -131,6 +131,7 @@ export default function shift(pi: ExtensionAPI): void {
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
+    doctrine ??= sessionDoctrine((await projectAt(ctx.cwd)).settings).doctrineBody
     event.systemPromptOptions.sections[MOD] = doctrine
     // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added twice.
     const loaded = await sessionFiles(await projectAt(ctx.cwd))
