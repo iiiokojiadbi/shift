@@ -20,7 +20,7 @@ Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome
 
 | Command | What it does |
 |---|---|
-| `bun run sync-core` | copies `core/src/` into each adapter's `core/`; run after every change in `core/src/`, and again after `bun run fix` touched it |
+| `bun run sync-core` | copies `core/src/` into each adapter's `core/`, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it |
 | `bun run check` | fails on a stale core copy, then biome |
 | `bun run fix` | biome with fixes |
 | `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:pi` |
@@ -31,8 +31,8 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 
 ## Tests
 
-- **Core** — `core/test/*.test.ts` over `memory.ts` (`memoryStore`, `memoryProject` — a project over an in-memory store with a git that answers `check-ignore` and `rev-parse`) and `fixtures.ts` (the letter, the board, task.md, the track, OWNER.md, traps — one copy each). Test a behaviour through the module's interface, not past it.
-- **Claude Code** — `adapters/claude-code/tests/shift.test.ts`, the wiring only. `stubSession` fakes `$.fs`, `$.process`, the session and the UI over a map; `on('session.id')` may be registered once per test, so a test that changes the session passes it as the last argument.
+- **Core** — `core/test/*.test.ts` over `memory.ts` (`memoryStore`, `memoryProject` — a project over an in-memory store with a git that answers `check-ignore` and `rev-parse`) and `fixtures.ts`: the records' data — the letter, the board, task.md, the track, OWNER.md, traps, one copy each — lives in `data.ts`, with no imports, so the plugin's tests take a generated copy of it; `fixtures.ts` adds what needs the core (`WORK`, `check`). Test a behaviour through the module's interface, not past it.
+- **Claude Code** — `adapters/claude-code/tests/shift.test.ts`, the wiring only, over `tests/data.ts` — GENERATED from `core/test/data.ts`, never edit. `stubSession` fakes `$.fs`, `$.process`, the session and the UI over a map; `on('session.id')` may be registered once per test, so a test that changes the session passes it as the last argument.
 - **pi** — `adapters/pi/test/extension.test.ts`: the extension loaded over a stand-in of `ExtensionAPI` in a temporary project.
 
 ## Installing for development

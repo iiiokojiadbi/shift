@@ -1,57 +1,8 @@
 import type { TestBody } from 'claude-code/testing'
 import { expect, mock, test } from 'claude-code/testing'
-import type { TaskFiles } from '../hooks/core/index'
 import { doctrine, growthOf, shiftFill } from '../hooks/core/index'
+import { BOARD, LETTER, LIST, OWNER, TESTS, TRACK, TRAPS } from './data'
 
-const LETTER = ['## Where I am', 'fixing tests', '## Next', 'claude plugin test', '## Unverified', 'none', '## Hold', 'HOLD-THIS'].join(
-  '\n',
-)
-
-function boardWith(decisions: string[] = ['none']): string {
-  return ['## Goal', 'the mod', '## Decisions', ...decisions, '## Dead ends', 'none'].join('\n')
-}
-
-function listWith(taskLines: string[]): string {
-  return ['# Tasks', '', ...taskLines].join('\n')
-}
-
-function taskMd(title: string, extra: string[] = []): string {
-  return [
-    `# ${title}`,
-    ...extra,
-    '',
-    '## Goal',
-    'g',
-    '## Done when',
-    'd',
-    '## Owner decisions',
-    'none',
-    '## Decisions',
-    'none',
-    '## Dead ends',
-    'none',
-  ].join('\n')
-}
-
-const BOARD = boardWith()
-const LIST = listWith(['- [in progress] [tests](tasks/tests/) — red'])
-const TRACK = '- [in progress] fix the parser\n- [open] cover the archive'
-const TESTS: TaskFiles = { name: 'tests', task: taskMd('Green tests'), track: TRACK, notes: [] }
-const OWNER = '# Owner decisions\n\n## How to work\n\n- «тесты зеленые перед коммитом»'
-const TRAPS = [
-  '---',
-  'kind: traps',
-  'about: traps of edits and tests; lessons — lessons.md',
-  '---',
-  '',
-  '## Edits',
-  '',
-  '### The script stopped on the third replacement',
-  '',
-  '**Cause.** the pattern matched twice.',
-  '',
-  '**Do.** check the count before writing.',
-].join('\n')
 const AT = Date.UTC(2026, 9, 23, 14, 5, 9)
 const DIR = '/proj/.shift/shifts/20261023-140509'
 
