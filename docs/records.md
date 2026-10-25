@@ -50,7 +50,7 @@ The topic of work changes, and a single board lost what was done. So each line o
 
 ## OWNER.md, GLOSSARY.md, SHIFT.md
 
-These come into every session whole, beside the system prompt, and again after each shift.
+These come into every session whole, beside the system prompt, and again after each shift. Every session pays for them: `shift_setup` shows each file's size and the doctrine's, in characters and estimated tokens, so the owner sees what the mod costs before a file grows into a burden.
 
 - **OWNER.md** — the owner's words in force for the whole project, as a code of rules: a newer word rewrites the older line, and a rule changes only on the owner's word. On the board they crowded out the work — the first migrated project had 31 such lines — and a line in AGENTS.md asking to read them was only text.
 - **GLOSSARY.md** — one article per term: `## <term>`, then `Variants`, `Means` (what it is, not what it does), `Avoid` (words not to use for it, so one thing has one name), `Where`, and `Unconfirmed` while an inferred meaning is not checked with the owner. The format follows a glossary kept as a model prompt in another project, with `Avoid` from a domain-modeling practice.

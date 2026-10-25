@@ -112,7 +112,10 @@ test('the setup report: every key with its value here and its version, and which
   expect(fresh).toContain('- `[docs] toc` = true — set here, since 0.5.0:')
   expect(fresh).toContain('- `[docs] max_lines` = unset — default, since 0.5.0:')
   expect(fresh).toContain('- `enabled` = true — default, since 0.2.9:')
-  expect(fresh).toContain('- `.shift/OWNER.md`')
+  // OWNER.md's block: its tag and its text.
+  expect(fresh).toContain('- `.shift/OWNER.md` — 61 characters, ~15 tokens')
+  expect(fresh).toMatch(/- the doctrine, the system prompt's "Shift" section — \d+K characters, ~\d+K tokens/)
+  expect(fresh).toMatch(/- in all — \d+K characters/)
   expect(fresh).toContain("This session's block matches them.")
   expect(fresh).toContain('## Documents\n\nNo remarks.')
   expect(fresh).toContain('## Coming from the earlier layout')

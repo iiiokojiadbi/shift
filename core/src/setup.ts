@@ -1,10 +1,12 @@
 import { docsReport } from './docs'
 import { sessionFiles } from './flows'
-import { MOD, SETTINGS } from './layout'
+import { atPlaces, MOD, SETTINGS } from './layout'
+import { formatK } from './markdown'
 import type { Project } from './project'
 import { SETTING_KEYS, settingValue } from './settings'
-import { SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
+import { doctrine, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
 import { fileBlock } from './texts/prompts'
+import { shownTools } from './tools'
 
 // How the mod is set up in this project: every setting with its value here and the version it came in, the files of
 // the session's block and whether the block the session holds is older than them, the layout and the migrations.
@@ -25,12 +27,15 @@ export async function setupReport(project: Project, loaded: string | null): Prom
   })
 
   const files = await sessionFiles(project)
+  const doctrineChars = atPlaces(doctrine(shownTools(settings).map(tool => tool.name)), settings.files).length
   const stale = loaded === null ? [] : files.filter(file => !loaded.includes(fileBlock(file.path, file.text))).map(file => file.path)
   const block =
     files.length === 0
       ? 'None: the mod is off here, or the records are in an older layout.'
       : [
-          ...files.map(file => `- \`${file.path}\``),
+          ...files.map(file => `- \`${file.path}\` — ${weight(fileBlock(file.path, file.text).length)}`),
+          `- the doctrine, the system prompt's "Shift" section — ${weight(doctrineChars)}`,
+          `- in all — ${weight(doctrineChars + files.reduce((sum, file) => sum + fileBlock(file.path, file.text).length, 0))}; tokens are estimated at ${CHARS_PER_TOKEN} characters each, more for text that is not English`,
           '',
           stale.length === 0
             ? "This session's block matches them."
@@ -48,7 +53,7 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     '## The session block',
     '',
-    'Loaded whole into every session:',
+    'Loaded whole into every session, with what each costs:',
     '',
     block,
     '',
@@ -64,6 +69,13 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     SETUP_MIGRATION,
   ].join('\n')
+}
+
+// What a text costs in the context: its characters and the tokens they come to, roughly.
+const CHARS_PER_TOKEN = 4
+
+function weight(chars: number): string {
+  return `${formatK(chars)} characters, ~${formatK(Math.round(chars / CHARS_PER_TOKEN))} tokens`
 }
 
 function tomlKey(key: string): string {
