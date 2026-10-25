@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { acceptShift, afterWrite, archiveTask, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
+import { acceptShift, archiveTask, changedRecords, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
 import type { PendingShift, ShiftInput } from '../src/types'
 import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
@@ -213,20 +213,32 @@ test('a note beside a task: checked, snapshotted, listed after a shift with its 
   expect(prompt).not.toContain('free text, any shape')
 })
 
-test('a record is checked right after a write, by the checks of that file alone; silence when it is whole', async () => {
-  const written = (path: string, extra: Record<string, string>) => project(extra).then(p => afterWrite(p, `${ROOT}/${path}`))
-  expect(await written('.shift/board.md', {})).toBeNull()
-  expect(await written('.shift/tasks/tests/track.md', {})).toBeNull()
-  expect(await written('.shift/board.md', { [`${R}/board.md`]: '## Goal\nthe mod' })).toContain(
-    '`.shift/board.md`: The board lacks sections: "## Decisions"',
-  )
-  const track = await written('.shift/tasks/tests/track.md', { [`${R}/tasks/tests/track.md`]: '- [half] fix the parser' })
-  expect(track).toContain('Track items without a status')
-  expect(track).toContain('if you are still writing the record, go on')
-  expect(await written('.shift/TASKS.md', { [`${R}/TASKS.md`]: '# Tasks\n\n- [done] [tests](tasks/tests/) — red' })).toContain(
-    'A finished task is archived',
-  )
-  expect(await written('.shift/letter.md', { [`${R}/letter.md`]: '## Where I am\nhere' })).toContain('The letter')
-  // Another record broken is the shift's to tell, not this write's.
-  expect(await written('.shift/OWNER.md', { [`${R}/board.md`]: 'no board' })).toBeNull()
+test("records changed by the agent's tools are told only when broken, by someone else always", async () => {
+  const p = await project()
+  const put = (path: string, text: string) => p.store.write(`${R}/${path}`, text)
+  const first = await changedRecords(p, null, 'agent')
+  expect(first.note).toBeNull()
+  expect(Object.keys(first.seen)).toContain('.shift/tasks/tests/track.md')
+  expect((await changedRecords(p, first.seen, 'agent')).note).toBeNull()
+
+  await put('tasks/tests/track.md', '- [done] fix the parser\n- [done] cover the archive')
+  const whole = await changedRecords(p, first.seen, 'agent')
+  expect(whole.note).toBeNull()
+
+  await put('board.md', '## Goal\nthe mod')
+  await put('tasks/tests/track.md', '- [half] fix the parser')
+  await put('letter.md', '## Where I am\nhere')
+  const broken = await changedRecords(p, whole.seen, 'agent')
+  expect(broken.note).toContain('`.shift/board.md`: The board lacks sections: "## Decisions"')
+  expect(broken.note).toContain('`.shift/tasks/tests/track.md`: Track items without a status')
+  expect(broken.note).toContain('`.shift/letter.md`: The letter')
+  expect(broken.note).toContain('if you are still writing them, go on')
+  // Told once: unchanged since, the same broken board says nothing more; another record is not this look's.
+  expect((await changedRecords(p, broken.seen, 'agent')).note).toBeNull()
+
+  await put('OWNER.md', '# Owner decisions\n\n## Work\n\n- «green first, always»')
+  const outside = (await changedRecords(p, broken.seen, 'other')).note ?? ''
+  expect(outside).toContain('`.shift/OWNER.md` changed outside your tools — by the owner or another session')
+  expect(outside).not.toContain('board.md')
+  expect(outside).not.toContain('refuses')
 })

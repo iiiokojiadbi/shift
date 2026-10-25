@@ -39,6 +39,7 @@ The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/
 - Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history (the gauge's base from the last `about.md`). A pending shift kept from an older version may lack fields added since.
 - A resume or a `/clear` inside a running Claude Code starts no `session.start`: the session's files are read again when `$.session.id()` differs from the one they were read for.
 - A hint goes inside the last tool result as a `<system-reminder>`: a separate block in that row is shown to the owner as their own message.
+- The records' look wraps every main-agent `tool.call` without a matcher: a look before `next` (only when no other tool runs — the `running` atom) and after it, unless the result is `isReadOnly`; notes go to the result's `context`. A subagent's calls carry `agentId` and are skipped: its changes fall inside the main agent's Agent call.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Rows go to the transcript by `$.ui.log`, which has no levels; the status line under the input is not used — it was noise.
 - The owner is `prompt.submit` with `origin.kind` `composer`, `bridge` or `sdk`.
@@ -51,6 +52,7 @@ The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionA
 - `agent_settled` is awaited; a `sendMessage` with `triggerTurn` from it is deferred until the handler returns, so the continue still starts.
 - The owner's input comes by the `input` event, idle or mid-run (`streamingBehavior`); only an idle one starts a run that takes the waiting letter.
 - pi reads the session's files anew before every run, so its block is never stale.
+- The records' look: `tool_call` before, `tool_result` after, nested calls (`parentToolCallId`) skipped; `read`, `grep`, `find`, `ls` get no look after. `before_agent_start` looks for changes between runs and resets the count of tools running, in case a blocked call never got its result.
 - `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first. A headless `pi -p` in a fresh project waits silently unless run with `-a` and stdin closed.
 - Try it: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place).
 

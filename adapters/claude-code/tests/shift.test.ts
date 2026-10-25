@@ -88,7 +88,10 @@ function stubSession(
       if (path.startsWith(`${e.path}/`)) names.add(path.slice(e.path.length + 1).split('/')[0] ?? '')
     }
     return {
-      value: [...names].map(name => ({ name, kind: files.has(`${e.path}/${name}`) ? 'file' : 'dir', size: 0, mtimeMs: 0, isLink: false })),
+      value: [...names].map(name => {
+        const text = files.get(`${e.path}/${name}`)
+        return { name, kind: text === undefined ? 'dir' : 'file', size: text?.length ?? 0, mtimeMs: 0, isLink: false }
+      }),
     }
   })
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
@@ -319,6 +322,15 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
   expect(logs.filter(line => line.startsWith('to the agent — Shift hint'))).toHaveLength(1)
   tokens = 170000
   expect(JSON.stringify(await toolResult())).not.toContain('Shift hint')
+  files.set('/proj/.shift/board.md', '## Goal\nthe mod, still')
+  const own = await $.session.append({
+    message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'y', content: 'ok' }] },
+    door: 'tool-result',
+    origin: { kind: 'tool', tool: 'mcp__shift__task_track' },
+    uuid: 'v',
+  })
+  expect(JSON.stringify(own)).not.toContain('records just changed')
+  expect(JSON.stringify(await toolResult())).not.toContain('records just changed')
   tokens = 175000
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
   expect(String(prompts[0])).toContain('175K of 200K used')
@@ -378,7 +390,7 @@ test('the history and guide tools answer', async ($, on) => {
   expect(String(history.result)).toContain('ABOUT')
 })
 
-test('after Edit and Write the docs follow: the toc, the map and remarks in the result, a record checked; the docs tools answer', async ($, on) => {
+test('after Edit and Write the docs follow: the toc, the map and remarks in the result; the docs tools answer', async ($, on) => {
   const files = project()
   files.set('/proj/.shift/settings.toml', '[docs]\ntoc = true')
   files.set('/proj/docs/a.md', '---\ndescription: A\n---\n\n# A\n\n## One\n')
@@ -398,13 +410,34 @@ test('after Edit and Write the docs follow: the toc, the map and remarks in the 
 
   const written = await $.tool.call({ tool: 'Write', file_path: '/proj/src/x.ts', content: '// docs/gone.md' } as never)
   expect(written.context?.[0]).toContain('`src/x.ts`: a link to `docs/gone.md` that is not there.')
-  const record = await $.tool.call({ tool: 'Write', file_path: '/proj/.shift/board.md', content: '## Goal\nthe mod' } as never)
-  expect(record.context?.[0]).toContain('`.shift/board.md`: The board lacks sections')
 
   const head = await $.tool.call({ tool: 'mcp__shift__doc_outline', path: 'docs/a.md' })
   expect(String(head.result)).toMatch(/\d+ {2}One/)
   const mentions = await $.tool.call({ tool: 'mcp__shift__docs_mentioning', file: 'src/a.md' })
   expect(String(mentions.result)).toContain('No document in `docs/` mentions `a.md`.')
+})
+
+test("records are looked at around every tool: the agent's own change told only when broken, someone else's always", async ($, on) => {
+  const files = project()
+  stubSession(on, files)
+  let edit: (() => void) | null = null
+  on('tool.call', { tool: 'Bash' }, () => {
+    edit?.()
+    return { result: { stdout: '', stderr: '', interrupted: false } } as never
+  })
+  const bash = () => $.tool.call({ tool: 'Bash', command: 'x' } as never)
+
+  await bash()
+  edit = () => files.set('/proj/.shift/tasks/tests/track.md', '- [done] fix the parser\n- [done] cover the archive')
+  expect((await bash()).context).toBeUndefined()
+  edit = () => files.set('/proj/.shift/board.md', '## Goal\nthe mod')
+  expect(String((await bash()).context)).toContain('`.shift/board.md`: The board lacks sections')
+  edit = null
+  files.set('/proj/.shift/OWNER.md', `${OWNER}\n- by the owner's hand`)
+  const outside = String((await bash()).context)
+  expect(outside).toContain('`.shift/OWNER.md` changed outside your tools')
+  expect(outside).not.toContain('board.md')
+  expect((await bash()).context).toBeUndefined()
 })
 
 test('/unshift hands the last letter, the board and the tasks in progress to a fresh session', async ($, on) => {

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { loadProject, type Project, type Store } from './core/index'
 
@@ -13,6 +13,13 @@ export const nodeStore: Store = {
       .filter(entry => (kind === 'dir' ? entry.isDirectory() : entry.isFile()))
       .map(entry => entry.name)
       .sort()
+  },
+  stamps: async path => {
+    const entries = await readdir(path, { withFileTypes: true }).catch(() => [])
+    const files = entries.filter(entry => entry.isFile())
+    const stats = await Promise.all(files.map(entry => stat(`${path}/${entry.name}`).catch(() => null)))
+
+    return Object.fromEntries(files.flatMap((entry, i) => (stats[i] ? [[entry.name, `${stats[i].mtimeMs}:${stats[i].size}`]] : [])))
   },
   write: async (path, text) => {
     await mkdir(dirname(path), { recursive: true })

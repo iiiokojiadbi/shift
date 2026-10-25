@@ -113,3 +113,31 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
   expect(stopped.sent).toEqual([])
   expect(stopped.notes.some(note => note.includes('not made — the turn was aborted'))).toBe(true)
 })
+
+test("records are looked at around every tool: the agent's own change told only when broken, someone else's always", async () => {
+  const root = await project({
+    '.shift/board.md': '## Goal\ng\n## Decisions\nnone\n## Dead ends\nnone\n',
+    '.shift/TASKS.md': '# Tasks\n\n- [in progress] [t](tasks/t/) — t\n',
+    '.shift/tasks/t/task.md': '# T\n\n## Goal\ng\n## Done when\nd\n## Owner decisions\nnone\n## Decisions\nnone\n## Dead ends\nnone\n',
+    '.shift/tasks/t/track.md': '- [open] write the test\n',
+  })
+  const pi = load(root)
+  await pi.on('session_start')
+  let id = 0
+  const bash = async (change?: () => Promise<void>) => {
+    const call = { toolCallId: String(++id), toolName: 'bash', input: {} }
+    await pi.on('tool_call', call)
+    await change?.()
+    const done = (await pi.on('tool_result', { ...call, content: [], isError: false })) as { content: { text: string }[] } | undefined
+    return done?.content.map(each => each.text).join('\n') ?? ''
+  }
+  const put = (path: string, text: string) => () => writeFile(join(root, path), text)
+
+  await bash()
+  expect(await bash(put('.shift/tasks/t/track.md', '- [done] write the test\n'))).toBe('')
+  expect(await bash(put('.shift/board.md', '## Goal\nthe mod, broken\n'))).toContain('`.shift/board.md`: The board lacks sections')
+  await put('.shift/TASKS.md', '# Tasks\n\n- [in progress] [t](tasks/t/) — t, by hand\n')()
+  const outside = await bash()
+  expect(outside).toContain('`.shift/TASKS.md` changed outside your tools')
+  expect(outside).not.toContain('board.md')
+})

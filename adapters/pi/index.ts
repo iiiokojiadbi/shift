@@ -2,11 +2,12 @@ import { resolve } from 'node:path'
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
-import type { Gauge, GaugeKeeper, LetGoHarness, Loop, LoopState, WaitNote } from './core/index'
+import type { ChangedBy, Gauge, GaugeKeeper, LetGoHarness, Loop, LoopState, Seen, WaitNote } from './core/index'
 import {
   addGrowth,
   afterTurn,
   afterWrite,
+  changedRecords,
   contentChars,
   countGrowth,
   doctrineBody,
@@ -33,6 +34,8 @@ import {
 import { projectAt } from './store'
 
 const OURS: ReadonlySet<string> = new Set(TOOLS.map(tool => tool.name))
+// pi's tools that only read: nothing to look at after them.
+const READING: ReadonlySet<string> = new Set(['read', 'grep', 'find', 'ls'])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const WAIT_ENTRY = `${MOD}:wait`
@@ -46,6 +49,10 @@ export default function shift(pi: ExtensionAPI): void {
   let enabled = true
   // The doctrine with the tools this project shows; read at each session start.
   let doctrine = doctrineBody(TOOLS.map(tool => tool.name))
+  // The records as last seen, the agent's tools running now, and what changed before each began, by its call.
+  let seen: Seen | null = null
+  let running = 0
+  const outside = new Map<string, string>()
 
   const text = (body: string) => ({ content: [{ type: 'text' as const, text: body }], details: undefined })
   const schema = (shape: object) => shape as TSchema
@@ -128,6 +135,10 @@ export default function shift(pi: ExtensionAPI): void {
       ...loaded.map(file => ({ path: file.path, content: file.text })),
     ]
     const parts: string[] = []
+    // Records changed between runs — by the owner's hand or another session — come with the run.
+    running = 0
+    const changed = await recordsNote(ctx, 'other')
+    if (changed !== null) parts.push(changed)
     const hint = await takeHint(ctx)
     if (hint !== null) parts.push(hintBlock(hint))
     if (event.messageType === 'user' && ownerTyped) {
@@ -150,14 +161,35 @@ export default function shift(pi: ExtensionAPI): void {
     if (source !== null) await countGrowth(keeperOf(ctx), source, messageChars(event.message))
   })
 
+  // The records are looked at around every tool of the agent: what changed before it began is someone else's, what
+  // changed while it ran is the agent's own. While another tool runs the change before is not looked at — it may be
+  // that tool's.
+  pi.on('tool_call', async (event, ctx) => {
+    if (!enabled || event.parentToolCallId !== undefined) return
+    const note = running === 0 ? await recordsNote(ctx, 'other') : null
+    running++
+    if (note !== null) outside.set(event.toolCallId, note)
+  })
+
   // A hint rides inside a tool result: mid-turn, at the agent's next look, with no message of its own.
-  // After the agent writes a file the docs follow it — the toc and the map — and a document or a record is checked: remarks in the result, once.
+  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once. The mod's
+  // own tools write the records validly: what they wrote is only remembered.
   pi.on('tool_result', async (event, ctx) => {
     if (!enabled) return
     const written = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined
     const note = typeof written === 'string' ? await afterWrite(await projectAt(ctx.cwd), resolve(ctx.cwd, written)) : null
-    const hint = event.parentToolCallId === undefined ? await takeHint(ctx) : null
-    const added = [note, hint === null ? null : hintBlock(hint)].filter((each): each is string => each !== null)
+    const nested = event.parentToolCallId !== undefined
+    let before: string | null = null
+    let own: string | null = null
+    if (!nested) {
+      running = Math.max(0, running - 1)
+      before = outside.get(event.toolCallId) ?? null
+      outside.delete(event.toolCallId)
+      const looked = READING.has(event.toolName) ? null : await recordsNote(ctx, 'agent')
+      own = OURS.has(event.toolName) ? null : looked
+    }
+    const hint = nested ? null : await takeHint(ctx)
+    const added = [before, own, note, hint === null ? null : hintBlock(hint)].filter((each): each is string => each !== null)
     if (added.length === 0) return
 
     return {
@@ -178,6 +210,14 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // A hint for the agent if the fill since the last shift calls for one; none while a shift is pending.
+  // The check of the records changed since the mod last looked; the first look only remembers them.
+  async function recordsNote(ctx: ExtensionContext, by: ChangedBy): Promise<string | null> {
+    const changed = await changedRecords(await projectAt(ctx.cwd), seen, by)
+    seen = changed.seen
+
+    return changed.note
+  }
+
   function takeHint(ctx: ExtensionContext): Promise<string | null> {
     return loopHint(loopOf(ctx), keeperOf(ctx))
   }

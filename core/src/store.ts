@@ -8,6 +8,9 @@ export type Store = {
   read(path: string): Promise<string | null>
   // Names of the folders or files right under `path`, sorted; none when it is missing.
   list(path: string, kind: 'dir' | 'file'): Promise<string[]>
+  // The files right under `path`, each with a stamp that changes when the file does (its time and size), from one
+  // listing and no reads: what the records' look after every tool can afford.
+  stamps(path: string): Promise<Record<string, string>>
   // Writes the file whole, making its folders.
   write(path: string, text: string): Promise<void>
   exists(path: string): Promise<boolean>

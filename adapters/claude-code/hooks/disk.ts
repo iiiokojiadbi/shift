@@ -17,6 +17,11 @@ export function claudeStore($: EngineInterface): Store {
         .map(entry => entry.name)
         .sort()
     },
+    stamps: async path => {
+      const entries = await $.fs.list(path).catch(() => [])
+
+      return Object.fromEntries(entries.filter(entry => entry.kind === 'file').map(entry => [entry.name, `${entry.mtimeMs}:${entry.size}`]))
+    },
     write: async (path, text) => {
       await $.fs.write(path, text)
     },

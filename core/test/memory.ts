@@ -16,6 +16,12 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
 
       return [...new Set(names)].sort()
     },
+    stamps: async path =>
+      Object.fromEntries(
+        under(path)
+          .filter(rest => !rest.includes('/'))
+          .map(name => [name, `${(files.get(`${path}/${name}`) ?? '').length}:${files.get(`${path}/${name}`)}`]),
+      ),
     write: async (path, text) => {
       files.set(path, text)
     },

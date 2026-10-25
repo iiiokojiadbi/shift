@@ -11,11 +11,13 @@ import {
   GUIDE_TOOL,
   HOLD,
   INDEX,
+  KNOWLEDGE,
   LETTER,
   MAX_AUTO_STREAK,
   MOD,
   NAMES,
   OLD_DIR,
+  SETTINGS,
   SHIFTS,
   TASK_LIST,
   TASKS,
@@ -33,28 +35,75 @@ import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, Shif
 
 export type ShiftCall = { input: ShiftInput; at: number; sessionId: string }
 
-// After the agent wrote a file: the docs follow it (`docsAfterWrite`), and a record gets the checks of that file, so
-// what the shift would refuse is told now. One note, once; null when all is well.
+// After the agent wrote a file the docs follow it: the toc, the map and remarks, as one note; null when all is well.
 export async function afterWrite(project: Project, file: string): Promise<string | null> {
-  const { root, settings } = project
-  if (!settings.enabled || !file.startsWith(`${root}/`)) return null
-  const path = file.slice(root.length + 1)
   const lines = await docsAfterWrite(project, file)
-  const problem = await writtenRecord(project, path)
-  if (problem !== null)
-    lines.push(`\`${path}\`: ${problem} The shift refuses until it is fixed; if you are still writing the record, go on.`)
 
   return lines.length === 0 ? null : `<${MOD} note="the mod's check of the file just written">\n${lines.join('\n')}\n</${MOD}>`
 }
 
-async function writtenRecord(project: Project, path: string): Promise<string | null> {
-  if (path === LETTER) {
-    const letter = await project.store.read(`${project.root}/${LETTER}`)
-    return letter === null ? null : checkLetter(letter)
-  }
-  const work = await readRecords(project)
+// What the mod last saw of the records: a stamp per file, by its path from the project's root.
+export type Seen = Record<string, string>
 
-  return work === null ? null : checkWritten(path, work, project)
+// Who changed the records since the mod last looked: the agent's own tool — a write, a shell command, a script — or
+// someone else between its tools: the owner's hand, another session.
+export type ChangedBy = 'agent' | 'other'
+
+// The records changed since the mod last looked, each checked by the checks of its file, so what the shift would refuse
+// is told as it is written, not hundreds of K later. The agent's own change is told only when broken; someone else's
+// is told always, so the agent reads it before writing over it. The first look only remembers; a removed file is the
+// shift's to tell.
+export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; note: string | null }> {
+  if (!project.settings.enabled) return { seen: seen ?? {}, note: null }
+  const now = await recordStamps(project)
+  const changed = seen === null ? [] : Object.keys(now).filter(path => seen[path] !== now[path])
+  if (changed.length === 0) return { seen: now, note: null }
+
+  const work = await readRecords(project)
+  const lines: string[] = []
+  let broken = false
+  for (const path of changed) {
+    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project)
+    broken ||= problem !== null
+    if (by === 'other') lines.push(`\`${path}\` changed outside your tools — by the owner or another session: read it before you write it.`)
+    if (problem !== null) lines.push(`\`${path}\`: ${problem}`)
+  }
+  if (broken) lines.push('The shift refuses until they are fixed; if you are still writing them, go on.')
+  const note = lines.length === 0 ? null : `<${MOD} note="the mod's check of the records just changed">\n${lines.join('\n')}\n</${MOD}>`
+
+  return { seen: now, note }
+}
+
+// Every file the record checks look at, by its path from the project's root, with its stamp: a listing per folder,
+// no file read.
+async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
+  const stamped = async (dir: string, only?: (name: string) => boolean): Promise<Seen> =>
+    Object.fromEntries(
+      Object.entries(await store.stamps(`${root}/${dir}`))
+        .filter(([name]) => (name.endsWith('.md') || `${dir}/${name}` === SETTINGS) && (only?.(name) ?? true))
+        .map(([name, stamp]) => [`${dir}/${name}`, stamp]),
+    )
+  const at = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')))
+  const own = new Set([BOARD, TASK_LIST, LETTER, SETTINGS, settings.files.owner, settings.files.glossary])
+  const tasks = await store.list(`${root}/${TASKS}`, 'dir')
+  const parts = await Promise.all([
+    ...[...new Set([DIR, at(settings.files.owner), at(settings.files.glossary)])].map(dir =>
+      stamped(dir, name => own.has(`${dir}/${name}`)),
+    ),
+    ...tasks.flatMap(name => [
+      stamped(`${TASKS}/${name}`, file => file === NAMES.task || file === NAMES.track),
+      stamped(`${TASKS}/${name}/${NAMES.notes}`),
+    ]),
+    stamped(KNOWLEDGE),
+  ])
+
+  return Object.assign({}, ...parts)
+}
+
+async function letterProblem({ store, root }: Project): Promise<string | null> {
+  const letter = await store.read(`${root}/${LETTER}`)
+
+  return letter === null ? null : checkLetter(letter)
 }
 
 // Checks the letter and the records, snapshots them into the new shift folder and leaves a pending about.md there.
