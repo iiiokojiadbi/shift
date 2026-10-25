@@ -1,5 +1,5 @@
 import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, TASK_LIST, TASKS, TASKS_MAX_LINES } from './layout'
-import { findDate } from './markdown'
+import { dated, overLimit } from './markdown'
 
 // TASKS.md: every open task, one line each, and under it the links to other tasks and archived ones.
 //
@@ -57,11 +57,10 @@ export function parseTaskList(text: string): ListedTask[] | string {
 // TASKS.md against the task folders and the archive.
 export function checkTaskList(text: string | null, folders: readonly string[], archived: readonly string[]): string | null {
   if (text === null) return `No ${TASK_LIST}: list every task folder there, one line each, or write "none".`
-  const lines = text.trimEnd().split('\n').length
-  if (lines > TASKS_MAX_LINES)
-    return `${TASK_LIST} is ${lines} lines, the limit is ${TASKS_MAX_LINES}: archive finished tasks, keep one short line each.`
-  const date = findDate(text)
-  if (date !== null) return `A date in ${TASK_LIST}: "${date}". Tasks have no dates. Remove it.`
+  const size =
+    overLimit(TASK_LIST, text, TASKS_MAX_LINES, 'archive finished tasks, keep one short line each.') ??
+    dated(TASK_LIST, text, 'Tasks have no dates.')
+  if (size !== null) return size
   const tasks = parseTaskList(text)
   if (typeof tasks === 'string') return tasks
 

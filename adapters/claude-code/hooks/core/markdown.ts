@@ -1,27 +1,72 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import type { Item } from './types'
 
-// `## heading` blocks of a markdown file; text before the first heading is dropped.
-export function sections(text: string): Map<string, string> {
-  const found = new Map<string, string>()
-  let heading: string | null = null
-  let body: string[] = []
-  const flush = () => {
-    if (heading !== null) found.set(heading, body.join('\n').trim())
+// Every record and document is read by these: a heading is a `#` line outside code fences, so a `## ` inside a
+// fenced command or example — in the letter's Hold, a runbook entry, a document — never cuts what it is in.
+
+export type Heading = { level: number; title: string; line: number; note: string }
+
+const HEADING = /^(#{1,6}) +(.+?)\s*$/
+
+// Every heading outside code fences: its level, its title, its line from 1, and the `> ` line right under it.
+export function headings(text: string): Heading[] {
+  const lines = text.split('\n')
+  const found: Heading[] = []
+  let fenced = false
+  for (const [index, line] of lines.entries()) {
+    if (line.trimStart().startsWith('```')) fenced = !fenced
+    const match = fenced ? null : HEADING.exec(line)
+    if (match === null) continue
+    const under = lines[index + 1] ?? ''
+    found.push({
+      level: match[1]?.length ?? 1,
+      title: match[2] ?? '',
+      line: index + 1,
+      note: under.startsWith('> ') ? under.slice(2).trim() : '',
+    })
   }
-  for (const line of text.split('\n')) {
-    const match = /^## +(.+?)\s*$/.exec(line)
-    if (match === null) {
-      body.push(line)
-      continue
-    }
-    flush()
-    heading = match[1] ?? null
-    body = []
-  }
-  flush()
 
   return found
+}
+
+// The blocks under the headings of `level`: each title with the text up to the next heading of that level or above.
+export function blocks(text: string, level: number): { title: string; body: string }[] {
+  const lines = text.split('\n')
+  const marks = headings(text).filter(heading => heading.level <= level)
+
+  return marks.flatMap((heading, at) =>
+    heading.level === level
+      ? [{ title: heading.title, body: lines.slice(heading.line, (marks[at + 1]?.line ?? lines.length + 1) - 1).join('\n') }]
+      : [],
+  )
+}
+
+// `## heading` blocks of a markdown file, trimmed; text before the first heading is dropped.
+export function sections(text: string): Map<string, string> {
+  return new Map(blocks(text, 2).map(block => [block.title, block.body.trim()]))
+}
+
+// The `# ` title; null without one.
+export function title(text: string): string | null {
+  return headings(text).find(heading => heading.level === 1)?.title ?? null
+}
+
+export function lineCount(text: string): number {
+  return text.trimEnd().split('\n').length
+}
+
+// The refusal for a record over its line limit, with what to do about it; null within it.
+export function overLimit(where: string, text: string, max: number, advice: string): string | null {
+  const lines = lineCount(text)
+
+  return lines > max ? `${where} is ${lines} lines, the limit is ${max}: ${advice}` : null
+}
+
+// The refusal for a date in a record, with why it has none; null without one.
+export function dated(where: string, text: string, why: string): string | null {
+  const date = findDate(text)
+
+  return date === null ? null : `A date in ${where}: "${date}". ${why} Remove it.`
 }
 
 export const quote = (names: readonly string[]) => names.map(name => `"${name}"`).join(', ')

@@ -1,5 +1,5 @@
 import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS } from './layout'
-import { findDate } from './markdown'
+import { dated } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
 import { taskLine } from './tasks'
@@ -27,8 +27,8 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
     ['note', note],
   ] as const) {
     if (text?.includes('\n')) return `${what} is one line.`
-    const date = text === null ? null : findDate(text)
-    if (date !== null) return `A date in ${what}: "${date}". Records have no dates.`
+    const date = text === null ? null : dated(what, text, 'Records have no dates.')
+    if (date !== null) return date
   }
   if (item === null && status !== 'in progress' && note === null) {
     return `A ${status} task carries its reason in its line: pass note.`

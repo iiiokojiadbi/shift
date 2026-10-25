@@ -1,5 +1,5 @@
 import { DIR, MOD } from './layout'
-import { frontmatter } from './markdown'
+import { frontmatter, type Heading, headings, lineCount } from './markdown'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
 import type { Store } from './store'
@@ -12,28 +12,9 @@ import type { Store } from './store'
 export const TOC_START = '<!-- toc -->'
 export const TOC_END = '<!-- /toc -->'
 
-export type Heading = { level: number; title: string; note: string; line: number }
-
 // `##` and `###` outside code fences, each with the `> ` line right under it as its note.
 export function outline(text: string): Heading[] {
-  const lines = text.split('\n')
-  const found: Heading[] = []
-  let fenced = false
-  for (const [index, line] of lines.entries()) {
-    if (line.trimStart().startsWith('```')) fenced = !fenced
-    if (fenced) continue
-    const heading = /^(#{2,3}) (.+)$/.exec(line)
-    if (heading === null) continue
-    const under = lines[index + 1] ?? ''
-    found.push({
-      level: heading[1]?.length ?? 2,
-      title: (heading[2] ?? '').trim(),
-      note: under.startsWith('> ') ? under.slice(2).trim() : '',
-      line: index + 1,
-    })
-  }
-
-  return found
+  return headings(text).filter(heading => heading.level === 2 || heading.level === 3)
 }
 
 // The text with its toc block written from its headings: in place of the old block, else right under the `# ` title;
@@ -46,11 +27,11 @@ export function withToc(text: string): string | null {
   const start = text.indexOf(TOC_START)
   const end = start === -1 ? -1 : text.indexOf(TOC_END, start)
   if (end !== -1) return `${text.slice(0, start)}${block}${text.slice(end + TOC_END.length)}`
-  const title = /^# .+\n/m.exec(text)
-  if (title === null) return null
-  const at = title.index + title[0].length
+  const title = headings(text).find(heading => heading.level === 1)
+  if (title === undefined) return null
+  const lines = text.split('\n')
 
-  return `${text.slice(0, at)}\n${block}\n${text.slice(at)}`
+  return [...lines.slice(0, title.line), '', block, ...lines.slice(title.line)].join('\n')
 }
 
 export function isDoc(path: string, dirs: readonly string[]): boolean {
@@ -61,10 +42,6 @@ function description(text: string): string | null {
   const found = frontmatter(text).get('description') ?? ''
 
   return found === '' ? null : found
-}
-
-function lineCount(text: string): number {
-  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
 }
 
 // What a document breaks of the settings: its description and its length.

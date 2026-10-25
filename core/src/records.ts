@@ -19,7 +19,7 @@ import {
   TASK_SECTIONS,
   TASKS,
 } from './layout'
-import { findDate, frontmatter, itemsOf, missingSections, quote, sections } from './markdown'
+import { blocks, dated, frontmatter, itemsOf, missingSections, overLimit, quote, sections, title } from './markdown'
 import type { Project } from './project'
 import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
 import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
@@ -41,10 +41,6 @@ export function listedTasks(work: Work): ListedTask[] {
   return typeof listed === 'string' ? [] : listed
 }
 
-export function taskTitle(task: string): string | null {
-  return /^# +(.+?)\s*$/m.exec(task)?.[1] ?? null
-}
-
 // The whole state of the work as one text, to tell whether anything moved since the last shift.
 export function workText(work: Work): string {
   const tasks = [...work.tasks].sort((a, b) => a.name.localeCompare(b.name))
@@ -59,8 +55,6 @@ export function workText(work: Work): string {
     ...work.knowledge.map(k => `${k.name}\n${k.text.trim()}`),
   ].join('\n\n')
 }
-
-const lineCount = (text: string) => text.trimEnd().split('\n').length
 
 // The records against the previous shift's snapshot; a refusal names the files at the places the settings give.
 export function checkWork(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
@@ -83,13 +77,14 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
   const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing
 
-  const lines = lineCount(board)
-  if (lines > BOARD_MAX_LINES) {
-    return `The board is ${lines} lines, the limit is ${BOARD_MAX_LINES}: it has become a diary. Move what belongs to one task into that task, keep only decisions in force.`
-  }
-
-  const date = findDate(board)
-  if (date !== null) return `A date on the board: "${date}". The board has no dates — each shift's time is recorded by itself. Remove it.`
+  const boardProblem =
+    overLimit(
+      'The board',
+      board,
+      BOARD_MAX_LINES,
+      'it has become a diary. Move what belongs to one task into that task, keep only decisions in force.',
+    ) ?? dated('the board', board, "The board has no dates — each shift's time is recorded by itself.")
+  if (boardProblem !== null) return boardProblem
   const rejected = badRejected(board, 'The board')
   if (rejected !== null) return rejected
 
@@ -127,11 +122,11 @@ function checkTask({ name, task, track }: TaskFiles): string | null {
   const where = `${TASKS}/${name}/`
   if (task === null) return `${where} has no task.md.`
   if (track === null) return `${where} has no track.md.`
-  if (taskTitle(task) === null) return `${where}task.md has no "# <title>" line.`
+  if (title(task) === null) return `${where}task.md has no "# <title>" line.`
   const missing = missingSections(task, TASK_SECTIONS, `${where}task.md`)
   if (missing !== null) return missing
-  const date = findDate(task) ?? findDate(track)
-  if (date !== null) return `A date in ${where}: "${date}". Tasks have no dates. Remove it.`
+  const date = dated(where, task, 'Tasks have no dates.') ?? dated(where, track, 'Tasks have no dates.')
+  if (date !== null) return date
   if (/^continues:/m.test(task))
     return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
   const rejected = badRejected(task, `${where}task.md`)
@@ -153,30 +148,17 @@ function badRejected(text: string, where: string): string | null {
 function checkOwner(owner: string | null): string | null {
   if (owner === null) return `No ${OWNER}: create it beside ${BOARD} with the owner's decisions in force for the whole project, or "none".`
   if (owner.trim() === '') return `${OWNER} is empty. No decisions yet — write "none".`
-  const lines = lineCount(owner)
-  if (lines > OWNER_MAX_LINES) {
-    return `${OWNER} is ${lines} lines, the limit is ${OWNER_MAX_LINES}: it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.`
-  }
-  const date = findDate(owner)
-  if (date !== null)
-    return `A date in ${OWNER}: "${date}". The owner's decisions have no dates: a newer word rewrites the older line. Remove it.`
-
-  return null
+  return (
+    overLimit(
+      OWNER,
+      owner,
+      OWNER_MAX_LINES,
+      'it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.',
+    ) ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.")
+  )
 }
 
 export const isKind = (kind: string): kind is Kind => Object.hasOwn(KINDS, kind)
-
-// `### heading` blocks of a markdown file with their bodies.
-function entries(text: string): { heading: string; body: string }[] {
-  return text
-    .split(/^### +/m)
-    .slice(1)
-    .map(block => {
-      const end = block.indexOf('\n')
-
-      return { heading: (end === -1 ? block : block.slice(0, end)).trim(), body: end === -1 ? '' : block.slice(end + 1) }
-    })
-}
 
 // An entry's command: a fenced block or an indented one.
 const hasCommand = (body: string) => /^```/m.test(body) || /^ {4}\S/m.test(body)
@@ -192,19 +174,16 @@ export function checkKnowledge({ name, text }: KnowledgeFile): string | null {
     return `${where} is of kind "${kind}": name it ${kind}.md or ${kind}-<topic>.md.`
   }
   if ((meta.get('about') ?? '') === '') return `${where} needs a frontmatter "about": what is in it and where the neighbouring files are.`
-  const lines = lineCount(text)
-  if (lines > KNOWLEDGE_MAX_LINES) {
-    return `${where} is ${lines} lines, the limit is ${KNOWLEDGE_MAX_LINES}: drop what is dead, then split the rest by topic into ${kind}-<topic>.md files.`
-  }
-  const date = findDate(text)
-  if (date !== null)
-    return `A date in ${where}: "${date}". Knowledge has no dates: an entry that lied is fixed or removed when it is used. Remove it.`
+  const size =
+    overLimit(where, text, KNOWLEDGE_MAX_LINES, `drop what is dead, then split the rest by topic into ${kind}-<topic>.md files.`) ??
+    dated(where, text, 'Knowledge has no dates: an entry that lied is fixed or removed when it is used.')
+  if (size !== null) return size
 
   const fields: readonly string[] = KINDS[kind]
-  const lacking = entries(text).filter(e => fields.some(f => !e.body.includes(f)) || (kind === 'runbook' && !hasCommand(e.body)))
+  const lacking = blocks(text, 3).filter(e => fields.some(f => !e.body.includes(f)) || (kind === 'runbook' && !hasCommand(e.body)))
   if (lacking.length > 0) {
     const need = kind === 'runbook' ? `a command block and ${quote(fields)}` : quote(fields)
-    return `Entries in ${where} lack ${need}: ${lacking.map(e => `"### ${e.heading}"`).join(', ')}.`
+    return `Entries in ${where} lack ${need}: ${lacking.map(e => `"### ${e.title}"`).join(', ')}.`
   }
 
   return null
@@ -217,7 +196,7 @@ export function knowledgeMap(files: readonly KnowledgeFile[]): string {
   return files
     .map(({ name, text }) => {
       const kind = frontmatter(text).get('kind') ?? ''
-      const count = kind === 'glossary' ? text.split('\n').filter(line => line.startsWith('- **')).length : entries(text).length
+      const count = kind === 'glossary' ? text.split('\n').filter(line => line.startsWith('- **')).length : blocks(text, 3).length
 
       return `- ${KNOWLEDGE}/${name} — ${frontmatter(text).get('about') ?? ''} (${count} ${kind === 'glossary' ? 'terms' : 'entries'})`
     })
