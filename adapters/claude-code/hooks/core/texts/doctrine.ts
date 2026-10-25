@@ -205,7 +205,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;
    - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
-4. End the turn with one line, no further actions.
+4. End the turn, no further actions: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
 After the shift, the first message is "Shift done": the board and the tasks in progress, whole, with their notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
 

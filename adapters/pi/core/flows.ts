@@ -177,7 +177,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
 
   // Knowledge is rarely written: a stretch that added none is asked once, while its history is still whole.
   const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work)
-  const accepted = ACCEPTED(dir, learned)
+  const accepted = ACCEPTED(dir, learned, input.after)
 
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
 }

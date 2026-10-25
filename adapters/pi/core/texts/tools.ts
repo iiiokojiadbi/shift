@@ -26,7 +26,7 @@ import {
 } from '../layout'
 import { quote } from '../markdown'
 
-export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn with one line.`
+export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read.`
 
 export const GUIDE_DESCRIPTION =
   'How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it once, before your first shift in a project; after that only when a refusal sends you to it — the steps do not change between shifts.'

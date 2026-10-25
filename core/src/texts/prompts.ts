@@ -24,7 +24,7 @@ import {
 import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
-import type { HandedBack, PendingShift, Recent, SessionFile, Stuck, Work } from '../types'
+import type { HandedBack, PendingShift, Recent, SessionFile, ShiftAfter, Stuck, Work } from '../types'
 
 // The `note=` of each kind of note the mod tells the agent, so it tells the note from what the note came with.
 export const NOTE_KINDS = {
@@ -224,8 +224,15 @@ export function resumePrompt(letter: string, back: HandedBack): string {
 // What starts the turn after /unshift when the owner wrote nothing with it: the letter is already in the history.
 export const RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`
 
-export const ACCEPTED = (dir: string, learned: boolean) =>
-  `Shift accepted, the letter and the snapshots: ${dir}/. ${learned ? '' : `Nothing went into ${KNOWLEDGE}/ this stretch: if you learned something that stays true for months — a trap, a lesson, a command, a fact — write it where knowledge goes here now, while the stretch is still whole; then `}${learned ? 'End' : 'end'} the turn with one line and do nothing more: after the turn the stretch's history is let go, and you continue from the letter.`
+// How the turn ends once a shift is accepted. The owner reads the turn's last message, not the letter or the records:
+// with `wait` it is the answer they come back to.
+const TURN_END: Record<ShiftAfter, string> = {
+  continue: 'End the turn with one line and do nothing more',
+  wait: 'End the turn with your answer to the owner, whole — what you did and found, what you ask them to decide — and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call',
+}
+
+export const ACCEPTED = (dir: string, learned: boolean, after: ShiftAfter) =>
+  `Shift accepted, the letter and the snapshots: ${dir}/. ${learned ? '' : `Nothing went into ${KNOWLEDGE}/ this stretch: if you learned something that stays true for months — a trap, a lesson, a command, a fact — write it where knowledge goes here first, while the stretch is still whole. `}${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === 'wait' ? " with the owner's next message" : ''}.`
 
 export const NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`
 

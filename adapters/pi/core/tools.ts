@@ -68,7 +68,7 @@ const ROWS: readonly Row[] = [
     writes: true,
     run: async (raw, call) => {
       if (call.subagent) return { deny: 'Only the main agent shifts, not a subagent.' }
-      if ((await call.loop.read()).pending !== null) return { deny: 'The shift is already accepted: end the turn with one line.' }
+      if ((await call.loop.read()).pending !== null) return { deny: 'The shift is already accepted: end the turn as its result said.' }
       const input = parseShiftInput(raw)
       if (typeof input === 'string') return { deny: input }
       const cannot = await call.cannotLetGo()
