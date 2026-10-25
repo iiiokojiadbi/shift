@@ -314,11 +314,11 @@ export async function stuckTasks(project: Project): Promise<Stuck[]> {
   return stuck
 }
 
-// The harness did not let the history go: about.md says why, the row tells the owner.
+// The harness did not let the history go: about.md says why, the row tells the owner — even when about.md fails.
 export async function shiftNotMade(project: Project, shift: PendingShift, why: string, tokensBefore: number | undefined): Promise<string> {
-  await project.store.write(`${shift.dir}/${NAMES.about}`, renderAbout({ ...shift, tokensBefore, result: OUTCOME.notShifted(why) }))
+  const row = NOT_MADE(shiftName(shift), why)
 
-  return NOT_MADE(shiftName(shift), why)
+  return recordFailure(project, shift, renderAbout({ ...shift, tokensBefore, result: OUTCOME.notShifted(why) }), row)
 }
 
 // The harness let the history go, but what follows failed: about.md and the row say so, the letter stays on disk.
@@ -328,9 +328,20 @@ export async function shiftUnsettled(
   why: string,
   tokensBefore: number | undefined,
 ): Promise<string> {
-  await project.store.write(`${shift.dir}/${NAMES.about}`, renderAbout({ ...shift, tokensBefore, result: OUTCOME.unsettled(why) }))
+  const row = UNSETTLED(shiftName(shift), why)
 
-  return UNSETTLED(shiftName(shift), why)
+  return recordFailure(project, shift, renderAbout({ ...shift, tokensBefore, result: OUTCOME.unsettled(why) }), row)
+}
+
+// A failure's about.md, written before the row is told; a failed write still leaves the row.
+async function recordFailure(project: Project, shift: PendingShift, about: string, row: string): Promise<string> {
+  try {
+    await project.store.write(`${shift.dir}/${NAMES.about}`, about)
+
+    return row
+  } catch (error) {
+    return `${row} (and ${NAMES.about} was not written: ${String(error)})`
+  }
 }
 
 export type LetGo = {

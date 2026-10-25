@@ -2,7 +2,7 @@ import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, takeHint } from './hint'
 import type { Project } from './project'
 import { compactInstructions } from './texts/prompts'
-import { DELIVERED, NOT_CONTINUED, NOT_MADE, UNSETTLED } from './texts/rows'
+import { DELIVERED, NOT_CONTINUED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
 // The shift loop: from an accepted shift through the let-go to continuing or waiting for the owner, and the owner's
@@ -62,19 +62,15 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   if (shift === null) return
   await loop.update(current => ({ ...current, pending: null }))
   const before = await harness.fill()
-  // The record of a failure is written before it is told; a failed write still leaves the row.
-  const failed = async (level: Level, write: () => Promise<string>, row: string) => {
-    loop.tell(await write().catch((error: unknown) => `${row} (and about.md was not written: ${String(error)})`), level)
-  }
   if (aborted) {
     const why = 'the turn was aborted'
-    await failed('warning', () => shiftNotMade(project, shift, why, before), NOT_MADE(shiftName(shift), why))
+    loop.tell(await shiftNotMade(project, shift, why, before), 'warning')
     return
   }
 
   const done = await harness.letGo(compactInstructions(shift)).catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
   if ('skip' in done) {
-    await failed('error', () => shiftNotMade(project, shift, done.skip, before), NOT_MADE(shiftName(shift), done.skip))
+    loop.tell(await shiftNotMade(project, shift, done.skip, before), 'error')
     return
   }
   let settled: Settled
@@ -90,7 +86,7 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
     })
   } catch (error) {
     const why = String(error)
-    await failed('error', () => shiftUnsettled(project, shift, why, done.before ?? before), UNSETTLED(shiftName(shift), why))
+    loop.tell(await shiftUnsettled(project, shift, why, done.before ?? before), 'error')
     return
   }
   if (settled.after === 'wait') {
@@ -104,10 +100,6 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   loop.tell(settled.row, 'info')
   // The shift is settled and written; a turn that does not start is told, not recorded against it.
   await harness.continueWith(settled.prompt).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
-}
-
-function shiftName(shift: PendingShift): string {
-  return shift.dir.split('/').at(-1) ?? shift.dir
 }
 
 // The owner spoke: the count of shifts without them starts over.
