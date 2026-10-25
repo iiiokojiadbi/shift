@@ -38,6 +38,7 @@ import {
   SHIFT_FILE,
   STATUS_TOOL,
   STATUSES,
+  STUCK_SHIFTS,
   TASK_LIST,
   TASK_SECTIONS,
   TASKS,
@@ -205,7 +206,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn with one line, no further actions.
 
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
+After the shift, the first message is "Shift done": the board and the tasks in progress, whole, with their notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## Letter — \`${LETTER}\`
 
@@ -214,7 +215,7 @@ ${described(LETTER_SECTIONS, {
   'Where I am': 'what you were doing at this moment, the thought you did not finish',
   Next: 'steps: a command or a file and what you expect',
   Unverified: 'and what not to trust',
-  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. Only this section steers what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole',
+  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not',
 })}
 
 ## When the mod refuses
