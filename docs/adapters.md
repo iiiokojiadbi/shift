@@ -29,9 +29,12 @@ An adapter fills the core's ports (`docs/architecture.md`) with what its harness
 
 The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/`.
 
+> [!IMPORTANT]
+> Each hooks file declares the state atoms it reads or writes — the engine's scan does not follow an atom through an import;
+> `$` crosses files only into a function declaration (`function f($) {…}`), never into an arrow bound to a name.
+
 - The module imports only relative files inside the plugin folder and `claude-code`.
-- Each file declares the state atoms it reads or writes: the engine's scan does not follow an atom through an import. The loop's atoms (`pending`, `autoStreak`, `waitNote`) live in `handover.ts`; other files reach them through `loopOf($)`.
-- `$` may be passed across files only into a function declaration (`function f($) {…}`), never into an arrow bound to a name.
+- The loop's atoms (`pending`, `autoStreak`, `waitNote`) live in `handover.ts`; other files reach them through `loopOf($)`.
 - `types/index.d.ts` must be self-contained: it mirrors `ShiftAfter`, `Gauge`, `PendingShift` and `WaitNote` from the core.
 - Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history (the gauge's base from the last `about.md`). A pending shift kept from an older version may lack fields added since.
 - A resume or a `/clear` inside a running Claude Code starts no `session.start`: the session's files are read again when `$.session.id()` differs from the one they were read for.
