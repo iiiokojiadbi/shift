@@ -58,8 +58,9 @@ The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionA
 - pi reads the session's files anew before every run, so its block is never stale.
 - The notes: `tool_call` → `beforeTool`, kept by `toolCallId`; `tool_result` → `afterTool` (`read`, `grep`, `find`, `ls` are read-only); a nested call (`parentToolCallId`) gets only the docs after its write. `before_agent_start` → `atPrompt` with `runStarts`, which resets the count of tools running, in case a blocked call never got its result.
 - `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first. A headless `pi -p` in a fresh project waits silently unless run with `-a` and stdin closed.
-- pi names a local extension in its `[Extensions]` list by the folder of its `index.ts`, not by `package.json`'s name: the entry is `shift/index.ts`, which re-exports `index.ts`, so the list shows `shift`.
-- Try it: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place).
+- pi labels an extension in its `[Extensions]` list by its source: an npm package by its name, plus `:<dir>` when the entry is `<dir>/index.ts` — so the entry is the package's root `index.ts` and the list shows `@iiiokojiadbi/shift`; a local path by the folder of its `index.ts` — `pi` in development.
+- Distribution is npm, pi's own way: `pi install npm:@iiiokojiadbi/shift`. Host packages (`@earendil-works/pi-coding-agent`, `typebox`) are peers with `*`, never bundled; the package ships the TypeScript as is, pi loads it. A git install would take the whole repo, with no subfolder. How to publish — `docs/development.md`.
+- Try it: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). With the npm package also installed the tools conflict and the second fails to load: `pi -ne -e <dir>` loads only the one given.
 
 ## opencode
 

@@ -64,12 +64,13 @@ adapters/
     types/index.d.ts       the plugin's state contract
     tests/                 claude plugin test of the wiring only; data.ts GENERATED from core/test/data.ts
   pi/                      the pi extension package (pi 1.4.0 ExtensionAPI)
-    index.ts store.ts      the table's tools, the events, the ports; the store over node
-    shift/index.ts         the entry pi loads: its folder names the extension "shift"
+    index.ts store.ts      the entry: the table's tools, the events, the ports; the store over node
+    package.json README.md the npm package @iiiokojiadbi/shift, published by scripts/release-pi.ts
     core/                  GENERATED copy of core/src — never edit
     test/                  bun test over a stand-in of pi's API
 .claude-plugin/marketplace.json   the repo as a local marketplace for development
 scripts/sync-core.ts       copies core/src into every adapter and core/test/data.ts into the plugin's tests; --check fails on a stale copy
+scripts/release-pi.ts      the pi package's release gate: checks and the tarball; --publish uploads, verifies and tags
 docs/                      the documentation, above
 lefthook.yml  biome.json  package.json
 ```

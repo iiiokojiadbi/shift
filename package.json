@@ -11,6 +11,7 @@
     "test:pi": "bun test adapters/pi/test",
     "test:claude-code": "claude plugin test adapters/claude-code",
     "validate": "claude plugin validate adapters/claude-code",
+    "release:pi": "bun scripts/release-pi.ts",
     "typecheck": "bun run types:core && bun run types:claude-code && bun run types:pi",
     "types:core": "tsc -p core && tsc -p core/test",
     "types:claude-code": "tsc -p adapters/claude-code --noEmit",
