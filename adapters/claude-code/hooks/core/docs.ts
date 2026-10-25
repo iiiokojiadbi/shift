@@ -86,15 +86,15 @@ export async function brokenLinks(store: Store, root: string, path: string, text
 }
 
 // After the agent wrote a file: a document gets its toc rewritten and the map follows it; a document's remarks and any
-// file's broken links come back as one note. Null when all is well: a check that speaks on every edit is noise.
-export async function afterWrite(project: Project, file: string): Promise<string | null> {
+// file's broken links come back as lines of one note. None when all is well: a check that speaks on every edit is noise.
+export async function docsAfterWrite(project: Project, file: string): Promise<string[]> {
   const { store, root, settings } = project
   const docs = settings.docs
-  if (!settings.enabled || docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
+  if (!settings.enabled || docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return []
   const path = file.slice(root.length + 1)
-  if (path.startsWith(`${DIR}/`)) return null
+  if (path.startsWith(`${DIR}/`)) return []
   let text = await store.read(file)
-  if (text === null) return null
+  if (text === null) return []
 
   const lines: string[] = []
   const doc = isDoc(path, docs.dirs)
@@ -115,7 +115,7 @@ export async function afterWrite(project: Project, file: string): Promise<string
   ]
   if (remarks.length > 0) lines.push(`\`${path}\`: ${remarks.join('; ')}.`)
 
-  return lines.length === 0 ? null : `<${MOD} note="the mod's check of the file just written">\n${lines.join('\n')}\n</${MOD}>`
+  return lines
 }
 
 // The documents with remarks and the root's Markdown files with a broken link, short enough to read after a shift:

@@ -1,13 +1,28 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { OUTCOME, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
-import { docsReport, refreshDocs } from './docs'
+import { docsAfterWrite, docsReport, refreshDocs } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HOLD, INDEX, LETTER, MAX_AUTO_STREAK, NAMES, OLD_DIR, SHIFTS, TASK_LIST, TASKS } from './layout'
+import {
+  ARCHIVE,
+  BOARD,
+  DIR,
+  GUIDE_TOOL,
+  HOLD,
+  INDEX,
+  LETTER,
+  MAX_AUTO_STREAK,
+  MOD,
+  NAMES,
+  OLD_DIR,
+  SHIFTS,
+  TASK_LIST,
+  TASKS,
+} from './layout'
 import { formatK, sections } from './markdown'
 import type { Project } from './project'
-import { checkLetter, checkWork } from './records'
+import { checkLetter, checkWork, checkWritten } from './records'
 import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, writeSnapshot } from './store'
 import { archiveInList, parseTaskList } from './tasks'
 import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
@@ -17,6 +32,30 @@ import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, Shif
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
 export type ShiftCall = { input: ShiftInput; at: number; sessionId: string }
+
+// After the agent wrote a file: the docs follow it (`docsAfterWrite`), and a record gets the checks of that file, so
+// what the shift would refuse is told now. One note, once; null when all is well.
+export async function afterWrite(project: Project, file: string): Promise<string | null> {
+  const { root, settings } = project
+  if (!settings.enabled || !file.startsWith(`${root}/`)) return null
+  const path = file.slice(root.length + 1)
+  const lines = await docsAfterWrite(project, file)
+  const problem = await writtenRecord(project, path)
+  if (problem !== null)
+    lines.push(`\`${path}\`: ${problem} The shift refuses until it is fixed; if you are still writing the record, go on.`)
+
+  return lines.length === 0 ? null : `<${MOD} note="the mod's check of the file just written">\n${lines.join('\n')}\n</${MOD}>`
+}
+
+async function writtenRecord(project: Project, path: string): Promise<string | null> {
+  if (path === LETTER) {
+    const letter = await project.store.read(`${project.root}/${LETTER}`)
+    return letter === null ? null : checkLetter(letter)
+  }
+  const work = await readRecords(project)
+
+  return work === null ? null : checkWritten(path, work, project)
+}
 
 // Checks the letter and the records, snapshots them into the new shift folder and leaves a pending about.md there.
 export async function acceptShift(project: Project, call: ShiftCall): Promise<{ deny: string } | { shift: PendingShift; result: string }> {

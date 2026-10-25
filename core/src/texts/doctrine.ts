@@ -218,7 +218,7 @@ ${described(LETTER_SECTIONS, {
 
 ## When the mod refuses
 
-A refusal names the reason; fix it and call again:
+A record written with Edit or Write is checked at once, by the checks of that file: what is wrong comes once in the tool's result, and silence means it is whole. The shift checks them all; a refusal names the reason — fix it and call again:
 - no letter at the path, a section missing or empty;
 - no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;

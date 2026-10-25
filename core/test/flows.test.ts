@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { acceptShift, archiveTask, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
+import { acceptShift, afterWrite, archiveTask, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
 import type { PendingShift, ShiftInput } from '../src/types'
 import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
@@ -211,4 +211,22 @@ test('a note beside a task: checked, snapshotted, listed after a shift with its 
     '<notes path=".shift/tasks/tests/notes/" note="read a note when its item comes up">\n- .shift/tasks/tests/notes/fences.md — what the parser does with fences\n</notes>',
   )
   expect(prompt).not.toContain('free text, any shape')
+})
+
+test('a record is checked right after a write, by the checks of that file alone; silence when it is whole', async () => {
+  const written = (path: string, extra: Record<string, string>) => project(extra).then(p => afterWrite(p, `${ROOT}/${path}`))
+  expect(await written('.shift/board.md', {})).toBeNull()
+  expect(await written('.shift/tasks/tests/track.md', {})).toBeNull()
+  expect(await written('.shift/board.md', { [`${R}/board.md`]: '## Goal\nthe mod' })).toContain(
+    '`.shift/board.md`: The board lacks sections: "## Decisions"',
+  )
+  const track = await written('.shift/tasks/tests/track.md', { [`${R}/tasks/tests/track.md`]: '- [half] fix the parser' })
+  expect(track).toContain('Track items without a status')
+  expect(track).toContain('if you are still writing the record, go on')
+  expect(await written('.shift/TASKS.md', { [`${R}/TASKS.md`]: '# Tasks\n\n- [done] [tests](tasks/tests/) — red' })).toContain(
+    'A finished task is archived',
+  )
+  expect(await written('.shift/letter.md', { [`${R}/letter.md`]: '## Where I am\nhere' })).toContain('The letter')
+  // Another record broken is the shift's to tell, not this write's.
+  expect(await written('.shift/OWNER.md', { [`${R}/board.md`]: 'no board' })).toBeNull()
 })

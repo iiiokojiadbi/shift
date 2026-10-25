@@ -4,6 +4,7 @@ import {
   BOARD,
   BOARD_MAX_LINES,
   BOARD_SECTIONS,
+  DIR,
   GLOSSARY,
   GUIDE_TOOL,
   KINDS,
@@ -16,6 +17,7 @@ import {
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
+  SETTINGS,
   STATUSES,
   TASK_LIST,
   TASK_SECTIONS,
@@ -68,28 +70,11 @@ export function checkWork(work: Work, previous: Work | null, project: Pick<Proje
 }
 
 function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
-  const { board } = work
-  if (project.problem !== null) return `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
+  const settingsProblem = checkSettings(project)
+  if (settingsProblem !== null) return settingsProblem
   if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${OWNER} now. Rename it and call again.`
-  if (sections(board).has(OWNER_SECTION)) {
-    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
-  }
-  if (sections(board).has(OLD_TASKS_SECTION)) {
-    return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
-  }
-  const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
-  if (boardMissing !== null) return boardMissing
-
-  const boardProblem =
-    overLimit(
-      'The board',
-      board,
-      BOARD_MAX_LINES,
-      'it has become a diary. Move what belongs to one task into that task, keep only decisions in force.',
-    ) ?? dated('the board', board, "The board has no dates — each shift's time is recorded by itself.")
+  const boardProblem = checkBoard(work.board)
   if (boardProblem !== null) return boardProblem
-  const rejected = badRejected(board, 'The board')
-  if (rejected !== null) return rejected
 
   const listProblem = checkTaskList(
     work.taskList,
@@ -119,6 +104,60 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
   }
 
   return null
+}
+
+// After the agent wrote one record: only the checks of that file, so a broken record is seen as it is written, not
+// hundreds of K later at the shift. `path` is from the project's root; null for a file that is not a record.
+export function checkWritten(path: string, work: Work, project: Pick<Project, 'settings' | 'problem'>): string | null {
+  const { files } = project.settings
+  const [dir, name = '', rest] = path.split('/').slice(1)
+  const inShift = path.startsWith(`${DIR}/`)
+  let problem: string | null = null
+  if (path === SETTINGS) problem = checkSettings(project)
+  else if (path === BOARD) problem = checkBoard(work.board)
+  else if (path === TASK_LIST)
+    problem = checkTaskList(
+      work.taskList,
+      work.tasks.map(t => t.name),
+      work.archived,
+    )
+  else if (path === files.owner) problem = checkOwner(work.owner)
+  else if (path === files.glossary) problem = checkGlossary(work.glossary, GLOSSARY)
+  else if (inShift && dir === NAMES.tasks && rest !== undefined) {
+    const task = work.tasks.find(each => each.name === name)
+    problem = task === undefined ? null : checkTask(task)
+  } else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith('.md')) {
+    const file = work.knowledge.find(each => each.name === name)
+    problem = file === undefined ? null : checkKnowledge(file)
+  }
+
+  return problem === null ? null : atPlaces(problem, files)
+}
+
+function checkSettings(project: Pick<Project, 'problem'>): string | null {
+  return project.problem === null ? null : `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
+}
+
+function checkBoard(board: string): string | null {
+  if (sections(board).has(OWNER_SECTION)) {
+    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
+  }
+  if (sections(board).has(OLD_TASKS_SECTION)) {
+    return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
+  }
+  const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
+  if (boardMissing !== null) return boardMissing
+
+  return (
+    overLimit(
+      'The board',
+      board,
+      BOARD_MAX_LINES,
+      'it has become a diary. Move what belongs to one task into that task, keep only decisions in force.',
+    ) ??
+    dated('the board', board, "The board has no dates — each shift's time is recorded by itself.") ??
+    badRejected(board, 'The board')
+  )
 }
 
 function checkTask({ name, task, track, notes: notes_ }: TaskFiles): string | null {

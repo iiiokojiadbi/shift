@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { afterWrite, docOutline, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
-import { sessionFiles } from '../src/flows'
+import { docOutline, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
+import { afterWrite, sessionFiles } from '../src/flows'
 import { pinned } from '../src/markdown'
 import { loadProject } from '../src/project'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'

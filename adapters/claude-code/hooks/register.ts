@@ -86,9 +86,9 @@ export const register: Register = on => {
     )
   }
 
-  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
-  on('tool.call', { tool: 'Edit' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
-  on('tool.call', { tool: 'Write' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
+  // After the agent writes a file the docs follow it — the toc and the map — and a document or a record is checked: remarks in the result, once.
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => withWriteNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => withWriteNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
 
   // The letter enters the history with the command itself, so the owner's words — typed with the command or sent
   // right after it — come after the letter, never before it. A bare command starts the turn with a prompt of its own.
@@ -185,8 +185,8 @@ async function kick($: EngineInterface): Promise<void> {
   await $.prompt.submit({ text: RESUME_GO })
 }
 
-// A written file's result with the mod's check of the docs after it, when there is anything to say.
-async function withDocsNote<Done extends { deny?: unknown; isError?: unknown; context?: readonly string[] }>(
+// A written file's result with the mod's check of it, when there is anything to say.
+async function withWriteNote<Done extends { deny?: unknown; isError?: unknown; context?: readonly string[] }>(
   $: EngineInterface,
   file: string,
   done: Done,

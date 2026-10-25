@@ -151,7 +151,7 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // A hint rides inside a tool result: mid-turn, at the agent's next look, with no message of its own.
-  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
+  // After the agent writes a file the docs follow it — the toc and the map — and a document or a record is checked: remarks in the result, once.
   pi.on('tool_result', async (event, ctx) => {
     if (!enabled) return
     const written = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined

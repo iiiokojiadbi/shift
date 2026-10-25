@@ -76,3 +76,5 @@ Every accepted shift gets `shifts/<UTC stamp>/`: the letter, a snapshot of the r
 ## What the mod refuses
 
 A shift is refused on: no letter or a letter section missing or empty; a missing section or a line limit passed in any record; a date anywhere; an unknown status; TASKS.md and the task folders out of step, a link to nothing, tasks needing each other in a circle; a knowledge file of no kind or without its entry fields; a broken `settings.toml`; `.shift/` not kept out of git when it should be; nothing changed since the last shift. A refusal names what to fix; the full list is in `shift_guide`.
+
+A record written with Edit or Write is checked at once by the checks of that file alone — the letter, the board, TASKS.md, OWNER.md, GLOSSARY.md, a task's files, a knowledge file, `settings.toml` — and what is wrong comes once in the tool's result, beside the docs' remarks. A record written by hand used to break silently and surface only at the shift, hundreds of K later. Checks across files stay the shift's alone — another record broken, nothing changed — so a record half written in two steps is told once, not refused.

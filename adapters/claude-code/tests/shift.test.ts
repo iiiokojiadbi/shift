@@ -378,7 +378,7 @@ test('the history and guide tools answer', async ($, on) => {
   expect(String(history.result)).toContain('ABOUT')
 })
 
-test('after Edit and Write the docs follow: the toc, the map and remarks in the result; the docs tools answer', async ($, on) => {
+test('after Edit and Write the docs follow: the toc, the map and remarks in the result, a record checked; the docs tools answer', async ($, on) => {
   const files = project()
   files.set('/proj/.shift/settings.toml', '[docs]\ntoc = true')
   files.set('/proj/docs/a.md', '---\ndescription: A\n---\n\n# A\n\n## One\n')
@@ -398,6 +398,8 @@ test('after Edit and Write the docs follow: the toc, the map and remarks in the 
 
   const written = await $.tool.call({ tool: 'Write', file_path: '/proj/src/x.ts', content: '// docs/gone.md' } as never)
   expect(written.context?.[0]).toContain('`src/x.ts`: a link to `docs/gone.md` that is not there.')
+  const record = await $.tool.call({ tool: 'Write', file_path: '/proj/.shift/board.md', content: '## Goal\nthe mod' } as never)
+  expect(record.context?.[0]).toContain('`.shift/board.md`: The board lacks sections')
 
   const head = await $.tool.call({ tool: 'mcp__shift__doc_outline', path: 'docs/a.md' })
   expect(String(head.result)).toMatch(/\d+ {2}One/)

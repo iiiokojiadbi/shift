@@ -41,7 +41,7 @@ core/                      shared logic, pure TypeScript, no harness imports —
   src/tools.ts             the tool table and what a session starts with
   src/loop.ts              the shift loop over a port: hold, let go, continue or wait, the owner's message
   src/hint.ts              when to hint, the gauge over a port, shift_status, a hint inside a tool result
-  src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files
+  src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files, a file just written
   src/about.ts             about.md: written and read back by one module
   src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks
   src/records.ts tasks.ts glossary.ts archive.ts   the checks of the records
