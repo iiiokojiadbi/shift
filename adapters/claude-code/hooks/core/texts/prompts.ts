@@ -209,7 +209,7 @@ export function continuePrompt(letter: string, back: HandedBack): string {
 }
 
 export function waitContext(letter: string, back: HandedBack): string {
-  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, back, [GUIDE_KNOWN])
+  return shiftMessage("You shifted and waited for the owner; the owner's message comes with this one.", letter, back, [GUIDE_KNOWN])
 }
 
 export function resumePrompt(letter: string, back: HandedBack): string {

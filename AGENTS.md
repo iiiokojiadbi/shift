@@ -14,7 +14,7 @@ An agent decides by itself when to **shift**: at a stage boundary it updates its
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.
 
-Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next). Another harness in Go or Rust may come later.
+Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (a plugin, being built). Another harness in Go or Rust may come later.
 
 ## Documentation
 
@@ -68,6 +68,9 @@ adapters/
     package.json README.md the npm package @iiiokojiadbi/shift, published by scripts/release-pi.ts
     core/                  GENERATED copy of core/src — never edit
     test/                  bun test over a stand-in of pi's API
+  opencode/                the opencode server plugin (opencode 2.1.4 @opencode/plugin, types only) — not released yet
+    index.ts store.ts      the plugin: the table's tools, the hooks, the commands, the events; the store over node
+    core/                  GENERATED copy of core/src — never edit
 .claude-plugin/marketplace.json   the repo as a local marketplace for development
 scripts/sync-core.ts       copies core/src into every adapter and core/test/data.ts into the plugin's tests; --check fails on a stale copy
 scripts/release-pi.ts      the pi package's release gate: checks and the tarball; --publish uploads, verifies and tags

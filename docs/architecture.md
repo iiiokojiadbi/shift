@@ -16,7 +16,7 @@ The core holds everything that does not depend on a harness; an adapter is wirin
 
 ## Core and adapters
 
-`core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/` and `adapters/pi/core/`; the copies are never edited, and the pre-commit hook fails on a stale one.
+`core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/`, `adapters/pi/core/` and `adapters/opencode/core/`; the copies are never edited, and the pre-commit hook fails on a stale one.
 
 An adapter keeps only what its harness alone can do:
 - where its state lives (Claude Code: plugin atoms; pi: variables, a session entry for the waiting letter);
