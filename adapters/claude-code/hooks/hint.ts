@@ -1,21 +1,12 @@
 import type { EngineInterface } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { GaugeKeeper } from './core/index'
-import {
-  contentChars,
-  takeHint as coreHint,
-  countGrowth as countChars,
-  FRESH_GAUGE,
-  gaugeStatus,
-  growthOf,
-  HINTED,
-  shiftBase,
-} from './core/index'
+import { contentChars, countGrowth as countChars, FRESH_GAUGE, gaugeStatus, growthOf, loopHint, shiftBase } from './core/index'
 import { projectOf } from './disk'
+import { loopOf } from './handover'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
-const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
 const threshold = atom({ plugin: 'shift', key: 'threshold' } as const, null)
 
 // The harness's own threshold, read once the window is half full or when asked: the breakdown that names it is an estimate over everything.
@@ -30,12 +21,8 @@ async function compactLimit($: EngineInterface, tokens: number, window: number, 
 }
 
 // A hint for the agent if the fill since the last shift calls for one; none while a shift is pending.
-export async function takeHint($: EngineInterface): Promise<string | null> {
-  if ((await read($, pending)) !== null) return null
-  const text = await coreHint(keeperOf($))
-  if (text !== null) $.ui.log(HINTED(text))
-
-  return text
+export function takeHint($: EngineInterface): Promise<string | null> {
+  return loopHint(loopOf($), keeperOf($))
 }
 
 // What a row added to the stretch's history, by where it came from.

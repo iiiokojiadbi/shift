@@ -1,11 +1,12 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
-import type { WaitNote } from '../types'
 import {
   afterWrite,
   doctrine,
   FRESH_GAUGE,
+  holdShift,
   letGoGauge,
+  ownerSpoke,
   type Project,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
@@ -17,23 +18,21 @@ import {
   startSession,
   TOOLS,
   unassistedInstructions,
+  waitingNote,
   withHint,
 } from './core/index'
 import { projectOf } from './disk'
-import { handOver } from './handover'
+import { handOver, loopOf } from './handover'
 import { countGrowth, statusText, takeHint } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
-const autoStreak = atom({ plugin: 'shift', key: 'autoStreak' } as const, 0)
 const doctrineText = atom({ plugin: 'shift', key: 'doctrine' } as const, null)
 const enabled = atom({ plugin: 'shift', key: 'enabled' } as const, true)
 const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 const filesSession = atom({ plugin: 'shift', key: 'filesSession' } as const, null)
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
-const pending = atom({ plugin: 'shift', key: 'pending' } as const, null)
 const resumeKick = atom({ plugin: 'shift', key: 'resumeKick' } as const, false)
-const waitNote = atom({ plugin: 'shift', key: 'waitNote' } as const, null)
 
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
@@ -74,15 +73,12 @@ export const register: Register = on => {
         sessionId: () => $.session.id(),
         now: () => $.clock.now(),
         subagent: e.agentId !== undefined,
-        pending: (await read($, pending)) !== null,
+        pending: (await loopOf($).read()).pending !== null,
         loaded: () => read($, files),
         status: () => statusText($),
       })
       if ('deny' in done) return { deny: done.deny }
-      if (done.shift !== undefined) {
-        const shift = done.shift
-        await update($, pending, () => shift)
-      }
+      if (done.shift !== undefined) await holdShift(loopOf($), done.shift)
 
       return { result: done.result }
     }).catch((_$, e, next) =>
@@ -114,7 +110,8 @@ export const register: Register = on => {
     const ended = await next(e)
     if (e.agentId !== undefined) return ended
 
-    if ((await read($, pending)) !== null) $.clock.after(300, () => void handOver($))
+    const aborted = e.reason === 'aborted'
+    if ((await loopOf($).read()).pending !== null) $.clock.after(300, () => void handOver($, aborted))
 
     return ended
   })
@@ -137,15 +134,13 @@ export const register: Register = on => {
     const hinted = hint === null ? e : { ...e, context: [...(e.context ?? []), hint] }
     // Only the owner's own message: the terminal, the remote bridge or the SDK host.
     if (!OWNER_ORIGINS.has(e.origin?.kind ?? '')) return next(hinted)
-    await update($, autoStreak, () => 0)
+    await ownerSpoke(loopOf($))
     await update($, resumeKick, () => false)
-    const note: WaitNote | null = await read($, waitNote)
+    const note = await waitingNote(loopOf($))
     if (note === null) return next(hinted)
-    // Cleared only once the message has entered with it: a failed hook keeps the letter for the next one.
+    // Cleared only once the message has entered with it, and the row stands under it: a failed hook keeps the letter.
     const entered = await next({ ...hinted, context: [...(hinted.context ?? []), note.context] })
-    await update($, waitNote, () => null)
-    // Logged once the message has entered, so the row stands under it.
-    $.ui.log(`went with your message: ${note.files.join(', ')} — ${note.dir}/letter.md`)
+    await note.delivered()
 
     return entered
   }).catch(($, e, next) => {

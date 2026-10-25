@@ -12,3 +12,8 @@ export const CONTINUING = (name: string, shrank: string, dir: string) =>
 
 export const WAITING = (name: string, shrank: string, capped: boolean) =>
   `shift ${name} done (${shrank})${capped ? `, ${MAX_AUTO_STREAK} in a row without you` : ''} — waiting for you, the letter goes with your next message`
+
+export const UNSETTLED = (name: string, why: string) =>
+  `shift ${name}: the history was let go, but the message after it failed — ${why}; the letter is in the shift's folder`
+
+export const DELIVERED = (files: readonly string[], dir: string) => `went with your message: ${files.join(', ')} — ${dir}/letter.md`

@@ -2,32 +2,33 @@ import { resolve } from 'node:path'
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
-import type { Gauge, GaugeKeeper, PendingShift, WaitNote } from './core/index'
+import type { Gauge, GaugeKeeper, LetGoHarness, Loop, LoopState, WaitNote } from './core/index'
 import {
   addGrowth,
+  afterTurn,
   afterWrite,
-  compactInstructions,
   contentChars,
-  takeHint as coreHint,
   countGrowth,
   doctrineBody,
   FRESH_GAUGE,
+  FRESH_LOOP,
   gaugeStatus,
-  HINTED,
   hintBlock,
+  holdShift,
   letGoGauge,
+  loopHint,
   MOD,
+  ownerSpoke,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
   resumeShift,
   SETTINGS,
   SOURCES,
   sessionFiles,
-  settleShift,
   shiftBase,
-  shiftNotMade,
   startSession,
   TOOLS,
+  waitingNote,
 } from './core/index'
 import { projectAt } from './store'
 
@@ -37,9 +38,7 @@ const OURS: ReadonlySet<string> = new Set(TOOLS.map(tool => tool.name))
 const WAIT_ENTRY = `${MOD}:wait`
 
 export default function shift(pi: ExtensionAPI): void {
-  let pending: PendingShift | null = null
-  let waitNote: WaitNote | null = null
-  let streak = 0
+  let loop: LoopState = FRESH_LOOP
   let gauge: Gauge = FRESH_GAUGE
   // Set by the owner's own input, consumed by the run it starts.
   let ownerTyped = false
@@ -65,13 +64,13 @@ export default function shift(pi: ExtensionAPI): void {
           sessionId: async () => ctx.sessionManager.getSessionId(),
           now: async () => Date.now(),
           subagent: false,
-          pending: pending !== null,
+          pending: loop.pending !== null,
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
           status: () => gaugeStatus(keeperOf(ctx)),
         })
         if ('deny' in done) throw new Error(done.deny)
-        if (done.shift !== undefined) pending = done.shift
+        if (done.shift !== undefined) await holdShift(loopOf(ctx), done.shift)
 
         return text(done.result)
       },
@@ -106,11 +105,15 @@ export default function shift(pi: ExtensionAPI): void {
       .getBranch()
       .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
       .at(-1)
-    waitNote = last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null
+    loop = { ...loop, note: last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null }
   })
 
-  pi.on('input', event => {
-    if (enabled && event.source !== 'extension') ownerTyped = true
+  // The owner's own input, idle or typed mid-run, starts the count of shifts without them over; only a message that
+  // starts a run takes the waiting letter with it.
+  pi.on('input', async (event, ctx) => {
+    if (!enabled || event.source === 'extension') return
+    await ownerSpoke(loopOf(ctx))
+    if (event.streamingBehavior === undefined) ownerTyped = true
   })
 
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
@@ -129,12 +132,10 @@ export default function shift(pi: ExtensionAPI): void {
     if (hint !== null) parts.push(hintBlock(hint))
     if (event.messageType === 'user' && ownerTyped) {
       ownerTyped = false
-      streak = 0
-      if (waitNote !== null) {
-        parts.push(waitNote.context)
-        ctx.ui.notify(`went with your message: ${waitNote.files.join(', ')} — ${waitNote.dir}/letter.md`, 'info')
-        waitNote = null
-        pi.appendEntry(WAIT_ENTRY, { note: null })
+      const note = await waitingNote(loopOf(ctx))
+      if (note !== null) {
+        parts.push(note.context)
+        await note.delivered()
       }
     }
     if (parts.length === 0) return
@@ -166,18 +167,9 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // The shift lets go once the run has settled: compacting aborts whatever runs, so never from inside the turn.
-  pi.on('agent_settled', (event, ctx) => {
-    const shift = pending
-    if (shift === null) return
-    pending = null
-    if (event.aborted) {
-      const tokens = ctx.getContextUsage()?.tokens ?? undefined
-      void projectAt(ctx.cwd)
-        .then(project => shiftNotMade(project, shift, 'the turn was aborted', tokens))
-        .then(row => ctx.ui.notify(row, 'warning'))
-      return
-    }
-    handOver(shift, ctx)
+  pi.on('agent_settled', async (event, ctx) => {
+    if (loop.pending === null) return
+    await afterTurn(await projectAt(ctx.cwd), loopOf(ctx), letGoOf(ctx), event.aborted)
   })
 
   // Any compaction starts a new stretch; one the agent did not ask for is told to it at its next look.
@@ -185,51 +177,45 @@ export default function shift(pi: ExtensionAPI): void {
     gauge = letGoGauge(event.reason !== 'manual')
   })
 
-  // A failure is written to the shift's about.md and told to the owner; the history stays as it was.
-  function handOver(shift: PendingShift, ctx: ExtensionContext): void {
-    let tokensBefore: number | undefined
-    const failed = (why: string) =>
-      void projectAt(ctx.cwd)
-        .then(project => shiftNotMade(project, shift, why, tokensBefore))
-        .then(row => tell(ctx, row, 'error'))
-    try {
-      tokensBefore = ctx.getContextUsage()?.tokens ?? undefined
-      ctx.compact({
-        customInstructions: compactInstructions(shift),
-        onError: error => failed(`compaction failed: ${error.message}`),
-        onComplete: result =>
-          void settle(shift, ctx, result, tokensBefore).catch((error: unknown) => failed(`after the let-go: ${String(error)}`)),
-      })
-    } catch (error) {
-      failed(`compaction did not start: ${String(error)}`)
-    }
-  }
-
-  async function settle(shift: PendingShift, ctx: ExtensionContext, result: CompactionResult, tokensBefore: number | undefined) {
-    const settled = await settleShift(await projectAt(ctx.cwd), {
-      shift,
-      messages: [{ role: 'digest', text: result.summary }],
-      before: result.tokensBefore ?? tokensBefore,
-      after: result.estimatedTokensAfter ?? 0,
-      streak,
-    })
-    tell(ctx, settled.row, 'info')
-    if (settled.after === 'continue') {
-      streak = settled.streak
-      pi.sendMessage({ customType: MOD, content: settled.prompt, display: true }, { triggerTurn: true })
-      return
-    }
-    waitNote = settled.note
-    pi.appendEntry(WAIT_ENTRY, { note: settled.note })
-  }
-
   // A hint for the agent if the fill since the last shift calls for one; none while a shift is pending.
-  async function takeHint(ctx: ExtensionContext): Promise<string | null> {
-    if (pending !== null) return null
-    const text = await coreHint(keeperOf(ctx))
-    if (text !== null) tell(ctx, HINTED(text), 'info')
+  function takeHint(ctx: ExtensionContext): Promise<string | null> {
+    return loopHint(loopOf(ctx), keeperOf(ctx))
+  }
 
-    return text
+  // The loop's state in the extension's runtime; a wait note also in a session entry, so it survives a reload.
+  function loopOf(ctx: ExtensionContext): Loop {
+    return {
+      read: async () => loop,
+      update: async change => {
+        const before = loop
+        loop = change(loop)
+        if (loop.note !== before.note) pi.appendEntry(WAIT_ENTRY, { note: loop.note })
+      },
+      tell: (row, level) => tell(ctx, row, level),
+    }
+  }
+
+  // pi compacts with callbacks; the next turn starts from a custom message.
+  function letGoOf(ctx: ExtensionContext): LetGoHarness {
+    return {
+      fill: async () => ctx.getContextUsage()?.tokens ?? undefined,
+      letGo: instructions =>
+        new Promise<Awaited<ReturnType<LetGoHarness['letGo']>>>(done => {
+          ctx.compact({
+            customInstructions: instructions,
+            onError: error => done({ skip: error.message }),
+            onComplete: (result: CompactionResult) =>
+              done({
+                messages: [{ role: 'digest', text: result.summary }],
+                before: result.tokensBefore ?? undefined,
+                after: result.estimatedTokensAfter ?? undefined,
+              }),
+          })
+        }).catch((error: unknown) => ({ skip: `did not start: ${String(error)}` })),
+      continueWith: async prompt => {
+        pi.sendMessage({ customType: MOD, content: prompt, display: true }, { triggerTurn: true })
+      },
+    }
   }
 
   // The gauge in the extension's runtime; the history and the base read from the session. pi compacts by itself once

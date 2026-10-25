@@ -10,7 +10,7 @@ import { checkLetter, checkWork } from './records'
 import { lastShifts, previousShift, readRecords, readSnapshot, recentShifts } from './store'
 import { archiveInList, parseTaskList } from './tasks'
 import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
-import { CONTINUING, NOT_MADE, WAITING } from './texts/rows'
+import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
 import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
@@ -132,6 +132,18 @@ export async function shiftNotMade(project: Project, shift: PendingShift, why: s
   await project.store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `not shifted: ${why}` }))
 
   return NOT_MADE(shiftName(shift), why)
+}
+
+// The harness let the history go, but what follows failed: about.md and the row say so, the letter stays on disk.
+export async function shiftUnsettled(
+  project: Project,
+  shift: PendingShift,
+  why: string,
+  tokensBefore: number | undefined,
+): Promise<string> {
+  await project.store.write(`${shift.dir}/about.md`, renderAbout({ ...shift, tokensBefore, result: `let go, not settled: ${why}` }))
+
+  return UNSETTLED(shiftName(shift), why)
 }
 
 export type LetGo = {

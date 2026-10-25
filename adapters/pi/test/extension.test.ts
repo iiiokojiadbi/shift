@@ -22,6 +22,7 @@ function load(root: string) {
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
   const notes: string[] = []
+  const sent: string[] = []
   let active = ['read', 'bash']
   const pi = {
     registerTool: (tool: Registered) => {
@@ -34,7 +35,7 @@ function load(root: string) {
     setActiveTools: (names: string[]) => {
       active = names
     },
-    sendMessage: () => {},
+    sendMessage: (message: { content: string }) => sent.push(message.content),
     sendUserMessage: () => {},
     appendEntry: () => {},
   }
@@ -45,13 +46,15 @@ function load(root: string) {
     ui: { notify: (text: string) => notes.push(text) },
     sessionManager: { getBranch: () => [], getSessionId: () => 's1', buildSessionProjection: () => ({ messages: [] }) },
     getContextUsage: () => ({ tokens: 1000, contextWindow: 200_000 }),
+    compact: (options: { onComplete: (result: unknown) => void }) =>
+      options.onComplete({ summary: 'DIGEST', tokensBefore: 300_000, estimatedTokensAfter: 20_000 }),
     model: undefined,
   }
   const on = (name: string, event: unknown = {}) => handlers.get(name)?.(event, ctx)
   const call = async (name: string, params: Record<string, unknown> = {}) =>
     (await tools.get(name)?.execute('1', params, undefined, undefined, ctx))?.content[0]?.text
 
-  return { tools, notes, on, call, active: () => active }
+  return { tools, notes, sent, on, call, active: () => active }
 }
 
 test('a project without docs shows no docs tools, neither as tools nor in the doctrine; the tools run over the records', async () => {
@@ -85,4 +88,28 @@ test('the status counts what the history grew from; settings that turn the mod o
   const off = load(await project({ '.shift/settings.toml': 'enabled = false\n' }))
   await off.on('session_start')
   expect(off.active()).toEqual(['read', 'bash'])
+})
+
+test('a shift lets go once the run settles and continues; an aborted run lets nothing go', async () => {
+  const records = {
+    '.shift/letter.md': ['## Where I am', 'here', '## Next', 'go', '## Unverified', 'none', '## Hold', 'HOLD'].join('\n'),
+    '.shift/board.md': ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n'),
+    '.shift/OWNER.md': 'none\n',
+    '.shift/TASKS.md': 'none\n',
+    '.shift/settings.toml': 'commit = true\n',
+  }
+  const going = load(await project(records))
+  await going.on('session_start')
+  expect(await going.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).toContain('Shift accepted')
+  await expect(going.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).rejects.toThrow('already accepted')
+  await going.on('agent_settled', { aborted: false })
+  expect(going.sent[0]).toContain('Shift done')
+  expect(going.notes.some(note => note.includes('continuing from the letter'))).toBe(true)
+
+  const stopped = load(await project(records))
+  await stopped.on('session_start')
+  await stopped.call('shift', { letter: '.shift/letter.md', after: 'wait', about: 'a' })
+  await stopped.on('agent_settled', { aborted: true })
+  expect(stopped.sent).toEqual([])
+  expect(stopped.notes.some(note => note.includes('not made — the turn was aborted'))).toBe(true)
 })
