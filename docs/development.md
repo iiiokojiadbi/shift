@@ -60,6 +60,6 @@ A release that changes what the model or the owner sees is checked live after th
 The package `@iiiokojiadbi/shift` is `adapters/pi`, published to npm from this machine with the owner's npm login; nothing publishes from CI. A published version cannot be reused, so the gate does everything but upload unless told to.
 
 1. Bump `version` in `adapters/pi/package.json` when pi or the core changed since the last release, commit, `git push`.
-2. `bun run release:pi` — the dry run: the checks, the tarball file by file against what may ship (the entry, the store, the core copy, the README) and its size, and whether the version is free; only npm's `E404` counts as free.
+2. `bun run release:pi` — the dry run: the checks, the tarball file by file against what may ship (the entry, the store, the core copy, the README, the license) and its size, and whether the version is free; only npm's `E404` counts as free.
 3. With the owner's word: `bun run release:pi --publish`, with `--otp <code>` when the account asks for one. It refuses an uncommitted tree or a HEAD not on `origin/main`, publishes with `--access public`, waits for `latest` to show the version — a 404 right after the upload is the registry catching up, never a reason to publish again — and pushes the tag `shift-pi--v<version>`.
 4. The owner runs `pi update`, or installs it the first time, and restarts pi.

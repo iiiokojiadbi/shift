@@ -10,9 +10,9 @@ import { join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
 const PACKAGE = join(ROOT, 'adapters/pi')
-// The tarball's shape: the entry, the store, the core copy and the README; anything else got in by mistake.
-const REQUIRED = ['README.md', 'core/index.ts', 'index.ts', 'package.json', 'store.ts']
-const ALLOWED = /^(README\.md|package\.json|index\.ts|store\.ts|core\/[a-z/]+\.ts)$/
+// The tarball's shape: the entry, the store, the core copy, the README and the license; anything else got in by mistake.
+const REQUIRED = ['LICENSE', 'README.md', 'core/index.ts', 'index.ts', 'package.json', 'store.ts']
+const ALLOWED = /^(LICENSE|README\.md|package\.json|index\.ts|store\.ts|core\/[a-z/]+\.ts)$/
 const MAX_TARBALL_KB = 150
 
 const args = process.argv.slice(2)
