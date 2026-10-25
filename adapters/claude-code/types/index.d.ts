@@ -13,6 +13,7 @@ export type PendingShift = {
   about: string
   at: number
   segment: { done: string[]; dropped: string[]; archived: string[]; open: string[] }
+  focus?: string[]
 }
 
 export type Looks = { seen: Record<string, string> | null; running: number }

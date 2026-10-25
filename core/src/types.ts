@@ -113,6 +113,9 @@ export type PendingShift = {
   about: string
   at: number
   segment: Segment
+  // The tasks in progress, each with its items in progress: what the summarizer keeps the reasoning around fuller.
+  // Missing from a shift accepted by an older version of the mod.
+  focus?: string[]
 }
 
 // The letter waiting for the owner's next message, the shift folder it came from and the files that go with it.

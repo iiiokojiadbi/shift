@@ -150,6 +150,15 @@ test('the summarizer gets the hold and is told not to plan', () => {
   const text = compactInstructions({ hold: 'goal: ship the mod', board: '/b.md', owner: '/OWNER.md', dir: '/d' })
   expect(text).toContain('goal: ship the mod')
   expect(text).toContain('Do not write next steps')
+  expect(text).not.toContain('working on now')
+  const focused = compactInstructions({
+    hold: 'h',
+    board: '/b.md',
+    owner: '/OWNER.md',
+    dir: '/d',
+    focus: ['delivery: the core; pi', 'unify'],
+  })
+  expect(focused).toContain('fuller than the rest:\n- delivery: the core; pi\n- unify\n\nWhat the agent asked to hold:')
 })
 
 test('shiftDir names the folder by UTC time', () => {

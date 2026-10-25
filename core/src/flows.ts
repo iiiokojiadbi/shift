@@ -25,7 +25,7 @@ import {
   TRACK_TOOL,
   taskFile,
 } from './layout'
-import { formatItem, formatK, sections } from './markdown'
+import { formatItem, formatK, itemsOf, sections } from './markdown'
 import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
 import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
@@ -168,6 +168,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     about: input.about,
     at: call.at,
     segment: segment({ work, index }, previous),
+    focus: focusOf(work),
   }
   await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
@@ -178,6 +179,20 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const accepted = ACCEPTED(dir, learned)
 
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
+}
+
+// The tasks in progress, each with the names of its items in progress.
+function focusOf(work: Work): string[] {
+  return listedTasks(work)
+    .filter(listed => listed.status === 'in progress')
+    .map(listed => {
+      const track = work.tasks.find(task => task.name === listed.name)?.track ?? ''
+      const doing = itemsOf(track)
+        .filter(item => item.status === 'in progress')
+        .map(item => item.name)
+
+      return doing.length === 0 ? listed.name : `${listed.name}: ${doing.join('; ')}`
+    })
 }
 
 function knowledgeText(work: Work): string {

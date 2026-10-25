@@ -42,12 +42,20 @@ export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
 
 // What the engine's summarizer is told; the model never sees this framing.
-export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir'>): string {
+export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir' | 'focus'>): string {
+  const focus = shift.focus ?? []
   return [
     'The agent is shifting: it continues this same work right after, from its own letter.',
     `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     'Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.',
     'Do not write next steps or a plan.',
+    ...(focus.length === 0
+      ? []
+      : [
+          '',
+          'What it is working on now — keep the reasoning, findings and failed attempts around these fuller than the rest:',
+          ...focus.map(each => `- ${each}`),
+        ]),
     '',
     'What the agent asked to hold:',
     shift.hold,
