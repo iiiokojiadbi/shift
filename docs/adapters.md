@@ -52,7 +52,7 @@ The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/
 
 The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionAPI`; pi and typebox are peers the host supplies.
 
-- pi refuses to let go of a history smaller than `keepRecentTokens` (20K by default) and keeps that much of the latest history beside the digest; a test project can lower it in `.pi/settings.json`.
+- pi refuses to let go of a history smaller than `keepRecentTokens` (20K by default) — "Nothing to compact (session too small)" — and keeps that much of the latest history beside the digest; a test project can lower it in `.pi/settings.json`. The adapter's `cannotLetGo` compares the fill with it, so the `shift` tool refuses before anything is written instead of a shift accepted and then not made.
 - `agent_settled` is awaited; a `sendMessage` with `triggerTurn` from it is deferred until the handler returns, so the continue still starts.
 - The owner's input comes by the `input` event, idle or mid-run (`streamingBehavior`); only an idle one starts a run that takes the waiting letter.
 - pi reads the session's files anew before every run, so its block is never stale.

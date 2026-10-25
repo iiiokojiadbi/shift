@@ -22,6 +22,7 @@ const callOn = (project: Project, extra: Partial<ToolCall> = {}): ToolCall => ({
   loop: loopAt(FRESH_LOOP),
   loaded: async () => null,
   status: async () => 'STATUS',
+  cannotLetGo: async () => null,
   ...extra,
 })
 
@@ -48,6 +49,11 @@ test('a run parses its arguments and refuses; only the main agent shifts, once a
   expect(await tool('shift').run({}, callOn(project, { loop: loopAt({ ...FRESH_LOOP, pending: {} as never }) }))).toEqual({
     deny: expect.stringContaining('already accepted'),
   })
+  const early = await tool('shift').run(
+    { letter: 'l.md', after: 'wait', about: 'a' },
+    callOn(project, { cannotLetGo: async () => 'the history is 12K tokens.' }),
+  )
+  expect(early).toEqual({ deny: expect.stringContaining('Nothing to shift yet: the history is 12K tokens. Nothing was written.') })
   expect(await tool('shift_history').run({ count: 0 }, callOn(project))).toEqual({ deny: expect.stringContaining('count') })
   expect(await tool('doc_outline').run({}, callOn(project))).toEqual({ deny: expect.stringContaining('path') })
   expect(await tool('shift_status').run({}, callOn(project))).toEqual({ result: 'STATUS' })

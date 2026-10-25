@@ -113,6 +113,7 @@ export const register: Register = on => {
         loop: loopOf($),
         loaded: () => read($, files),
         status: () => statusText($),
+        cannotLetGo: async () => null,
       })
 
       return 'deny' in done ? { deny: done.deny } : { result: done.result }

@@ -232,3 +232,7 @@ export const NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and th
 // The records were not ignored and the mod excluded them: told to the agent and to the owner.
 export const EXCLUDED = (file: string) =>
   `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`
+
+// The shift refused before anything is written: the harness would not let this history go.
+export const SHIFT_TOO_EARLY = (why: string) =>
+  `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown — after the first soft hint.`

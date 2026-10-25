@@ -22,7 +22,7 @@ import type { Project } from './project'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
 import { doctrine, doctrineBody, GUIDE } from './texts/doctrine'
-import { EXCLUDED } from './texts/prompts'
+import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
 import { updateTrack } from './track'
 
@@ -43,6 +43,8 @@ export type ToolCall = {
   loaded: () => Promise<string | null>
   // How full the history is: the harness measures it.
   status: () => Promise<string>
+  // Why the harness cannot let this history go now — too small to let go of; null when it can.
+  cannotLetGo: () => Promise<string | null>
 }
 
 // A refusal, or the result.
@@ -69,6 +71,8 @@ const ROWS: readonly Row[] = [
       if ((await call.loop.read()).pending !== null) return { deny: 'The shift is already accepted: end the turn with one line.' }
       const input = parseShiftInput(raw)
       if (typeof input === 'string') return { deny: input }
+      const cannot = await call.cannotLetGo()
+      if (cannot !== null) return { deny: SHIFT_TOO_EARLY(cannot) }
       const accepted = await acceptShift(await call.project(), { input, at: await call.now(), sessionId: await call.sessionId() })
       if ('deny' in accepted) return accepted
       await holdShift(call.loop, accepted.shift)

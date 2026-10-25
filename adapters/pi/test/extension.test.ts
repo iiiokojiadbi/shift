@@ -18,7 +18,7 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-function load(root: string) {
+function load(root: string, tokens = 50_000) {
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
   const notes: string[] = []
@@ -45,7 +45,7 @@ function load(root: string) {
     hasUI: false,
     ui: { notify: (text: string) => notes.push(text) },
     sessionManager: { getBranch: () => [], getSessionId: () => 's1', buildSessionProjection: () => ({ messages: [] }) },
-    getContextUsage: () => ({ tokens: 1000, contextWindow: 200_000 }),
+    getContextUsage: () => ({ tokens, contextWindow: 200_000 }),
     compact: (options: { onComplete: (result: unknown) => void }) =>
       options.onComplete({ summary: 'DIGEST', tokensBefore: 300_000, estimatedTokensAfter: 20_000 }),
     model: undefined,
@@ -105,6 +105,13 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
   await going.on('agent_settled', { aborted: false })
   expect(going.sent[0]).toContain('Shift done')
   expect(going.notes.some(note => note.includes('continuing from the letter'))).toBe(true)
+
+  // pi keeps its last keepRecentTokens whole: a history no bigger has nothing to let go, and the shift says so first.
+  const small = load(await project(records), 15_000)
+  await small.on('session_start')
+  await expect(small.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).rejects.toThrow(
+    'Nothing to shift yet: the history is 15K tokens, and pi keeps the last 20K whole',
+  )
 
   const stopped = load(await project(records))
   await stopped.on('session_start')

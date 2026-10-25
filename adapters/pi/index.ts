@@ -15,6 +15,7 @@ import {
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
+  formatK,
   gaugeStatus,
   letGoGauge,
   MOD,
@@ -76,6 +77,14 @@ export default function shift(pi: ExtensionAPI): void {
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
           status: () => gaugeStatus(keeperOf(ctx)),
+          // pi lets go only of what lies before its last keepRecentTokens; a smaller history it refuses as too small.
+          cannotLetGo: async () => {
+            const tokens = ctx.getContextUsage()?.tokens
+            const keep = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model).keepRecentTokens
+            return typeof tokens === 'number' && tokens <= keep
+              ? `the history is ${formatK(tokens)} tokens, and pi keeps the last ${formatK(keep)} whole, so it has nothing to let go.`
+              : null
+          },
         })
         if ('deny' in done) throw new Error(done.deny)
 
