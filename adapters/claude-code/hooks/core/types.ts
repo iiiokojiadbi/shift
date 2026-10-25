@@ -1,8 +1,8 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import type { KINDS } from './layout'
+import type { AFTER, KINDS, OUTCOMES } from './layout'
 import type { Placement } from './settings'
 
-export type ShiftAfter = 'continue' | 'wait'
+export type ShiftAfter = (typeof AFTER)[number]
 
 // The fill the stretch started from, the fill at the last hint, a harness-made let-go the agent is not told of yet,
 // the characters the stretch's history grew by, per source, and whether the count holds the whole stretch:
@@ -11,7 +11,10 @@ export type Gauge = { base: number | null; hinted: number | null; unassisted: bo
 
 export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
 
-export type ArchiveInput = { name: string; outcome: 'done' | 'dropped'; about: string }
+// What task_track asks for: an item of a task's track by words of its name, or the task's own line in TASKS.md.
+export type TrackInput = { task: string; item: string | null; status: string; note: string | null; add: boolean }
+
+export type ArchiveInput = { name: string; outcome: (typeof OUTCOMES)[number]; about: string }
 
 // A `- [status] name — note` line of a block: `rest` is all after the status, `index` the line's place in the text.
 export type Item = { status: string; name: string; note: string | null; rest: string; line: string; index: number }

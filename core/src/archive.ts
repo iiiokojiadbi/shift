@@ -1,5 +1,5 @@
 import { ARCHIVE, CLOSED, TASKS } from './layout'
-import { itemsOf, title } from './markdown'
+import { itemsOf, quote, title } from './markdown'
 import type { ArchiveInput, TaskFiles } from './types'
 
 // What `task_archive` refuses: a task that is not there, or one marked done with open items.
@@ -11,7 +11,10 @@ export function checkArchive(input: ArchiveInput, task: TaskFiles, archived: boo
   if (input.outcome === 'done') {
     const open = itemsOf(task.track ?? '').filter(item => !CLOSED.has(item.status))
     if (open.length > 0) {
-      return `Not every item is closed: ${open.map(i => `"${i.line}"`).join('; ')}. Close them as done or dropped, or archive the task as dropped.`
+      return `Not every item is closed: ${quote(
+        open.map(i => i.line),
+        '; ',
+      )}. Close them as done or dropped, or archive the task as dropped.`
     }
   }
 

@@ -5,6 +5,7 @@ import {
   ARCHIVE_TOOL,
   BOARD,
   BOARD_MAX_LINES,
+  BOARD_SECTIONS,
   DIR,
   FOCUS,
   GLOSSARY,
@@ -17,11 +18,14 @@ import {
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER,
+  LETTER_SECTIONS,
   MAX_AUTO_STREAK,
   MOD,
   NAME_RULE,
+  NEXT,
   OLD_DIR,
   OLD_OWNER,
+  OLD_TASKS_SECTION,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -40,15 +44,22 @@ import {
 } from '../layout'
 import { TOOL_TEXTS } from './tools'
 
+// A list of sections in their order, each with what goes in it: a section without its text does not compile.
+function described<Name extends string>(names: readonly Name[], texts: Record<Name, string>): string {
+  return names.map((name, at) => `- "${name}" — ${texts[name]}${at === names.length - 1 ? '.' : ';'}`).join('\n')
+}
+
 const BOARD_RULES = `The board is a state, not a diary:
 - lines are rewritten in place, nothing new is appended on top of the old;
 - no dates anywhere, in the board or in tasks: each shift's time is recorded by itself;
 - no more than ${BOARD_MAX_LINES} lines.
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
-- "Goal" — what the project is for and how that changed, briefly;
-- "Decisions" — yours, for the whole project, with the reason; a decision may name what it turned down: \`rejected: <option> — <why>\`;
-- "Dead ends" — approaches tried and ruled out for the whole project, and why.
+${described(BOARD_SECTIONS, {
+  Goal: 'what the project is for and how that changed, briefly',
+  Decisions: 'yours, for the whole project, with the reason; a decision may name what it turned down: `rejected: <option> — <why>`',
+  'Dead ends': 'approaches tried and ruled out for the whole project, and why',
+})}
 
 A decision or dead end goes on the board only if it outlives any one task; otherwise it belongs to the task. A rejected option is not a dead end: it was weighed, not tried.`
 
@@ -189,21 +200,23 @@ First the flow of a shift, then the rules of each record it checks.
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn with one line, no further actions.
 
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
+After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## Letter — \`${LETTER}\`
 
 Written anew, whole, before every shift. Sections \`##\`, all required and non-empty (nothing to say — "none"):
-- "Where I am" — what you were doing at this moment, the thought you did not finish;
-- "Next" — steps: a command or a file and what you expect;
-- "Unverified" — and what not to trust;
-- "Hold" — what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. Only this section steers what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole.
+${described(LETTER_SECTIONS, {
+  'Where I am': 'what you were doing at this moment, the thought you did not finish',
+  Next: 'steps: a command or a file and what you expect',
+  Unverified: 'and what not to trust',
+  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. Only this section steers what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole',
+})}
 
 ## When the mod refuses
 
 A refusal names the reason; fix it and call again:
 - no letter at the path, a section missing or empty;
-- no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "Tasks" section left on it, a \`rejected:\` without its reason;
+- no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
 - a knowledge file with an unknown \`kind\`, a name not of its kind, no \`about\`, more than ${KNOWLEDGE_MAX_LINES} lines, an entry without its fields, a glossary kept as knowledge;
 - \`${GLOSSARY}\`: an article without \`Means\`, an unknown label, a word in two articles, an avoided word used as a term, more than ${GLOSSARY_MAX_LINES} lines;
@@ -246,7 +259,7 @@ How to read it: frontmatter — \`key: value\` lines between \`---\`; sections �
 
 - \`${HISTORY_TOOL}\` with \`count\` (default ${HISTORY_DEFAULT}) — the last shifts in brief: time, outcome, description, what was done, dropped and archived, and for the last one what is open. The stretch in detail — \`letter.md\`, \`board.md\` and \`tasks/\` of its folder.
 - \`${INDEX}\` — every archived task, one line each.
-- In a new session the owner calls \`/${RESUME_COMMAND}\`: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "Next".
+- In a new session the owner calls \`/${RESUME_COMMAND}\`: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
 
 How the mod is set up in this project — the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts — is \`${SETUP_TOOL}\`.
 
@@ -334,7 +347,7 @@ export const SETUP_MIGRATION = `## Coming from the earlier layout
 Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved once, before the next shift; the refusals name each step:
 - \`${OLD_DIR}/\` → \`${DIR}/\`, the folder renamed as it is;
 - \`${OLD_OWNER}\` → \`${OWNER}\`, renamed as it is;
-- the board's "Tasks" section → \`${TASK_LIST}\`: each line as \`- [status] [name](tasks/name/) — what matters\`, and the \`continues:\` lines of each \`task.md\` under it as \`- continues: [name](archive/name/)\`;
+- the board's "${OLD_TASKS_SECTION}" section → \`${TASK_LIST}\`: each line as \`- [status] [name](tasks/name/) — what matters\`, and the \`continues:\` lines of each \`task.md\` under it as \`- continues: [name](archive/name/)\`;
 - \`${KNOWLEDGE}/glossary*.md\` → \`${GLOSSARY}\`, one article per term;
 - where knowledge goes, if \`${OWNER}\` spells it out by kind of knowledge → \`${SHIFT_FILE}\`, on the owner's word.
 

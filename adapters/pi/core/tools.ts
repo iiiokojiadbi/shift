@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { docOutline, docsMentioning } from './docs'
 import { acceptShift, archiveTask, keepRecordsOut, shiftHistory, staleLayout } from './flows'
-import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput } from './input'
+import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput, parseTrackInput } from './input'
 import {
   ARCHIVE_TOOL,
   atPlaces,
@@ -22,7 +22,7 @@ import { setupReport } from './setup'
 import { doctrine, doctrineBody, GUIDE } from './texts/doctrine'
 import { EXCLUDED } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
-import { parseTrackInput, updateTrack } from './track'
+import { updateTrack } from './track'
 import type { PendingShift } from './types'
 
 // The mod's tools as one table: an adapter registers every row the project shows and hands each call to its `run`.

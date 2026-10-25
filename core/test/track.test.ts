@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
 import { segment } from '../src/history'
+import { parseTrackInput } from '../src/input'
 import { loadProject } from '../src/project'
-import { parseTrackInput, updateTrack } from '../src/track'
+import { updateTrack } from '../src/track'
 import { R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 

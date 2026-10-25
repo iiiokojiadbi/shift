@@ -1,4 +1,5 @@
 import { DOCS_MAP_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
+import { quote } from './markdown'
 
 // The owner's settings for one project; the agent does not edit them.
 export type Settings = {
@@ -45,8 +46,7 @@ const KINDS = {
   files: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of files inside the project'),
   docs: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of folders or documents inside the project'),
   limit: (value: Value) => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? null : 'a whole number above 0'),
-  placement: (value: Value) =>
-    (PLACEMENTS as readonly unknown[]).includes(value) ? null : `one of ${PLACEMENTS.map(each => `"${each}"`).join(', ')}`,
+  placement: (value: Value) => ((PLACEMENTS as readonly unknown[]).includes(value) ? null : `one of ${quote(PLACEMENTS)}`),
 }
 
 // A key of the settings file: the mod's version it came in, what it does, the sort of its value and where it lives in

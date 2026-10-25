@@ -111,6 +111,14 @@ export const OWNER_SECTION = 'Owner decisions'
 export const TASK_SECTIONS = ['Goal', 'Done when', 'Owner decisions', 'Decisions', 'Dead ends'] as const
 
 export const LETTER_SECTIONS = ['Where I am', 'Next', 'Unverified', 'Hold'] as const
+// The letter's steps, the ones the agent continues from, and what the summarizer is told to keep.
+export const NEXT = LETTER_SECTIONS[1]
+export const HOLD = LETTER_SECTIONS[3]
+// The board's section the open tasks lived in before TASKS.md.
+export const OLD_TASKS_SECTION = 'Tasks'
+// What follows a shift, and how an archived task ended.
+export const AFTER = ['continue', 'wait'] as const
+export const OUTCOMES = ['done', 'dropped'] as const
 
 // Where a task stands on the board; closing it is archiving it.
 export const FOCUS = ['in progress', 'deferred', 'waiting for owner'] as const

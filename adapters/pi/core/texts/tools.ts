@@ -1,6 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import {
   ABOUT_MAX,
+  AFTER,
   ARCHIVE,
   ARCHIVE_TOOL,
   FOCUS,
@@ -11,6 +12,7 @@ import {
   INDEX,
   LETTER,
   MENTIONS_TOOL,
+  OUTCOMES,
   OUTLINE_TOOL,
   SETUP_TOOL,
   STATUS_TOOL,
@@ -20,6 +22,7 @@ import {
   TOOL,
   TRACK_TOOL,
 } from '../layout'
+import { quote } from '../markdown'
 
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how, see ${GUIDE_TOOL}. After the call, end the turn with one line.`
 
@@ -35,9 +38,9 @@ export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
-export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of TASKS.md.`
+export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
 
-export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item "in progress", "open", "done", "dropped"; for a task "in progress", "deferred", "waiting for owner". note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item.`
+export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item.`
 
 export const TRACK_SCHEMA = {
   type: 'object',
@@ -97,7 +100,7 @@ export const TOOL_SCHEMA = {
     },
     after: {
       type: 'string',
-      enum: ['continue', 'wait'],
+      enum: [...AFTER],
       description: 'continue — you go on right after the shift; wait — you wait for the owner.',
     },
     about: {
@@ -114,7 +117,7 @@ export const ARCHIVE_SCHEMA = {
     name: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
     outcome: {
       type: 'string',
-      enum: ['done', 'dropped'],
+      enum: [...OUTCOMES],
       description: 'done — every track item is done or dropped; dropped — the task is abandoned, the reason goes into about.',
     },
     about: {

@@ -68,7 +68,12 @@ export function dated(where: string, text: string, why: string): string | null {
   return date === null ? null : `A date in ${where}: "${date}". ${why} Remove it.`
 }
 
-export const quote = (names: readonly string[]) => names.map(name => `"${name}"`).join(', ')
+export const quote = (names: readonly string[], separator = ', ') => names.map(name => `"${name}"`).join(separator)
+
+// Whether a value is one of a list of literals, narrowed to it.
+export function isOneOf<T extends string>(list: readonly T[], value: unknown): value is T {
+  return (list as readonly unknown[]).includes(value)
+}
 
 export function missingSections(text: string, required: readonly string[], where: string): string | null {
   const found = sections(text)

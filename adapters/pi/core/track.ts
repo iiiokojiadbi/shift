@@ -1,43 +1,14 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { ARCHIVE_TOOL, CLOSED, DIR, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS, taskFile } from './layout'
-import { dated, formatItem, itemsOf } from './markdown'
+import { ARCHIVE_TOOL, CLOSED, DIR, TASK_LIST, TASKS, taskFile } from './layout'
+import { formatItem, itemsOf } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
 import { formatTaskLine, taskLine } from './tasks'
-import type { Item } from './types'
+import type { Item, TrackInput } from './types'
 
 // Statuses set by a tool instead of an edit by hand: a track item found by the words of its name, or a task's own
 // line in TASKS.md. Items carry no ids — the records stay clean, and the agent knows the words it wrote; a fragment
 // that finds no item or several is refused with the items listed, so the wrong one is never changed.
-
-export type TrackInput = { task: string; item: string | null; status: string; note: string | null; add: boolean }
-
-export function parseTrackInput(raw: Record<string, unknown>): TrackInput | string {
-  const task = typeof raw.task === 'string' ? raw.task.trim() : ''
-  if (!NAME.test(task)) return `task is a task folder name in ${TASKS}/: ${NAME_RULE}.`
-  const item = typeof raw.item === 'string' && raw.item.trim() !== '' ? raw.item.trim() : null
-  const note = typeof raw.note === 'string' && raw.note.trim() !== '' ? raw.note.trim() : null
-  const add = raw.add === true
-  const status = typeof raw.status === 'string' ? raw.status.trim() : ''
-  const allowed: readonly string[] = item === null ? FOCUS : STATUSES
-  if (!allowed.includes(status)) {
-    return `status for ${item === null ? `a task in ${TASK_LIST}` : 'a track item'} is one of ${allowed.map(each => `"${each}"`).join(', ')}.`
-  }
-  if (add && item === null) return "add needs item: the new item's name."
-  for (const [what, text] of [
-    ['item', item],
-    ['note', note],
-  ] as const) {
-    if (text?.includes('\n')) return `${what} is one line.`
-    const date = text === null ? null : dated(what, text, 'Records have no dates.')
-    if (date !== null) return date
-  }
-  if (item === null && status !== 'in progress' && note === null) {
-    return `A ${status} task carries its reason in its line: pass note.`
-  }
-
-  return { task, item, status, note, add }
-}
 
 export async function updateTrack(project: Project, input: TrackInput): Promise<{ deny: string } | { result: string }> {
   const { store, root } = project

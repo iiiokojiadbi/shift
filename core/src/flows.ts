@@ -3,7 +3,7 @@ import { addToIndex, checkArchive, indexLine } from './archive'
 import { docsReport, refreshDocs } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
-import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, INDEX, LETTER, MAX_AUTO_STREAK, NAMES, OLD_DIR, SHIFTS, TASK_LIST, TASKS } from './layout'
+import { ARCHIVE, BOARD, DIR, GUIDE_TOOL, HOLD, INDEX, LETTER, MAX_AUTO_STREAK, NAMES, OLD_DIR, SHIFTS, TASK_LIST, TASKS } from './layout'
 import { formatK, sections } from './markdown'
 import type { Project } from './project'
 import { checkLetter, checkWork } from './records'
@@ -43,7 +43,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const shift: PendingShift = {
     after: input.after,
     letter,
-    hold: sections(letter).get('Hold') ?? '',
+    hold: sections(letter).get(HOLD) ?? '',
     dir,
     board: `${root}/${BOARD}`,
     owner: `${root}/${settings.files.owner}`,

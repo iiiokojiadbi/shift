@@ -11,6 +11,8 @@ import {
   INDEX,
   KNOWLEDGE,
   MOD,
+  NAMES,
+  NEXT,
   OWNER,
   RESUME_COMMAND,
   SETTINGS,
@@ -98,11 +100,11 @@ function inProgress(work: Work): Work['tasks'] {
 
 // What a shift hands back, as paths inside the records folder: the owner's row names them.
 export function deliveredFiles(work: Work | null): string[] {
-  if (work === null) return ['letter.md']
-  const tasks = inProgress(work).map(t => `tasks/${t.name}/`)
-  const knowledge = work.knowledge.length === 0 ? [] : ['knowledge/ (the map)']
+  if (work === null) return [NAMES.letter]
+  const tasks = inProgress(work).map(t => `${NAMES.tasks}/${t.name}/`)
+  const knowledge = work.knowledge.length === 0 ? [] : [`${NAMES.knowledge}/ (the map)`]
 
-  return ['letter.md', 'board.md', ...tasks, ...knowledge]
+  return [NAMES.letter, NAMES.board, ...tasks, ...knowledge]
 }
 
 // What the agent did before this stretch: a line per recent shift, oldest first, from its about.md.
@@ -156,7 +158,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
 }
 
 export function continuePrompt(letter: string, back: HandedBack): string {
-  return shiftMessage('Shift done. You continue from where you stopped.', letter, back, ['Continue from "Next".'])
+  return shiftMessage('Shift done. You continue from where you stopped.', letter, back, [`Continue from "${NEXT}".`])
 }
 
 export function waitContext(letter: string, back: HandedBack): string {
@@ -170,13 +172,13 @@ export function resumePrompt(letter: string, back: HandedBack): string {
     back,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,
-      'Check "Next" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.',
+      `Check "${NEXT}" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.`,
     ],
   )
 }
 
 // What starts the turn after /unshift when the owner wrote nothing with it: the letter is already in the history.
-export const RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "Next".</${MOD}>`
+export const RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`
 
 export const ACCEPTED = (dir: string) =>
   `Shift accepted, the letter and the snapshots: ${dir}/. End the turn with one line and do nothing more: after the turn the stretch's history is let go, and you continue from the letter.`

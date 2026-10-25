@@ -1,4 +1,5 @@
-import { bullets, formatK, frontmatter, sections } from './markdown'
+import { AFTER } from './layout'
+import { bullets, formatK, frontmatter, isOneOf, sections } from './markdown'
 import type { AboutMeta, ShiftAfter } from './types'
 
 // about.md, a shift in brief with a strict structure: written once when the shift is accepted and again with its
@@ -76,7 +77,7 @@ export function readAbout(text: string): About {
 
   return {
     description: meta.get('description') ?? null,
-    after: after === 'continue' || after === 'wait' ? after : null,
+    after: isOneOf(AFTER, after) ? after : null,
     result,
     session: meta.get('session') ?? null,
     shifted: result?.startsWith('shifted') ?? false,

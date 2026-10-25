@@ -1,5 +1,5 @@
 import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, TASK_LIST, TASKS, TASKS_MAX_LINES } from './layout'
-import { dated, overLimit } from './markdown'
+import { dated, overLimit, quote } from './markdown'
 
 // TASKS.md: every open task, one line each, and under it the links to other tasks and archived ones.
 //
@@ -70,10 +70,13 @@ export function checkTaskList(text: string | null, folders: readonly string[], a
 
   const badStatus = tasks.filter(t => !(FOCUS as readonly string[]).includes(t.status))
   if (badStatus.length > 0) {
-    return `Tasks without a status (${FOCUS.join(', ')}) in ${TASK_LIST}: ${badStatus.map(t => `"${t.line}"`).join('; ')}. A finished task is archived with ${ARCHIVE_TOOL}, not marked.`
+    return `Tasks without a status (${FOCUS.join(', ')}) in ${TASK_LIST}: ${quote(
+      badStatus.map(t => t.line),
+      '; ',
+    )}. A finished task is archived with ${ARCHIVE_TOOL}, not marked.`
   }
   const badName = tasks.filter(t => !NAME.test(t.name))
-  if (badName.length > 0) return `Task names are ${NAME_RULE}: ${badName.map(t => `"${t.name}"`).join(', ')}.`
+  if (badName.length > 0) return `Task names are ${NAME_RULE}: ${quote(badName.map(t => t.name))}.`
 
   const listed = new Set(tasks.map(t => t.name))
   const unlisted = folders.filter(name => !listed.has(name))

@@ -11,6 +11,7 @@ import {
   KNOWLEDGE_MAX_LINES,
   LETTER_SECTIONS,
   OLD_OWNER,
+  OLD_TASKS_SECTION,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -71,8 +72,8 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
   if (sections(board).has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${owner}. Move its lines there as they are, remove the section from the board, and call again.`
   }
-  if (sections(board).has('Tasks')) {
-    return `The board has a "## Tasks" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
+  if (sections(board).has(OLD_TASKS_SECTION)) {
+    return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
   }
   const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing
@@ -133,7 +134,10 @@ function checkTask({ name, task, track }: TaskFiles): string | null {
   if (rejected !== null) return rejected
   const bad = itemsOf(track).filter(item => !(STATUSES as readonly string[]).includes(item.status))
   if (bad.length > 0)
-    return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${bad.map(i => `"${i.line}"`).join('; ')}.`
+    return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${quote(
+      bad.map(i => i.line),
+      '; ',
+    )}.`
 
   return null
 }
