@@ -72,7 +72,8 @@ adapters/
 scripts/sync-core.ts       copies core/src into every adapter and core/test/data.ts into the plugin's tests; --check fails on a stale copy
 scripts/release-pi.ts      the pi package's release gate: checks and the tarball; --publish uploads, verifies and tags
 docs/                      the documentation, above
-lefthook.yml  biome.json  package.json
+README.md                  for people: what shift is, installing, commands, tools, settings
+lefthook.yml  biome.json  package.json  LICENSE
 ```
 
 `.shift/` is the agent's own records for this project (board, owner decisions, knowledge, tasks, archive, shifts). It is local and never committed.
