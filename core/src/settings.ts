@@ -1,4 +1,4 @@
-import { DOCS_MAP_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
+import { DOCS_MAP_MAX_CHARS, DOCS_PINNED_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
 import { quote } from './markdown'
 
 // The owner's settings for one project; the agent does not edit them.
@@ -21,6 +21,7 @@ export type Settings = {
 export type DocsSettings = {
   dirs: string[]
   maxChars: number
+  maxPinned: number
   toc: boolean
   maxDescription: number | null
   maxLines: number | null
@@ -34,7 +35,14 @@ export const DEFAULT_SETTINGS: Settings = {
   knowledge: null,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
-  docs: { dirs: ['docs'], maxChars: DOCS_MAP_MAX_CHARS, toc: false, maxDescription: null, maxLines: null },
+  docs: {
+    dirs: ['docs'],
+    maxChars: DOCS_MAP_MAX_CHARS,
+    maxPinned: DOCS_PINNED_MAX_CHARS,
+    toc: false,
+    maxDescription: null,
+    maxLines: null,
+  },
 }
 
 type Value = string | boolean | number | string[]
@@ -106,6 +114,13 @@ export const SETTING_KEYS: readonly Key[] = [
     kind: 'limit',
     at: ['docs', 'maxChars'],
     about: 'how long the map may be: past it the sections go, then the descriptions, and the map says so',
+  },
+  {
+    key: 'docs.max_pinned',
+    since: '0.13.0',
+    kind: 'limit',
+    at: ['docs', 'maxPinned'],
+    about: 'how long the pinned `> [!IMPORTANT]` blocks of the docs may be together: past it the map says so and still shows them all',
   },
   {
     key: 'docs.toc',

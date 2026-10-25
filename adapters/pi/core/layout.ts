@@ -40,6 +40,9 @@ export const GLOSSARY_MAX_LINES = 400
 // The docs map in SHIFT.md, in characters; past it only folders and file names are listed.
 export const DOCS_MAP_MAX_CHARS = 100000
 
+// The pinned blocks of the docs, in characters; past it the map says so, and shows them all still.
+export const DOCS_PINNED_MAX_CHARS = 4000
+
 // A knowledge file past this is split by topic.
 export const KNOWLEDGE_MAX_LINES = 400
 

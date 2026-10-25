@@ -47,6 +47,34 @@ export function headings(text: string): Heading[] {
   return found
 }
 
+const PIN = /^ {0,3}> ?\[!IMPORTANT\]\s*$/
+const QUOTED = /^ {0,3}> ?/
+
+// A pinned block: a `> [!IMPORTANT]` quote, as GitHub draws it, outside code fences.
+export type Pin = { section: string | null; text: string }
+
+// The pinned blocks of a text: each one's lines without their `> `, and the `##` or `###` section it is in.
+export function pinned(text: string): Pin[] {
+  const lines = text.split('\n')
+  const inside = fenced(lines)
+  const marks = headings(text).filter(heading => heading.level >= 2)
+  const found: Pin[] = []
+  for (let at = 0; at < lines.length; at++) {
+    if (inside.has(at) || !PIN.test(lines[at] ?? '')) continue
+    let end = at + 1
+    while (end < lines.length && !inside.has(end) && QUOTED.test(lines[end] ?? '')) end++
+    const body = lines
+      .slice(at + 1, end)
+      .map(line => line.replace(QUOTED, ''))
+      .join('\n')
+      .trim()
+    if (body !== '') found.push({ section: marks.filter(heading => heading.line <= at).at(-1)?.title ?? null, text: body })
+    at = end - 1
+  }
+
+  return found
+}
+
 // The blocks under the headings of `level`: each title with the text up to the next heading of that level or above.
 export function blocks(text: string, level: number): { title: string; body: string }[] {
   const lines = text.split('\n')

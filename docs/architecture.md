@@ -39,10 +39,10 @@ Each is one place for its concern; the interface is what a caller must know.
 | `hint.ts` | when to hint and the gauge | `shiftHint` is a pure rule over a `Gauge` and a reading; `takeHint`, `countGrowth`, `gaugeStatus` keep the gauge over a `GaugeKeeper` port (read, update, the history's growth, the base, a reading) |
 | `flows.ts` | the flows over the store | accepting a shift with its snapshot, archiving, history, `/unshift`, what follows a let-go, the base after a restart, the session's files, keeping `.shift/` out of git |
 | `about.ts` | `about.md` | `renderAbout`, `OUTCOME` (what a `result:` line may say), `readAbout`, `shiftFill` |
-| `markdown.ts` | reading markdown | `headings` and `blocks` — the one reader of headings, outside CommonMark code fences; `sections`, `title`, `itemsOf` (`- [status] name — note`), `formatItem`, `lineCount`, `overLimit`, `dated`, `frontmatter` |
+| `markdown.ts` | reading markdown | `headings` and `blocks` — the one reader of headings, outside CommonMark code fences; `sections`, `title`, `pinned` (`> [!IMPORTANT]` blocks with their section), `itemsOf` (`- [status] name — note`), `formatItem`, `lineCount`, `overLimit`, `dated`, `frontmatter` |
 | `records.ts`, `tasks.ts`, `glossary.ts`, `archive.ts` | the checks of the records | `checkWork(work, previous, project)` and the checks under it; a refusal names the files where the settings put them |
 | `settings.ts` | `settings.toml` | `SETTING_KEYS` — a row per key: the version it came in, the kind of its value, where it lives in `Settings`, what it does. `parseSettings` returns the settings and the keys set |
-| `docs.ts` | the project's documents | `refreshDocs` (tocs and the map in one pass), `afterWrite`, `docsReport`, `docOutline`, `docsMentioning`; `[docs] dirs` takes folders or single `.md` files |
+| `docs.ts` | the project's documents | `refreshDocs` (tocs and the map in one pass, pinned blocks under their documents), `afterWrite`, `docsReport`, `docOutline`, `docsMentioning`; `[docs] dirs` takes folders or single `.md` files |
 | `input.ts` | tool arguments | `parseShiftInput`, `parseArchiveInput`, `parseTrackInput`, `parseHistoryCount`, `parsePath` over one set of helpers |
 | `texts/` | every word the model or the owner reads | `doctrine.ts` (the system-prompt section, the guide, the setup's tree), `tools.ts`, `prompts.ts` (the message after a shift, the summarizer's instructions), `rows.ts` (the owner's rows) |
 

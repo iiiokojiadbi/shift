@@ -77,12 +77,17 @@ test('the docs map lists each document with its description and sections, and re
   expect(second).toContain('`docs/c.md` — C')
   expect(second.split(MAP_END).length).toBe(2)
 
-  const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'] }))
+  const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'], pins: [] }))
   const folders = renderMap(many, docsOf(['docs'], 24000), [])
   expect(folders).toContain('- `docs/x/` — 400 docs:')
   expect(folders).toContain('over `[docs] max_chars = 24000`')
   expect(folders).toContain('Dropped at this level: the description and the sections of every document')
-  const long = Array.from({ length: 100 }, (_, i) => ({ path: `docs/${i}.md`, description: 'd'.repeat(100), sections: ['s'.repeat(200)] }))
+  const long = Array.from({ length: 100 }, (_, i) => ({
+    path: `docs/${i}.md`,
+    description: 'd'.repeat(100),
+    sections: ['s'.repeat(200)],
+    pins: [],
+  }))
   expect(renderMap(long, docsOf(['docs']), [])).toContain('sections: sss')
   const described = renderMap(long, docsOf(['docs'], 24000), [])
   expect(described).toContain(`- \`docs/7.md\` — ${'d'.repeat(100)}`)

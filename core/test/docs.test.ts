@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
-import { afterWrite, docOutline, docsMentioning, docsReport, outline, withToc } from '../src/docs'
+import { afterWrite, docOutline, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
 import { sessionFiles } from '../src/flows'
+import { pinned } from '../src/markdown'
 import { loadProject } from '../src/project'
-import { parseSettings } from '../src/settings'
+import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
 import type { Store } from '../src/store'
 import { renderSessionFiles } from '../src/texts/prompts'
@@ -144,4 +145,50 @@ test('a document at the root named in [docs] dirs is kept like a folder of them'
   expect(map).toContain('### docs/\n\n- `docs/a.md` — what A holds')
   expect(map).toContain('Nothing to list:\n- `README.md` — no such file')
   expect(await docsMentioning(await at(store), 'docs/a.md')).toBe('No document in `docs/`, `AGENTS.md`, `README.md` mentions `a.md`.')
+})
+
+test('a > [!IMPORTANT] block is pinned under its document with its section, at every level of the map; past the limit it is told, never refused', async () => {
+  const PINNED = [
+    '---',
+    'description: releases',
+    '---',
+    '',
+    '# Dev',
+    '',
+    '> [!IMPORTANT]',
+    '> Users get only tagged releases.',
+    '',
+    '## Release',
+    '',
+    '> [!IMPORTANT]',
+    '> Tag first,',
+    '> then the catalog.',
+    '',
+    '```md',
+    '> [!IMPORTANT]',
+    '> an example, not a pin',
+    '```',
+    '',
+    '> [!NOTE]',
+    '> not pinned either',
+  ].join('\n')
+  expect(pinned(PINNED)).toEqual([
+    { section: null, text: 'Users get only tagged releases.' },
+    { section: 'Release', text: 'Tag first,\nthen the catalog.' },
+  ])
+
+  const store = memoryStore({ [SETTINGS]: '[docs]\nmax_pinned = 30', [`${ROOT}/docs/dev.md`]: PINNED, [`${ROOT}/docs/a.md`]: DOC })
+  const note = (await afterWrite(await at(store), `${ROOT}/docs/dev.md`)) ?? ''
+  expect(note).toContain('Pinned: 59 characters, over `[docs] max_pinned = 30`')
+  expect(await afterWrite(await at(store), `${ROOT}/docs/a.md`)).toBeNull()
+  const map = store.files.get(`${R}/SHIFT.md`) ?? ''
+  expect(map).toContain(
+    '- `docs/dev.md` — releases\n  sections: Release\n  pinned: Users get only tagged releases.\n  pinned (Release): Tag first,\n    then the catalog.',
+  )
+  expect(map).toContain('every block still shows')
+  expect(await docsReport(await at(store))).toContain('- Pinned: 59 characters')
+
+  const docs = [{ path: 'docs/dev.md', description: 'd'.repeat(500), sections: ['s'], pins: pinned(PINNED) }]
+  const folders = renderMap(docs, { ...DEFAULT_SETTINGS.docs, maxChars: 50 }, [])
+  expect(folders).toContain('- `docs/` — 1 docs: dev.md\n  `docs/dev.md`:\n    pinned: Users get only tagged releases.')
 })

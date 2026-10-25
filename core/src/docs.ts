@@ -1,5 +1,5 @@
 import { DIR, MOD } from './layout'
-import { frontmatter, type Heading, headings, lineCount } from './markdown'
+import { frontmatter, type Heading, headings, lineCount, type Pin, pinned } from './markdown'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
 import type { Store } from './store'
@@ -105,7 +105,9 @@ export async function afterWrite(project: Project, file: string): Promise<string
       lines.push(`The mod rewrote the toc of \`${path}\`: read the file before editing it again.`)
     }
   }
-  if (doc) await refreshDocs(project)
+  // Pinned blocks past the limit are told when the document written has some: the write may be what passed it.
+  const over = doc ? pinnedOver(await refreshDocs(project), docs) : null
+  if (over !== null && pinned(text).length > 0) lines.push(over)
   const remarks = [
     ...(doc ? docRemarks(text, docs) : []),
     ...(await brokenLinks(store, root, path, text, docs.dirs)).map(link => `a link to \`${link}\` that is not there`),
@@ -125,8 +127,10 @@ export async function docsReport(project: Project): Promise<string | null> {
   const rootFiles = (await store.list(root, 'file')).filter(name => name.endsWith('.md'))
   const undescribed: string[] = []
   const lines: string[] = []
+  const kept: Doc[] = []
   for (const path of [...(await docPaths(store, root, docs.dirs)), ...rootFiles]) {
     const text = (await store.read(`${root}/${path}`)) ?? ''
+    if (isDoc(path, docs.dirs)) kept.push(readDoc(path, text))
     const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
     if (own.includes(NO_DESCRIPTION)) undescribed.push(path)
     const remarks = [
@@ -136,7 +140,9 @@ export async function docsReport(project: Project): Promise<string | null> {
     if (remarks.length > 0) lines.push(`- \`${path}\`: ${remarks.join('; ')}`)
   }
   const shown = lines.slice(0, REPORT_DOCS)
+  const pins = pinnedOver(kept, docs)
   const report = [
+    ...(pins === null ? [] : [`- ${pins}`]),
     ...(undescribed.length === 0
       ? []
       : [
@@ -222,7 +228,7 @@ function escapeRegExp(text: string): string {
 export const MAP_START = `<!-- ${MOD}:docs — written by the mod from each document's description and ## headings; edit those, not this -->`
 export const MAP_END = `<!-- /${MOD}:docs -->`
 
-export type Doc = { path: string; description: string | null; sections: string[] }
+export type Doc = { path: string; description: string | null; sections: string[]; pins: Pin[] }
 
 // Every document the settings name, from the project's root, sorted: each .md file under a folder — a missing folder
 // has none, a hidden one is skipped — and a named document that is there.
@@ -288,6 +294,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
         ...inside.flatMap(doc => [
           `- \`${doc.path}\` — ${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
           ...(!sections || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
+          ...pinRows(doc.pins),
         ]),
       ].join('\n'),
     )
@@ -306,15 +313,30 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
             `Cut down: ${over}. Dropped at this level: the \`sections:\` line of every document — open a document for its \`##\` sections. Whole: every document with its description. ${back}`,
           ]
         : [
-            sorted.map(
-              ([folder, inside]) =>
+            sorted.map(([folder, inside]) =>
+              [
                 `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(doc.path.lastIndexOf('/') + 1)).join(', ')}`,
+                ...inside.flatMap(doc => (doc.pins.length === 0 ? [] : [`  \`${doc.path}\`:`, ...pinRows(doc.pins, '  ')])),
+              ].join('\n'),
             ),
             `Cut down: ${over}, and ${size(described)} without the sections. Dropped at this level: the description and the sections of every document — read a document's frontmatter \`description:\` for what it holds. Whole: every folder with its file names. ${back}`,
           ]
   const nothing = empty.length === 0 ? [] : ['', 'Nothing to list:', ...empty]
+  const pins = pinnedOver(docs, settings)
 
-  return [MAP_START, '', `## Documents`, '', note, '', body.join('\n\n'), ...nothing, '', MAP_END].join('\n')
+  return [
+    MAP_START,
+    '',
+    `## Documents`,
+    '',
+    note,
+    ...(pins === null ? [] : ['', pins]),
+    '',
+    body.join('\n\n'),
+    ...nothing,
+    '',
+    MAP_END,
+  ].join('\n')
 }
 
 // SHIFT.md with its map block replaced, or added at the end; a new file starts with a heading and a line on what it is.
@@ -331,7 +353,7 @@ export function withMap(shift: string | null, map: string): string {
 
 // Every document read once: its toc rewritten when the settings ask for one, then the map in SHIFT.md written when it
 // changed — nothing when there are no documents and no SHIFT.md yet. At the session's start, a shift and a write.
-export async function refreshDocs(project: Project): Promise<void> {
+export async function refreshDocs(project: Project): Promise<Doc[]> {
   const { store, root } = project
   const settings = project.settings.docs
   const docs: Doc[] = []
@@ -350,9 +372,28 @@ export async function refreshDocs(project: Project): Promise<void> {
   }
   const shift = `${root}/${project.settings.files.shift}`
   const current = await store.read(shift)
-  if (docs.length === 0 && current === null) return
+  if (docs.length === 0 && current === null) return docs
   const map = withMap(current, renderMap(docs, settings, missing))
   if (map !== current) await store.write(shift, map)
+
+  return docs
+}
+
+// A document's pinned blocks under its entry, each with the section it is in; its lines indented under the first.
+function pinRows(pins: readonly Pin[], indent = ''): string[] {
+  return pins.flatMap(pin => {
+    const [first = '', ...rest] = pin.text.split('\n')
+    return [`${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}: ${first}`, ...rest.map(line => `${indent}    ${line}`)]
+  })
+}
+
+// The note when the pinned blocks together pass `[docs] max_pinned`; null within it. Never a refusal: they all show.
+export function pinnedOver(docs: readonly Doc[], settings: DocsSettings): string | null {
+  const size = docs.reduce((sum, doc) => sum + doc.pins.reduce((each, pin) => each + pin.text.length, 0), 0)
+
+  return size <= settings.maxPinned
+    ? null
+    : `Pinned: ${size} characters, over \`[docs] max_pinned = ${settings.maxPinned}\` in the settings — every block still shows. Unpin what is not needed in every task, or tell the owner to raise the limit.`
 }
 
 // What the map shows of a document.
@@ -363,5 +404,6 @@ function readDoc(path: string, text: string): Doc {
     sections: outline(text)
       .filter(h => h.level === 2)
       .map(h => h.title),
+    pins: pinned(text),
   }
 }
