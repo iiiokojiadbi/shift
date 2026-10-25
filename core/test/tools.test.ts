@@ -1,16 +1,25 @@
 import { expect, test } from 'bun:test'
+import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import type { Project } from '../src/project'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
 import { R } from './fixtures'
 import { memoryProject } from './memory'
 
+const loopAt = (state: LoopState): Loop => ({
+  read: async () => state,
+  update: async change => {
+    state = change(state)
+  },
+  tell: () => {},
+})
+
 const callOn = (project: Project, extra: Partial<ToolCall> = {}): ToolCall => ({
   project: async () => project,
   sessionId: async () => 's1',
   now: async () => 0,
   subagent: false,
-  pending: false,
+  loop: loopAt(FRESH_LOOP),
   loaded: async () => null,
   status: async () => 'STATUS',
   ...extra,
@@ -36,7 +45,9 @@ test('a run parses its arguments and refuses; only the main agent shifts, once a
   expect(await tool('shift').run({ letter: 'l.md', after: 'wait', about: 'a' }, callOn(project, { subagent: true }))).toEqual({
     deny: 'Only the main agent shifts, not a subagent.',
   })
-  expect(await tool('shift').run({}, callOn(project, { pending: true }))).toEqual({ deny: expect.stringContaining('already accepted') })
+  expect(await tool('shift').run({}, callOn(project, { loop: loopAt({ ...FRESH_LOOP, pending: {} as never }) }))).toEqual({
+    deny: expect.stringContaining('already accepted'),
+  })
   expect(await tool('shift_history').run({ count: 0 }, callOn(project))).toEqual({ deny: expect.stringContaining('count') })
   expect(await tool('doc_outline').run({}, callOn(project))).toEqual({ deny: expect.stringContaining('path') })
   expect(await tool('shift_status').run({}, callOn(project))).toEqual({ result: 'STATUS' })

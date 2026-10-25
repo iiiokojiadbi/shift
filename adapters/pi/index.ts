@@ -17,7 +17,6 @@ import {
   FRESH_LOOKS,
   FRESH_LOOP,
   gaugeStatus,
-  holdShift,
   letGoGauge,
   MOD,
   ownerSpoke,
@@ -73,13 +72,12 @@ export default function shift(pi: ExtensionAPI): void {
           sessionId: async () => ctx.sessionManager.getSessionId(),
           now: async () => Date.now(),
           subagent: false,
-          pending: loop.pending !== null,
+          loop: loopOf(ctx),
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
           status: () => gaugeStatus(keeperOf(ctx)),
         })
         if ('deny' in done) throw new Error(done.deny)
-        if (done.shift !== undefined) await holdShift(loopOf(ctx), done.shift)
 
         return text(done.result)
       },

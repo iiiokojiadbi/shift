@@ -9,7 +9,6 @@ import {
   doctrine,
   FRESH_GAUGE,
   FRESH_LOOKS,
-  holdShift,
   letGoGauge,
   ownerSpoke,
   type Project,
@@ -111,14 +110,12 @@ export const register: Register = on => {
         sessionId: () => $.session.id(),
         now: () => $.clock.now(),
         subagent: e.agentId !== undefined,
-        pending: (await loopOf($).read()).pending !== null,
+        loop: loopOf($),
         loaded: () => read($, files),
         status: () => statusText($),
       })
-      if ('deny' in done) return { deny: done.deny }
-      if (done.shift !== undefined) await holdShift(loopOf($), done.shift)
 
-      return { result: done.result }
+      return 'deny' in done ? { deny: done.deny } : { result: done.result }
     }).catch((_$, e, next) =>
       next.called ? next(e) : { deny: `${PLUGIN}: ${tool.name} broke (${next.error?.kind ?? 'unknown'}); nothing was let go.` },
     )

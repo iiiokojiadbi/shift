@@ -16,6 +16,7 @@ import {
   TOOL,
   TRACK_TOOL,
 } from './layout'
+import { holdShift, type Loop } from './loop'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
@@ -23,7 +24,6 @@ import { doctrine, doctrineBody, GUIDE } from './texts/doctrine'
 import { EXCLUDED } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
 import { updateTrack } from './track'
-import type { PendingShift } from './types'
 
 // The mod's tools as one table: an adapter registers every row the project shows and hands each call to its `run`.
 // A new tool is a name in layout, its texts and a row here; no adapter changes.
@@ -36,16 +36,16 @@ export type ToolCall = {
   now: () => Promise<number>
   // A subagent's call: only the main agent shifts.
   subagent: boolean
-  // A shift is already accepted in this turn.
-  pending: boolean
+  // The shift loop: a shift accepted is held in it until the turn ends, and only one a turn.
+  loop: Loop
   // The session's block as this session holds it; null when the harness reads it anew before every run.
   loaded: () => Promise<string | null>
   // How full the history is: the harness measures it.
   status: () => Promise<string>
 }
 
-// A refusal, or the result; an accepted shift also comes back for the adapter to let go after the turn.
-export type ToolDone = { deny: string } | { result: string; shift?: PendingShift }
+// A refusal, or the result.
+export type ToolDone = { deny: string } | { result: string }
 
 export type Tool = ToolText & {
   name: string
@@ -65,11 +65,14 @@ const ROWS: readonly Row[] = [
     writes: true,
     run: async (raw, call) => {
       if (call.subagent) return { deny: 'Only the main agent shifts, not a subagent.' }
-      if (call.pending) return { deny: 'The shift is already accepted: end the turn with one line.' }
+      if ((await call.loop.read()).pending !== null) return { deny: 'The shift is already accepted: end the turn with one line.' }
       const input = parseShiftInput(raw)
       if (typeof input === 'string') return { deny: input }
+      const accepted = await acceptShift(await call.project(), { input, at: await call.now(), sessionId: await call.sessionId() })
+      if ('deny' in accepted) return accepted
+      await holdShift(call.loop, accepted.shift)
 
-      return acceptShift(await call.project(), { input, at: await call.now(), sessionId: await call.sessionId() })
+      return { result: accepted.result }
     },
   },
   {
