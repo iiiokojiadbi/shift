@@ -24,10 +24,11 @@ export function checkArchive(input: ArchiveInput, task: TaskFiles, archived: boo
 
 // `continues` lists the archived tasks this one picked up, from its links in TASKS.md.
 export function indexLine(input: ArchiveInput, task: string, continues: readonly string[]): string {
-  const linked = continues
-  const tail = linked.length === 0 ? '' : `; continues ${linked.join(', ')}`
+  // An about that ends a sentence ends before the links: "tests pass; continues x", not "tests pass.; continues x".
+  const about = continues.length === 0 ? input.about : input.about.replace(/\.$/, '')
+  const tail = continues.length === 0 ? '' : `; continues ${continues.join(', ')}`
 
-  return `- [${input.outcome}] [${title(task) ?? input.name}](${input.name}/) — ${input.about}${tail}`
+  return `- [${input.outcome}] [${title(task) ?? input.name}](${input.name}/) — ${about}${tail}`
 }
 
 export function addToIndex(index: string | null, line: string): string {

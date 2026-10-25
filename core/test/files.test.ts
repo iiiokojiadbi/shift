@@ -167,7 +167,7 @@ test('task_archive writes the index line with what the task continued, and updat
     [`${R}/tasks/t/track.md`]: '- [done] x',
     [`${R}/archive/old/task.md`]: TASK,
   })
-  await archiveTask(await at(store), { name: 't', outcome: 'done', about: 'it ended' })
+  await archiveTask(await at(store), { name: 't', outcome: 'done', about: 'it ended.' })
   expect(store.files.get(`${R}/archive/index.md`)).toContain('— it ended; continues old')
   expect(store.files.get(`${R}/TASKS.md`)).toBe('none\n')
 })
