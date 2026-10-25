@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
-import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { SettingsManager } from '@earendil-works/pi-coding-agent'
+import type { CompactionEntry, CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { estimateTokens, findCutPoint, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
 import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, WaitNote } from './core/index'
 import {
@@ -77,14 +77,7 @@ export default function shift(pi: ExtensionAPI): void {
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
           status: () => gaugeStatus(keeperOf(ctx)),
-          // pi lets go only of what lies before its last keepRecentTokens; a smaller history it refuses as too small.
-          cannotLetGo: async () => {
-            const tokens = ctx.getContextUsage()?.tokens
-            const keep = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model).keepRecentTokens
-            return typeof tokens === 'number' && tokens <= keep
-              ? `the history is ${formatK(tokens)} tokens, and pi keeps the last ${formatK(keep)} whole, so it has nothing to let go.`
-              : null
-          },
+          cannotLetGo: async () => cannotLetGo(ctx),
         })
         if ('deny' in done) throw new Error(done.deny)
 
@@ -278,6 +271,21 @@ export default function shift(pi: ExtensionAPI): void {
       },
     }
   }
+}
+
+// pi lets go only of what lies before the cut it finds by keepRecentTokens, counted from the last let-go; with the cut
+// at the start it refuses as "session too small". The same cut is found here, before the shift is accepted.
+function cannotLetGo(ctx: ExtensionContext): string | null {
+  const keep = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model).keepRecentTokens
+  const branch = ctx.sessionManager.getBranch()
+  const last = branch.findLastIndex(entry => entry.type === 'compaction')
+  const kept = last === -1 ? -1 : branch.findIndex(entry => entry.id === (branch[last] as CompactionEntry).firstKeptEntryId)
+  const start = kept === -1 ? Math.max(0, last + 1) : kept
+  const cut = findCutPoint(branch, start, branch.length, keep)
+  if (cut.isSplitTurn || cut.firstKeptEntryIndex > start) return null
+  const since = branch.slice(start).reduce((sum, entry) => sum + (entry.type === 'message' ? estimateTokens(entry.message) : 0), 0)
+
+  return `the history since the last let-go is about ${formatK(since)} tokens, and pi keeps its last ${formatK(keep)} whole, so it has nothing to let go.`
 }
 
 // A row for the owner; a context gone stale with its session has no one to tell.

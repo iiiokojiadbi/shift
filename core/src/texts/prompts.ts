@@ -10,6 +10,7 @@ import {
   HISTORY_TOOL,
   INDEX,
   KNOWLEDGE,
+  LETTER,
   MOD,
   NAMES,
   NEXT,
@@ -235,3 +236,18 @@ export const EXCLUDED = (file: string) =>
 // The shift refused before anything is written: the harness would not let this history go.
 export const SHIFT_TOO_EARLY = (why: string) =>
   `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown — after the first soft hint.`
+
+// A shift accepted and then not made: the agent was told it was accepted, so it is told it was not.
+export const NOT_MADE_NOTE = (name: string, why: string) =>
+  `<${MOD} note="from the mod: the shift was not made">
+Shift ${name} was not made — ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; the shift's folder is kept as history. Go on from where you stopped, and shift again later.
+</${MOD}>`
+
+// A shift let go and its message not built: the agent has lost its history and got nothing back.
+export const UNSETTLED_NOTE = (name: string, why: string, dir: string) =>
+  `<${MOD} note="from the mod: the history was let go, the records were not handed back">
+Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read ${LETTER} (a copy is in ${dir}/${NAMES.letter}), then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
+</${MOD}>`
+
+// What the owner's row names when a failure's note went with their message.
+export const FAILURE_NOTE = 'the note that the shift failed'

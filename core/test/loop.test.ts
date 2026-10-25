@@ -61,15 +61,32 @@ test('an aborted turn lets nothing go; a failed let-go is told as an error; both
   expect(aborted.rows).toEqual([['warning', expect.stringContaining('not made — the turn was aborted')]])
   expect(aborted.kept.state.pending).toBeNull()
   expect(frontmatter(aborted.project.files.get(`${aborted.dir}/about.md`) ?? '').get('result')).toBe('not shifted: the turn was aborted')
+  // The owner stopped the turn: the agent, told the shift was accepted, learns otherwise with the owner's next message.
+  expect(aborted.kept.state.note?.context).toContain('was not made — the turn was aborted. Nothing was let go')
 
+  const prompts: string[] = []
   const failed = await setUp()
   await afterTurn(
     failed.project,
     failed.loop,
-    harness(async () => Promise.reject(new Error('busy'))),
+    harness(async () => Promise.reject(new Error('busy')), prompts),
     false,
   )
   expect(failed.rows).toEqual([['error', expect.stringContaining('not made — the let-go failed: Error: busy')]])
+  // To continue: the agent goes on at once, its history whole, within the count of runs without the owner.
+  expect(prompts).toEqual([expect.stringContaining('<shift note="from the mod: the shift was not made">')])
+  expect(failed.kept.state.streak).toBe(1)
+  expect(failed.kept.state.note).toBeNull()
+
+  const capped = await setUp('continue', 3)
+  await afterTurn(
+    capped.project,
+    capped.loop,
+    harness(async () => Promise.reject(new Error('busy')), prompts),
+    false,
+  )
+  expect(prompts).toHaveLength(1)
+  expect(capped.kept.state.note).toMatchObject({ files: ['the note that the shift failed'] })
 })
 
 test('a failure whose about.md cannot be written is still told, and says so', async () => {
@@ -88,6 +105,8 @@ test('a failure after the let-go is told and written as let go but not settled',
   const throwing = { ...harness(digest), afterLetGo: async () => Promise.reject(new Error('disk')) }
   await afterTurn(broken.project, broken.loop, throwing, false)
   expect(broken.rows).toEqual([['error', expect.stringContaining('the history was let go, but the message after it failed')]])
+  // The agent lost its history and got nothing back: it is sent to its records.
+  expect(broken.kept.state.streak).toBe(1)
   expect(frontmatter(broken.project.files.get(`${broken.dir}/about.md`) ?? '').get('result')).toBe('let go, not settled: Error: disk')
 })
 

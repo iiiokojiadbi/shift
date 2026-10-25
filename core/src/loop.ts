@@ -1,7 +1,9 @@
 import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, takeHint } from './hint'
+import { MAX_AUTO_STREAK } from './layout'
+import { basename } from './paths'
 import type { Project } from './project'
-import { compactInstructions } from './texts/prompts'
+import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, UNSETTLED_NOTE } from './texts/prompts'
 import { DELIVERED, NOT_CONTINUED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
@@ -62,15 +64,18 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   if (shift === null) return
   await loop.update(current => ({ ...current, pending: null }))
   const before = await harness.fill()
+  const name = basename(shift.dir)
   if (aborted) {
     const why = 'the turn was aborted'
     loop.tell(await shiftNotMade(project, shift, why, before), 'warning')
+    await tellAgent(loop, harness, shift, NOT_MADE_NOTE(name, why), false)
     return
   }
 
   const done = await harness.letGo(compactInstructions(shift)).catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
   if ('skip' in done) {
     loop.tell(await shiftNotMade(project, shift, done.skip, before), 'error')
+    await tellAgent(loop, harness, shift, NOT_MADE_NOTE(name, done.skip), true)
     return
   }
   let settled: Settled
@@ -87,6 +92,7 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   } catch (error) {
     const why = String(error)
     loop.tell(await shiftUnsettled(project, shift, why, done.before ?? before), 'error')
+    await tellAgent(loop, harness, shift, UNSETTLED_NOTE(name, why, shift.dir), true)
     return
   }
   if (settled.after === 'wait') {
@@ -100,6 +106,18 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   loop.tell(settled.row, 'info')
   // The shift is settled and written; a turn that does not start is told, not recorded against it.
   await harness.continueWith(settled.prompt).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
+}
+
+// A failed shift is told to the agent, who was told it was accepted: at once when it was to continue and may go on,
+// within the same count of runs without the owner; otherwise with the owner's next message.
+async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift, context: string, goOn: boolean): Promise<void> {
+  const { streak } = await loop.read()
+  if (goOn && shift.after === 'continue' && streak < MAX_AUTO_STREAK) {
+    await loop.update(current => ({ ...current, streak: current.streak + 1 }))
+    await harness.continueWith(context).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
+    return
+  }
+  await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
 }
 
 // The owner spoke: the count of shifts without them starts over.

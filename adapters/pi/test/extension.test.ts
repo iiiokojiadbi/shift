@@ -18,7 +18,25 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-function load(root: string, tokens = 50_000) {
+// A history of two turns, `chars` long, as pi's session keeps it.
+function branch(chars: number) {
+  const message = (id: string, role: 'user' | 'assistant', text: string) => ({
+    type: 'message',
+    id,
+    parentId: null,
+    timestamp: '',
+    message: role === 'user' ? { role, content: text, timestamp: 0 } : { role, content: [{ type: 'text', text }], timestamp: 0 },
+  })
+
+  return [
+    message('a', 'user', 'x'.repeat(chars / 2)),
+    message('b', 'assistant', 'y'.repeat(chars / 2)),
+    message('c', 'user', 'go on'),
+    message('d', 'assistant', 'z'),
+  ]
+}
+
+function load(root: string, chars = 200_000) {
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
   const notes: string[] = []
@@ -44,8 +62,8 @@ function load(root: string, tokens = 50_000) {
     cwd: root,
     hasUI: false,
     ui: { notify: (text: string) => notes.push(text) },
-    sessionManager: { getBranch: () => [], getSessionId: () => 's1', buildSessionProjection: () => ({ messages: [] }) },
-    getContextUsage: () => ({ tokens, contextWindow: 200_000 }),
+    sessionManager: { getBranch: () => branch(chars), getSessionId: () => 's1', buildSessionProjection: () => ({ messages: [] }) },
+    getContextUsage: () => ({ tokens: chars / 4, contextWindow: 200_000 }),
     compact: (options: { onComplete: (result: unknown) => void }) =>
       options.onComplete({ summary: 'DIGEST', tokensBefore: 300_000, estimatedTokensAfter: 20_000 }),
     model: undefined,
@@ -107,10 +125,10 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
   expect(going.notes.some(note => note.includes('continuing from the letter'))).toBe(true)
 
   // pi keeps its last keepRecentTokens whole: a history no bigger has nothing to let go, and the shift says so first.
-  const small = load(await project(records), 15_000)
+  const small = load(await project(records), 40_000)
   await small.on('session_start')
   await expect(small.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).rejects.toThrow(
-    'Nothing to shift yet: the history is 15K tokens, and pi keeps the last 20K whole',
+    'Nothing to shift yet: the history since the last let-go is about 10K tokens, and pi keeps its last 20K whole',
   )
 
   const stopped = load(await project(records))
