@@ -26,6 +26,8 @@ export const RESUME_COMMAND = 'unshift'
 
 export const TASKS_COMMAND = 'shift-tasks'
 
+export const SHIFT_COMMAND = 'shift'
+
 // The board is the state of the work; past this it has turned into a diary.
 export const BOARD_MAX_LINES = 150
 

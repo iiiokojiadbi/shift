@@ -18,8 +18,10 @@ import {
   OWNER,
   RESUME_COMMAND,
   SETTINGS,
+  SHIFT_COMMAND,
   TASK_LIST,
   TASKS,
+  TOOL,
   TRACK_TOOL,
 } from '../layout'
 import { frontmatter } from '../markdown'
@@ -224,6 +226,10 @@ export function resumePrompt(letter: string, back: HandedBack): string {
 
 // What starts the turn after /unshift when the owner wrote nothing with it: the letter is already in the history.
 export const RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`
+
+// The owner's /shift: their word to shift now, the first hint or not, with what they typed after the command.
+export const SHIFT_NOW = (words: string) =>
+  `<${MOD} note="from the owner's /${SHIFT_COMMAND}">The owner asks you to shift now, whether a hint has come or not. Bring the step in hand to a point the letter can name, keep your records, write the letter and call ${TOOL}; choose after as the work needs.${words === '' ? '' : ` The owner's words: ${words}`}</${MOD}>`
 
 // How the turn ends once a shift is accepted. The owner reads the turn's last message, not the letter or the records:
 // with `wait` it is the answer they come back to.

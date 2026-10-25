@@ -1,6 +1,6 @@
 import type { TestBody } from 'claude-code/testing'
 import { expect, mock, test } from 'claude-code/testing'
-import { doctrine, growthOf, shiftFill } from '../hooks/core/index'
+import { doctrine, growthOf, SHIFT_NOW, shiftFill } from '../hooks/core/index'
 import { BOARD, LETTER, LIST, OWNER, TESTS, TRACK, TRAPS } from './data'
 
 const AT = Date.UTC(2026, 9, 23, 14, 5, 9)
@@ -425,6 +425,26 @@ test('/unshift hands the last letter, the board and the tasks in progress to a f
   await $.prompt.submit({ text: 'and the docs', origin: { kind: 'composer' } } as never)
   await clock.advance(200)
   expect(submitted.slice(-2)).toEqual(['look at the parser first', 'and the docs'])
+})
+
+test('/shift starts a turn of its own with the ask to shift and the words typed after it', async ($, on) => {
+  stubSession(on, project())
+  const submitted: string[] = []
+  const clock = mock.clock(on, { now: AT })
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+
+  const run = await $.command.run({
+    command: 'shift',
+    args: ' hold the parser ',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 80 },
+  })
+  expect(run.text).toBeUndefined()
+  await clock.advance(200)
+  expect(submitted).toEqual([SHIFT_NOW('hold the parser')])
 })
 
 test('settings turn the mod off in a project: no tools, no doctrine; without docs no docs tools', async ($, on) => {

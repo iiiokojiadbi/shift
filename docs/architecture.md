@@ -23,7 +23,7 @@ An adapter keeps only what its harness alone can do:
 - measuring the history (tokens, window, the harness's own let-go threshold);
 - letting the history go and starting a turn;
 - delivering text: the doctrine, a hint, the message after a shift, the owner's rows;
-- registering the core's tools and the commands: `/unshift`, and `/shift-tasks` — the open tasks for the owner, read only, run at once even mid-turn (`tasksView`).
+- registering the core's tools and the commands: `/unshift`; `/shift` — the owner's word to shift now, a turn of its own after the one in flight with the words typed after it (`SHIFT_NOW`); and `/shift-tasks` — the open tasks for the owner, read only, run at once even mid-turn (`tasksView`).
 
 ## The core's modules
 

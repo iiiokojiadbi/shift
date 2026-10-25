@@ -16,6 +16,9 @@ import {
   renderSessionFiles,
   resumeShift,
   runEnded,
+  SHIFT_COMMAND,
+  SHIFT_NOW,
+  SHIFT_NOW_DESCRIPTION,
   SOURCES,
   sessionDoctrine,
   sessionFiles,
@@ -55,6 +58,7 @@ export const register: Register = on => {
     }
     await $.command.register({ name: RESUME_COMMAND, description: RESUME_DESCRIPTION })
     await $.command.register({ name: TASKS_COMMAND, description: TASKS_DESCRIPTION, immediate: true })
+    await $.command.register({ name: SHIFT_COMMAND, description: SHIFT_NOW_DESCRIPTION, argumentHint: 'words for the agent' })
 
     return next(e)
   })
@@ -135,6 +139,13 @@ export const register: Register = on => {
     }
 
     return { text: resumed.text, context: [prompt] }
+  })
+
+  // The owner's word to shift, without writing it: after the turn in flight, a turn of its own.
+  on('command.run', { command: SHIFT_COMMAND }, async ($, e) => {
+    $.clock.after(100, () => void $.prompt.submit({ text: SHIFT_NOW(e.args.trim()) }))
+
+    return {}
   })
 
   // For the owner: it runs at once, even mid-turn, and asks the agent nothing.

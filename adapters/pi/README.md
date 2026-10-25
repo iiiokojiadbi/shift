@@ -6,7 +6,7 @@ The agent decides by itself when to **shift**. At a stage boundary it updates it
 pi install npm:@iiiokojiadbi/shift
 ```
 
-The extension adds a "Shift" section to the system prompt, the `shift` tool with its companions (`shift_guide`, `shift_status`, `shift_history`, `shift_setup`, `task_open`, `task_track`, `task_archive`, `doc_outline`, `docs_mentioning`), and two commands: `/shift-tasks` lists the open tasks, `/unshift` picks up the last shift in a fresh session. It hints a shift as the history grows.
+The extension adds a "Shift" section to the system prompt, the `shift` tool with its companions (`shift_guide`, `shift_status`, `shift_history`, `shift_setup`, `task_open`, `task_track`, `task_archive`, `doc_outline`, `docs_mentioning`), and three commands: `/shift` asks the agent to shift now, `/shift-tasks` lists the open tasks, `/unshift` picks up the last shift in a fresh session. It hints a shift as the history grows.
 
 The records live in the project's `.shift/` folder and stay out of its git unless `commit = true` in `.shift/settings.toml`.
 

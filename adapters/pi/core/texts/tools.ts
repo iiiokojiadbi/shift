@@ -36,6 +36,8 @@ export const SETUP_DESCRIPTION =
 
 export const TASKS_DESCRIPTION = 'The open tasks and the items of those in progress, read from .shift/; the agent is not asked'
 
+export const SHIFT_NOW_DESCRIPTION = 'Ask the agent to shift now; words typed after it go to the agent with the ask'
+
 export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent'
 
 export const SETUP_SCHEMA = { type: 'object', properties: {} }

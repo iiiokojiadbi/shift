@@ -23,6 +23,9 @@ import {
   RESUME_DESCRIPTION,
   resumeShift,
   SETTINGS,
+  SHIFT_COMMAND,
+  SHIFT_NOW,
+  SHIFT_NOW_DESCRIPTION,
   SOURCES,
   sessionDoctrine,
   sessionFiles,
@@ -88,6 +91,15 @@ export default function shift(pi: ExtensionAPI): void {
   pi.registerCommand(TASKS_COMMAND, {
     description: TASKS_DESCRIPTION,
     handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await projectAt(ctx.cwd)), 'info'),
+  })
+
+  pi.registerCommand(SHIFT_COMMAND, {
+    description: SHIFT_NOW_DESCRIPTION,
+    handler: async (args, ctx) => {
+      if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
+      // Typed mid-run, it waits for the run to end, as Claude Code holds a command until the turn is over.
+      pi.sendUserMessage(SHIFT_NOW(args.trim()), ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
+    },
   })
 
   pi.registerCommand(RESUME_COMMAND, {
