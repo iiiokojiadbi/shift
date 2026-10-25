@@ -72,6 +72,17 @@ test('an aborted turn lets nothing go; a failed let-go is told as an error; both
   expect(failed.rows).toEqual([['error', expect.stringContaining('not made — the let-go failed: Error: busy')]])
 })
 
+test('a failure whose about.md cannot be written is still told, and says so', async () => {
+  const { project, loop, rows } = await setUp()
+  project.store.write = async () => {
+    throw new Error('disk full')
+  }
+  await afterTurn(project, loop, harness(digest), true)
+  expect(rows).toEqual([
+    ['warning', expect.stringMatching(/not made — the turn was aborted \(and about\.md was not written: Error: disk full\)$/)],
+  ])
+})
+
 test('a failure after the let-go is told and written as let go but not settled', async () => {
   const broken = await setUp()
   const throwing = { ...harness(digest), afterLetGo: async () => Promise.reject(new Error('disk')) }
