@@ -235,6 +235,9 @@ test("records changed by the agent's tools are told only when broken, by someone
   expect(broken.note).toContain('if you are still writing them, go on')
   // Told once: unchanged since, the same broken board says nothing more; another record is not this look's.
   expect((await changedRecords(p, broken.seen, 'agent')).note).toBeNull()
+  // Rewritten with the same text: a new stamp, no change.
+  await put('board.md', '## Goal\nthe mod')
+  expect((await changedRecords(p, broken.seen, 'other')).note).toBeNull()
 
   await put('OWNER.md', '# Owner decisions\n\n## Work\n\n- «green first, always»')
   const outside = (await changedRecords(p, broken.seen, 'other')).note ?? ''

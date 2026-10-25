@@ -50,7 +50,7 @@ declare module 'claude-code' {
       // The session the block was read for: a resume or a /clear in the same process starts no session, so a new id
       // is what tells the block to be read again.
       filesSession: string | null
-      // The records as the mod last saw them, a stamp (time and size) per path from the project's root; null before the first look.
+      // The records as the mod last saw them, `<stamp>#<fingerprint>` per path from the project's root; null before the first look.
       seen: Record<string, string> | null
       // The main agent's tools running now: a change seen while one runs may be its own.
       running: number

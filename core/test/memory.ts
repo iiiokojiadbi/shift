@@ -4,6 +4,9 @@ import type { Store } from '../src/store'
 // A store over a map of absolute paths to texts, for testing the core's flows without a harness.
 export function memoryStore(seed: Record<string, string> = {}, ignored = true): Store & { files: Map<string, string> } {
   const files = new Map(Object.entries(seed))
+  // Every write stamps its file anew, as a file's time does, whatever the text.
+  const stamps = new Map<string, number>()
+  let clock = 0
   const under = (path: string) => [...files.keys()].filter(key => key.startsWith(`${path}/`)).map(key => key.slice(path.length + 1))
 
   return {
@@ -20,10 +23,11 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
       Object.fromEntries(
         under(path)
           .filter(rest => !rest.includes('/'))
-          .map(name => [name, `${(files.get(`${path}/${name}`) ?? '').length}:${files.get(`${path}/${name}`)}`]),
+          .map(name => [name, String(stamps.get(`${path}/${name}`) ?? 0)]),
       ),
     write: async (path, text) => {
       files.set(path, text)
+      stamps.set(path, ++clock)
     },
     exists: async path => files.has(path) || under(path).length > 0,
     move: async (from, to) => {

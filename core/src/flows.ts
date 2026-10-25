@@ -41,7 +41,8 @@ export async function afterWrite(project: Project, file: string): Promise<string
   return lines.length === 0 ? null : `<${MOD} note="the mod's check of the file just written">\n${lines.join('\n')}\n</${MOD}>`
 }
 
-// What the mod last saw of the records: a stamp per file, by its path from the project's root.
+// What the mod last saw of the records: per file, by its path from the project's root, its stamp and a fingerprint of
+// its text as `<stamp>#<fingerprint>`.
 export type Seen = Record<string, string>
 
 // Who changed the records since the mod last looked: the agent's own tool — a write, a shell command, a script — or
@@ -54,8 +55,22 @@ export type ChangedBy = 'agent' | 'other'
 // shift's to tell.
 export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; note: string | null }> {
   if (!project.settings.enabled) return { seen: seen ?? {}, note: null }
-  const now = await recordStamps(project)
-  const changed = seen === null ? [] : Object.keys(now).filter(path => seen[path] !== now[path])
+  // A new stamp alone is not a change: a file rewritten with the same text, or edited and put back, says nothing.
+  const now: Seen = {}
+  const changed: string[] = []
+  for (const [path, stamp] of Object.entries(await recordStamps(project))) {
+    const was = seen?.[path] ?? ''
+    const at = was.lastIndexOf('#')
+    if (at !== -1 && was.slice(0, at) === stamp) {
+      now[path] = was
+      continue
+    }
+    const text = await project.store.read(`${project.root}/${path}`)
+    if (text === null) continue
+    const hash = String(fingerprint(text))
+    now[path] = `${stamp}#${hash}`
+    if (seen !== null && was.slice(at + 1) !== hash) changed.push(path)
+  }
   if (changed.length === 0) return { seen: now, note: null }
 
   const work = await readRecords(project)
@@ -97,6 +112,14 @@ async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
   ])
 
   return Object.assign({}, ...parts)
+}
+
+// FNV-1a over the text: whether a file restamped really changed, without keeping its text.
+function fingerprint(text: string): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
+
+  return hash >>> 0
 }
 
 async function letterProblem({ store, root }: Project): Promise<string | null> {
