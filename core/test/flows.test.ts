@@ -270,3 +270,17 @@ test('a task unchanged through many shifts is named after a shift, with its stat
   expect(await stuckTasks(p)).toEqual([{ name: 'tests', status: 'in progress', shifts: 5 }])
   expect(renderStuck(await stuckTasks(p))).toContain('- tests (in progress) — 5 shifts')
 })
+
+test('a stretch that wrote no knowledge is asked once, at the accepted shift, while its history is whole', async () => {
+  const p = await project({ [`${R}/knowledge/traps.md`]: TRAPS })
+  const result = async (at: number) => {
+    const done = await acceptShift(p, { input: INPUT, at, sessionId: 's1' })
+    if ('deny' in done) throw new Error(done.deny)
+    return done.result
+  }
+  expect(await result(AT)).not.toContain('Nothing went into')
+  p.files.set(`${R}/tasks/tests/track.md`, '- [done] fix the parser\n- [in progress] cover the archive')
+  expect(await result(AT + 1000)).toContain('Nothing went into .shift/knowledge/ this stretch')
+  p.files.set(`${R}/knowledge/traps.md`, `${TRAPS}\n\n### Another\n\n**Cause.** c.\n\n**Do.** d.`)
+  expect(await result(AT + 2000)).toContain('Shift accepted, the letter and the snapshots: /p/.shift/shifts/20260102-030407/. End the turn')
+})

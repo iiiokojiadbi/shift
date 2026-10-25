@@ -43,7 +43,7 @@ import {
   waitContext,
 } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
-import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles } from './types'
+import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles, Work } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -174,7 +174,15 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
   await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }))
 
-  return { shift, result: kept.excluded === null ? ACCEPTED(dir) : `${EXCLUDED(kept.excluded)}\n\n${ACCEPTED(dir)}` }
+  // Knowledge is rarely written: a stretch that added none is asked once, while its history is still whole.
+  const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work)
+  const accepted = ACCEPTED(dir, learned)
+
+  return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
+}
+
+function knowledgeText(work: Work): string {
+  return work.knowledge.map(file => `${file.name}\n${file.text}`).join('\n')
 }
 
 // Moves a finished or dropped task's folder to the archive and adds its line to the index.

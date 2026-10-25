@@ -60,7 +60,7 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 ## Knowledge and where it goes
 
-`knowledge/<kind>[-<topic>].md` holds what the agent learned that stays true for months and is neither a decision, a dead end nor a task: kinds `traps`, `lessons`, `runbook`, `facts`, each entry with its kind's fields. Only its map comes back after a shift; files are read on demand.
+`knowledge/<kind>[-<topic>].md` holds what the agent learned that stays true for months and is neither a decision, a dead end nor a task: kinds `traps`, `lessons`, `runbook`, `facts`, each entry with its kind's fields. Only its map comes back after a shift; files are read on demand. It was rarely written — one trap in a long session — so a shift accepted after a stretch that changed nothing in `knowledge/` asks once, in its answer, while the stretch's history is still whole; it never refuses for it.
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
