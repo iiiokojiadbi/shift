@@ -22,13 +22,13 @@ export function segment(now: Snapshot, previous: Snapshot | null): Segment {
       new Set(
         itemsOf(task.track ?? '')
           .filter(i => CLOSED.has(i.status))
-          .map(i => i.rest),
+          .map(i => i.name),
       ),
     )
   }
   const fresh = now.work.tasks.flatMap(task =>
     itemsOf(task.track ?? '')
-      .filter(item => CLOSED.has(item.status) && !(closedBefore.get(task.name)?.has(item.rest) ?? false))
+      .filter(item => CLOSED.has(item.status) && !(closedBefore.get(task.name)?.has(item.name) ?? false))
       .map(item => ({ status: item.status, text: `${task.name}: ${item.rest}` })),
   )
   const indexed = new Set(itemsOf(previous?.index ?? '').map(i => i.line))

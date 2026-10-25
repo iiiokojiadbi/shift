@@ -16,6 +16,10 @@ export type ListedTask = { status: string; name: string; about: string; line: st
 
 const TASK_LINE = /^- \[([^\]]+)\] \[([^\]]+)\]\(tasks\/([^)/]+)\/?\) — (.+)$/
 
+export function formatTaskLine(status: string, label: string, name: string, about: string): string {
+  return `- [${status}] [${label}](tasks/${name}/) — ${about}`
+}
+
 // One line of TASKS.md as `- [status] [label](tasks/name/) — about`; null when it is not a task line.
 export function taskLine(line: string): { status: string; label: string; name: string; about: string } | null {
   const [, status = '', label = '', name = '', about = ''] = TASK_LINE.exec(line.trimEnd()) ?? []

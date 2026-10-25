@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { segment } from '../src/history'
 import { loadProject } from '../src/project'
 import { parseTrackInput, updateTrack } from '../src/track'
 import { memoryStore } from './memory'
@@ -63,4 +64,32 @@ test('add puts a new item at the end, once; without an item the task line in TAS
   )
   const missing = await updateTrack(await loadProject(store, ROOT), call({ task: 'nope', item: 'x', status: 'done' }))
   expect('deny' in missing && missing.deny).toContain('the task is not open')
+})
+
+test('an item reads the same everywhere: a cramped status line is found, and a new note on a done item is not done again', async () => {
+  const store = memoryStore({
+    [`${R}/tasks/adapters/track.md`]: '- [done]pi adapter\n- [open] opencode adapter\n',
+    [`${R}/TASKS.md`]: LIST,
+  })
+  expect(
+    await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'pi adapter', status: 'done', note: 'shipped' })),
+  ).toEqual({
+    result: 'adapters/track.md: - [done] pi adapter — shipped',
+  })
+  const work = (track: string) => ({
+    board: '',
+    owner: null,
+    tasks: [{ name: 'adapters', task: null, track }],
+    knowledge: [],
+    taskList: null,
+    glossary: null,
+    shift: null,
+    archived: [],
+    oldOwner: false,
+  })
+  const before = { work: work('- [done] pi adapter — built'), index: null }
+  expect(segment({ work: work('- [done] pi adapter — shipped'), index: null }, before).done).toEqual([])
+  expect(segment({ work: work('- [done] pi adapter\n- [dropped] opencode — later'), index: null }, before).dropped).toEqual([
+    'adapters: opencode — later',
+  ])
 })

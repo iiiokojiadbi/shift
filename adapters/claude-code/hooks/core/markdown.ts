@@ -89,15 +89,30 @@ export function findDate(text: string): string | null {
   return null
 }
 
+// Every `- ` line of a text as an item; a line without a `[status]` has an empty one.
 export function itemsOf(text: string): Item[] {
-  return text
-    .split('\n')
-    .filter(line => line.startsWith('- '))
-    .map(line => {
-      const match = /^- \[([^\]]+)\] *(.*)$/.exec(line.trim())
+  return text.split('\n').flatMap((raw, index) => {
+    if (!raw.startsWith('- ')) return []
+    const line = raw.trim()
+    const match = /^- \[([^\]]+)\] *(.*)$/.exec(line)
+    const rest = match?.[2] ?? line.slice(2).trim()
+    const cut = rest.indexOf(' — ')
 
-      return { status: match?.[1] ?? '', rest: match?.[2] ?? line.slice(2).trim(), line: line.trim() }
-    })
+    return [
+      {
+        status: match?.[1] ?? '',
+        name: cut === -1 ? rest : rest.slice(0, cut),
+        note: cut === -1 ? null : rest.slice(cut + 3),
+        rest,
+        line,
+        index,
+      },
+    ]
+  })
+}
+
+export function formatItem(status: string, name: string, note: string | null): string {
+  return `- [${status}] ${name}${note === null ? '' : ` — ${note}`}`
 }
 
 export function formatK(n: number): string {

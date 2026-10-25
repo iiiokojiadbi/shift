@@ -12,8 +12,8 @@ export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
 
 export type ArchiveInput = { name: string; outcome: 'done' | 'dropped'; about: string }
 
-// `- [status] rest` lines of a block.
-export type Item = { status: string; rest: string; line: string }
+// A `- [status] name — note` line of a block: `rest` is all after the status, `index` the line's place in the text.
+export type Item = { status: string; name: string; note: string | null; rest: string; line: string; index: number }
 
 // The board's tasks: status, folder name and the note after the dash.
 export type FocusTask = { status: string; name: string; line: string }

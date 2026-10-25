@@ -1,8 +1,9 @@
-import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS } from './layout'
-import { dated } from './markdown'
+import { ARCHIVE_TOOL, CLOSED, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS } from './layout'
+import { dated, formatItem, itemsOf } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
-import { taskLine } from './tasks'
+import { formatTaskLine, taskLine } from './tasks'
+import type { Item } from './types'
 
 // Statuses set by a tool instead of an edit by hand: a track item found by the words of its name, or a task's own
 // line in TASKS.md. Items carry no ids — the records stay clean, and the agent knows the words it wrote; a fragment
@@ -49,7 +50,7 @@ async function setTaskStatus(store: Store, root: string, input: TrackInput): Pro
   const at = lines.findIndex(line => taskLine(line)?.name === input.task)
   const task = taskLine(lines[at] ?? '')
   if (task === null) return { deny: `No line for ${input.task} in ${TASK_LIST}: open the task there first.` }
-  lines[at] = `- [${input.status}] [${task.label}](tasks/${task.name}/) — ${input.note ?? task.about}`
+  lines[at] = formatTaskLine(input.status, task.label, task.name, input.note ?? task.about)
   await store.write(path, lines.join('\n'))
 
   return { result: `${TASK_LIST}: ${lines[at]}` }
@@ -60,21 +61,13 @@ async function setItem(store: Store, root: string, input: TrackInput & { item: s
   const text = await store.read(path)
   if (text === null) return { deny: `No ${TASKS}/${input.task}/track.md: the task is not open.` }
   const lines = text.split('\n')
-  const items = lines
-    .map((line, index) => ({ index, match: /^- \[([^\]]+)\] (.*)$/.exec(line.trimEnd()) }))
-    .filter((each): each is { index: number; match: RegExpExecArray } => each.match !== null)
-    .map(({ index, match }) => {
-      const rest = match[2] ?? ''
-      const cut = rest.indexOf(' — ')
-
-      return { index, name: cut === -1 ? rest : rest.slice(0, cut), tail: cut === -1 ? '' : rest.slice(cut) }
-    })
-  const listed = (found: typeof items) => found.map((each, n) => `${n + 1}. ${lines[each.index]?.trim()}`).join('\n')
+  const items = itemsOf(text).filter(item => item.status !== '')
+  const listed = (found: readonly Item[]) => found.map((each, n) => `${n + 1}. ${each.line}`).join('\n')
   const wanted = input.item.toLowerCase()
 
   if (input.add) {
     if (items.some(each => each.name.toLowerCase() === wanted)) return { deny: `"${input.item}" is already an item of ${input.task}.` }
-    const line = `- [${input.status}] ${input.item}${input.note === null ? '' : ` — ${input.note}`}`
+    const line = formatItem(input.status, input.item, input.note)
     const body = text.trimEnd()
     await store.write(path, `${body === '' ? '' : `${body}\n`}${line}\n`)
 
@@ -92,10 +85,9 @@ async function setItem(store: Store, root: string, input: TrackInput & { item: s
       deny: `No item of ${input.task} has "${input.item}" in its name. Its items:\n${listed(items)}\nCall again with words of one of them, or add: true for a new item.`,
     }
   }
-  lines[only.index] = `- [${input.status}] ${only.name}${input.note === null ? only.tail : ` — ${input.note}`}`
+  lines[only.index] = formatItem(input.status, only.name, input.note ?? only.note)
   await store.write(path, lines.join('\n'))
-  const open = items.filter(each => each.index !== only.index && /^- \[(in progress|open)\]/.test(lines[each.index] ?? ''))
-  const closed = open.length === 0 && (input.status === 'done' || input.status === 'dropped')
+  const closed = itemsOf(lines.join('\n')).every(each => each.status === '' || CLOSED.has(each.status))
 
   return {
     result: `${input.task}/track.md: ${lines[only.index]}${closed ? `\nEvery item of ${input.task} is closed: archive it with ${ARCHIVE_TOOL} when the task is over.` : ''}`,

@@ -87,10 +87,11 @@ export const LETTER_SECTIONS = ['Where I am', 'Next', 'Unverified', 'Hold'] as c
 // Where a task stands on the board; closing it is archiving it.
 export const FOCUS = ['in progress', 'deferred', 'waiting for owner'] as const
 
-// Where an item of a task's track stands.
-export const STATUSES = ['in progress', 'open', 'done', 'dropped'] as const
-
-export const CLOSED = new Set(['done', 'dropped'])
+// Where an item of a task's track stands: open ones still to do, closed ones done or dropped.
+const OPEN = ['in progress', 'open'] as const
+const CLOSING = ['done', 'dropped'] as const
+export const STATUSES = [...OPEN, ...CLOSING] as const
+export const CLOSED: ReadonlySet<string> = new Set(CLOSING)
 
 // Kinds of knowledge files and the fields every `###` entry of a kind carries; a glossary is `- **term** — meaning` lines.
 export const KINDS = {
