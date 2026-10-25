@@ -380,20 +380,17 @@ export async function refreshDocs(project: Project): Promise<Doc[]> {
   return docs
 }
 
-// A document's pinned blocks under its entry, each with the section it is in: every line of a block starts with
-// " · ", a list item's own marker replaced, the first beside the label and the rest indented under it.
+// A document's pinned blocks under its entry, each with the section it is in: the label on a line of its own, then
+// every line of the block under it starting with " · ", a list item's own marker replaced.
 function pinRows(pins: readonly Pin[], indent = ''): string[] {
-  return pins.flatMap(pin => {
-    const [first = '', ...rest] = pin.text
+  return pins.flatMap(pin => [
+    `${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}:`,
+    ...pin.text
       .split('\n')
       .map(line => line.trim().replace(/^[-*+] +/, ''))
       .filter(line => line !== '')
-
-    return [
-      `${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}: · ${first}`,
-      ...rest.map(line => `${indent}    · ${line}`),
-    ]
-  })
+      .map(line => `${indent}    · ${line}`),
+  ])
 }
 
 // The note when the pinned blocks together pass `[docs] max_pinned`; null within it. Never a refusal: they all show.
