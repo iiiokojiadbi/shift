@@ -4,6 +4,7 @@ import { acceptShift, archiveTask, keepRecordsOut, shiftHistory, staleLayout } f
 import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput } from './input'
 import {
   ARCHIVE_TOOL,
+  atPlaces,
   DIR,
   GUIDE_TOOL,
   HISTORY_TOOL,
@@ -58,7 +59,7 @@ export type Tool = ToolText & {
 type Row = Omit<Tool, keyof ToolText | 'writes' | 'docs'> & { writes?: boolean; docs?: boolean }
 
 const ROWS: readonly Row[] = [
-  { name: GUIDE_TOOL, run: async () => ({ result: GUIDE }) },
+  { name: GUIDE_TOOL, run: async (_raw, call) => ({ result: atPlaces(GUIDE, (await call.project()).settings.files) }) },
   {
     name: TOOL,
     writes: true,
@@ -155,7 +156,13 @@ export async function startSession(project: Project): Promise<SessionStart> {
   if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: 'warning' })
   const tools = shownTools(settings)
   const names = tools.map(tool => tool.name)
-  const start = { enabled: settings.enabled, rows, tools, doctrine: doctrine(names), doctrineBody: doctrineBody(names) }
+  const start = {
+    enabled: settings.enabled,
+    rows,
+    tools,
+    doctrine: atPlaces(doctrine(names), settings.files),
+    doctrineBody: atPlaces(doctrineBody(names), settings.files),
+  }
   if (!settings.enabled) return start
 
   const stale = await staleLayout(project)

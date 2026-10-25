@@ -1,5 +1,6 @@
 import {
   ARCHIVE,
+  atPlaces,
   BOARD,
   DIR,
   GUIDE_TOOL,
@@ -16,32 +17,37 @@ import {
 } from '../layout'
 import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
-import type { Placement } from '../settings'
-import type { HandedBack, Recent, SessionFile, Work } from '../types'
+import type { Placement, Settings } from '../settings'
+import type { HandedBack, PendingShift, Recent, SessionFile, Work } from '../types'
 
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
 
 // What the engine's summarizer is told; the model never sees this framing.
-export function compactInstructions(hold: string, board: string, letter: string): string {
+export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir'>): string {
   return [
     'The agent is shifting: it continues this same work right after, from its own letter.',
-    `Its work board (${board}), the owner's decisions (${OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
+    `Its work board (${shift.board}), the owner's decisions (${shift.owner}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/letter.md) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     'Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.',
     'Do not write next steps or a plan.',
     '',
     'What the agent asked to hold:',
-    hold,
+    shift.hold,
   ].join('\n')
 }
 
 // Added to an automatic compaction the agent did not ask for.
-export const UNASSISTED_INSTRUCTIONS = `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}, its tasks in ${TASKS}/. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`
+export function unassistedInstructions(files: Settings['files']): string {
+  return atPlaces(
+    `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}, its tasks in ${TASKS}/. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`,
+    files,
+  )
+}
 
 // The board and the tasks in progress, whole, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
 // TASKS.md, GLOSSARY.md and SHIFT.md are in the session's own block, fresh after every shift.
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
-export function renderWork(work: Work | null, knowledge: Placement | null): string {
+export function renderWork(work: Work | null, knowledge: Placement | null, owner: string): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
     fileBlock(`${TASKS}/${t.name}/task.md`, t.task ?? 'missing'),
@@ -51,15 +57,15 @@ export function renderWork(work: Work | null, knowledge: Placement | null): stri
   return [
     fileBlock(BOARD, work.board),
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
-    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
+    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n')
 }
 
 // Where new knowledge goes, by the owner's \`knowledge\` setting.
-function placement(knowledge: Placement | null): string {
+function placement(knowledge: Placement | null, owner: string): string {
   if (knowledge === 'local') return 'here: the owner set knowledge = "local"'
   if (knowledge === 'project') return 'to the project\'s docs: the owner set knowledge = "project"'
-  if (knowledge === 'split') return `split by the boundary in ${OWNER}: the owner set knowledge = "split"`
+  if (knowledge === 'split') return `split by the boundary in ${owner}: the owner set knowledge = "split"`
 
   return `here until the owner sets knowledge in ${SETTINGS}; ask them once`
 }
@@ -131,7 +137,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     '',
     'The board, the tasks in progress and the map of knowledge, as they are now; SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md are in your session block, read again after this shift:',
     '',
-    renderWork(work, back.knowledge),
+    renderWork(work, back.knowledge, back.owner),
     '',
     renderRecent(recent),
     '',

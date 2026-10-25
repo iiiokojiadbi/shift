@@ -46,7 +46,15 @@ export type Work = {
 
 // What a shift hands back beside the letter: the records as they are now, where new knowledge goes, the last shifts,
 // the shift's folder and the documents with remarks.
-export type HandedBack = { work: Work | null; knowledge: Placement | null; recent: Recent; dir: string; remarks: string | null }
+export type HandedBack = {
+  work: Work | null
+  knowledge: Placement | null
+  // OWNER.md from the project's root, where its settings put it.
+  owner: string
+  recent: Recent
+  dir: string
+  remarks: string | null
+}
 
 // What one stretch of work did, from the files against the previous shift's snapshot.
 export type Segment = { done: string[]; dropped: string[]; archived: string[]; open: string[] }
@@ -78,6 +86,8 @@ export type PendingShift = {
   hold: string
   dir: string
   board: string
+  // OWNER.md, absolute, where the project's settings put it.
+  owner: string
   sessionId: string
   about: string
   at: number

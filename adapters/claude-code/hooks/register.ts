@@ -16,7 +16,7 @@ import {
   sessionFiles,
   startSession,
   TOOLS,
-  UNASSISTED_INSTRUCTIONS,
+  unassistedInstructions,
   withHint,
 } from './core/index'
 import { projectOf } from './disk'
@@ -165,11 +165,12 @@ export const register: Register = on => {
     return done
   }).catch((_$, e, next) => next(e))
 
-  on('session.compact', { trigger: 'auto' }, async ($, e, next) =>
-    (await read($, enabled))
-      ? next({ ...e, instructions: [e.instructions, UNASSISTED_INSTRUCTIONS].filter(Boolean).join('\n\n') })
-      : next(e),
-  ).catch((_$, e, next) => next(e))
+  on('session.compact', { trigger: 'auto' }, async ($, e, next) => {
+    if (!(await read($, enabled))) return next(e)
+    const unassisted = unassistedInstructions((await projectOf($)).settings.files)
+
+    return next({ ...e, instructions: [e.instructions, unassisted].filter(Boolean).join('\n\n') })
+  }).catch((_$, e, next) => next(e))
 }
 
 // Who a row came from, as the hint names it; rows outside the model's history are not counted.

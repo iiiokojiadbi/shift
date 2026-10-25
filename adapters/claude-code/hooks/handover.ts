@@ -18,7 +18,7 @@ export async function handOver($: EngineInterface): Promise<void> {
   const project = await projectOf($)
   const tokensBefore = (await $.session.usage()).context.tokens
   const done = await $.session
-    .compact({ instructions: compactInstructions(shift.hold, shift.board, `${shift.dir}/letter.md`) })
+    .compact({ instructions: compactInstructions(shift) })
     .catch((error: unknown) => ({ skip: `compaction failed: ${String(error)}`, messages: undefined }))
   if (done.messages === undefined) {
     $.ui.log(await shiftNotMade(project, shift, done.skip, tokensBefore))

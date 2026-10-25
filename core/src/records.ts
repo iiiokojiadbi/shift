@@ -1,8 +1,10 @@
 import { checkGlossary } from './glossary'
 import {
+  atPlaces,
   BOARD,
   BOARD_MAX_LINES,
   BOARD_SECTIONS,
+  GLOSSARY,
   GUIDE_TOOL,
   KINDS,
   KNOWLEDGE,
@@ -60,7 +62,14 @@ export function workText(work: Work): string {
 
 const lineCount = (text: string) => text.trimEnd().split('\n').length
 
+// The records against the previous shift's snapshot; a refusal names the files at the places the settings give.
 export function checkWork(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
+  const problem = checkRecords(work, previous, project)
+
+  return problem === null ? null : atPlaces(problem, project.settings.files)
+}
+
+function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
   const { board } = work
   if (project.problem !== null) return `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
   const owner = project.settings.files.owner
@@ -177,7 +186,7 @@ export function checkKnowledge({ name, text }: KnowledgeFile): string | null {
   const meta = frontmatter(text)
   const kind = meta.get('kind') ?? ''
   if (kind === 'glossary')
-    return `${where} is a glossary: terms live in GLOSSARY.md now, one article each — see ${GUIDE_TOOL}. Move them there and remove the file.`
+    return `${where} is a glossary: terms live in ${GLOSSARY} now, one article each — see ${GUIDE_TOOL}. Move them there and remove the file.`
   if (!isKind(kind)) return `${where} needs a frontmatter "kind": one of ${Object.keys(KINDS).join(', ')}.`
   if (name !== `${kind}.md` && !name.startsWith(`${kind}-`)) {
     return `${where} is of kind "${kind}": name it ${kind}.md or ${kind}-<topic>.md.`

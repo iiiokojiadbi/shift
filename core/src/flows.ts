@@ -46,6 +46,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     hold: sections(letter).get('Hold') ?? '',
     dir,
     board: `${root}/${BOARD}`,
+    owner: `${root}/${settings.files.owner}`,
     sessionId: call.sessionId,
     about: input.about,
     at: call.at,
@@ -119,6 +120,7 @@ async function handBack(project: Project, dir: string): Promise<HandedBack> {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
+    owner: project.settings.files.owner,
     recent: await recentShifts(project),
     dir,
     remarks: await docsReport(project),

@@ -1,4 +1,4 @@
-import { ARCHIVE_TOOL, FOCUS, NAME, STATUSES, TASK_LIST, TASKS } from './layout'
+import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, STATUSES, TASK_LIST, TASKS } from './layout'
 import { findDate } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
@@ -12,7 +12,7 @@ export type TrackInput = { task: string; item: string | null; status: string; no
 
 export function parseTrackInput(raw: Record<string, unknown>): TrackInput | string {
   const task = typeof raw.task === 'string' ? raw.task.trim() : ''
-  if (!NAME.test(task)) return `task is a task folder name in ${TASKS}/: lowercase latin, digits and dashes.`
+  if (!NAME.test(task)) return `task is a task folder name in ${TASKS}/: ${NAME_RULE}.`
   const item = typeof raw.item === 'string' && raw.item.trim() !== '' ? raw.item.trim() : null
   const note = typeof raw.note === 'string' && raw.note.trim() !== '' ? raw.note.trim() : null
   const add = raw.add === true

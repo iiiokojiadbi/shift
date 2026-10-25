@@ -226,7 +226,7 @@ test('a hint goes inside the last tool result, whatever its content is', () => {
 })
 
 test('the summarizer gets the hold and is told not to plan', () => {
-  const text = compactInstructions('goal: ship the mod', '/b.md', '/l.md')
+  const text = compactInstructions({ hold: 'goal: ship the mod', board: '/b.md', owner: '/OWNER.md', dir: '/d' })
   expect(text).toContain('goal: ship the mod')
   expect(text).toContain('Do not write next steps')
 })

@@ -57,6 +57,12 @@ export const GLOSSARY = `${DIR}/GLOSSARY.md`
 export const TASK_LIST = `${DIR}/TASKS.md`
 
 export const OWNER = `${DIR}/OWNER.md`
+
+// A text written with the default places of OWNER.md, GLOSSARY.md and SHIFT.md, at the places the project's settings
+// give instead: every text names its files once, by the defaults, and is moved here.
+export function atPlaces(text: string, files: { owner: string; glossary: string; shift: string }): string {
+  return text.replaceAll(OWNER, files.owner).replaceAll(GLOSSARY, files.glossary).replaceAll(SHIFT_FILE, files.shift)
+}
 // The name owner decisions had before OWNER.md.
 export const OLD_OWNER = `${DIR}/owner.md`
 
@@ -104,3 +110,4 @@ export const HISTORY_MAX = 50
 export const RECENT_SHIFTS = 10
 
 export const NAME = /^[a-z0-9][a-z0-9-]*$/
+export const NAME_RULE = 'lowercase latin, digits and dashes'

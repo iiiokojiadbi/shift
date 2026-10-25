@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { ABOUT_MAX, HISTORY_DEFAULT, HISTORY_MAX, LETTER, NAME, TASKS } from './layout'
+import { ABOUT_MAX, HISTORY_DEFAULT, HISTORY_MAX, LETTER, NAME, NAME_RULE, TASKS } from './layout'
 import type { ArchiveInput, ShiftInput } from './types'
 
 function oneLine(raw: unknown, what: string): string {
@@ -24,7 +24,7 @@ export function parseShiftInput(raw: Record<string, unknown>): ShiftInput | stri
 
 export function parseArchiveInput(raw: Record<string, unknown>): ArchiveInput | string {
   const name = typeof raw.name === 'string' ? raw.name.trim() : ''
-  if (!NAME.test(name)) return `name must be a task folder name in ${TASKS}/: lowercase latin, digits and dashes.`
+  if (!NAME.test(name)) return `name must be a task folder name in ${TASKS}/: ${NAME_RULE}.`
   const outcome = raw.outcome
   if (outcome !== 'done' && outcome !== 'dropped') return 'outcome must be "done" or "dropped".'
   const problem = oneLine(raw.about, 'what the task was and how it ended')

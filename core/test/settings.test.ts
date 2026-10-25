@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test'
 import { acceptShift } from '../src/flows'
 import { loadProject } from '../src/project'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
-import { renderWork } from '../src/texts/prompts'
+import { renderWork, unassistedInstructions } from '../src/texts/prompts'
+import { startSession, TOOLS } from '../src/tools'
 import { memoryStore } from './memory'
 
 const ROOT = '/p'
@@ -68,6 +69,26 @@ test('the map of knowledge says where knowledge goes', () => {
     archived: [],
     oldOwner: false,
   }
-  expect(renderWork(work, null)).toContain('goes="here until the owner sets knowledge in .shift/settings.toml; ask them once"')
-  expect(renderWork(work, 'project')).toContain('goes="to the project\'s docs')
+  expect(renderWork(work, null, '.shift/OWNER.md')).toContain(
+    'goes="here until the owner sets knowledge in .shift/settings.toml; ask them once"',
+  )
+  expect(renderWork(work, 'project', '.shift/OWNER.md')).toContain('goes="to the project\'s docs')
+})
+
+test('a moved OWNER.md is named where it is: in refusals, the doctrine, the guide and the summarizer', async () => {
+  const seed = {
+    [`${R}/settings.toml`]: '[files]\nowner = "docs/OWNER.md"',
+    [`${R}/letter.md`]: LETTER,
+    [`${R}/board.md`]: BOARD,
+    [`${R}/TASKS.md`]: 'none',
+  }
+  const call = { input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
+  const project = await loadProject(memoryStore(seed), ROOT)
+  expect(await acceptShift(project, call)).toEqual({ deny: expect.stringContaining('No docs/OWNER.md: create it') })
+  const start = await startSession(project)
+  expect(start.doctrine).toContain('`docs/OWNER.md` is the owner')
+  expect(start.doctrine).not.toContain('.shift/OWNER.md')
+  const guide = await TOOLS.find(tool => tool.name === 'shift_guide')?.run({}, { project: async () => project } as never)
+  expect(guide && 'result' in guide && guide.result).not.toContain('.shift/OWNER.md')
+  expect(unassistedInstructions(project.settings.files)).toContain('decisions at docs/OWNER.md')
 })

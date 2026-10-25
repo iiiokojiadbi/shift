@@ -18,7 +18,9 @@ import {
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER,
+  MAX_AUTO_STREAK,
   MOD,
+  NAME_RULE,
   OLD_DIR,
   OLD_OWNER,
   OWNER,
@@ -94,7 +96,7 @@ Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, re
 
 Each fact lives in one place. Your records live in the project directory, not in a harness's memory: any agent that opens the project reads them.`
 
-const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in lowercase latin with dashes:
+const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
 - \`task.md\` — what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map(s => `"${s}"`).join(', ')}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
 - \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand; closed items stay until the task is archived — the track is the task's history.
 
@@ -188,7 +190,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn with one line, no further actions.
 
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. Three \`continue\` in a row without the owner — the mod then waits for the owner itself.
+After the shift, the first message is "Shift done": the board and the tasks in progress, whole, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts; your letter last. Continue from "Next". With \`wait\` they come together with the owner's next message. ${MAX_AUTO_STREAK} \`continue\` in a row without the owner — the mod then waits for the owner itself.
 
 ## Letter — \`${LETTER}\`
 

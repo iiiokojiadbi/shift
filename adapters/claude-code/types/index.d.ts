@@ -8,6 +8,7 @@ export type PendingShift = {
   hold: string
   dir: string
   board: string
+  owner: string
   sessionId: string
   about: string
   at: number

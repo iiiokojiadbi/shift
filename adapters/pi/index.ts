@@ -195,7 +195,7 @@ export default function shift(pi: ExtensionAPI): void {
     try {
       tokensBefore = ctx.getContextUsage()?.tokens ?? undefined
       ctx.compact({
-        customInstructions: compactInstructions(shift.hold, shift.board, `${shift.dir}/letter.md`),
+        customInstructions: compactInstructions(shift),
         onError: error => failed(`compaction failed: ${error.message}`),
         onComplete: result =>
           void settle(shift, ctx, result, tokensBefore).catch((error: unknown) => failed(`after the let-go: ${String(error)}`)),
