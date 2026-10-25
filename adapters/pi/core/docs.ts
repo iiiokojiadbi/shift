@@ -380,11 +380,19 @@ export async function refreshDocs(project: Project): Promise<Doc[]> {
   return docs
 }
 
-// A document's pinned blocks under its entry, each with the section it is in; its lines indented under the first.
+// A document's pinned blocks under its entry, each with the section it is in: every line of a block starts with
+// " · ", a list item's own marker replaced, the first beside the label and the rest indented under it.
 function pinRows(pins: readonly Pin[], indent = ''): string[] {
   return pins.flatMap(pin => {
-    const [first = '', ...rest] = pin.text.split('\n')
-    return [`${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}: ${first}`, ...rest.map(line => `${indent}    ${line}`)]
+    const [first = '', ...rest] = pin.text
+      .split('\n')
+      .map(line => line.trim().replace(/^[-*+] +/, ''))
+      .filter(line => line !== '')
+
+    return [
+      `${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}: · ${first}`,
+      ...rest.map(line => `${indent}    · ${line}`),
+    ]
   })
 }
 

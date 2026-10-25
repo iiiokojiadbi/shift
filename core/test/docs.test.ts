@@ -183,12 +183,12 @@ test('a > [!IMPORTANT] block is pinned under its document with its section, at e
   expect(await afterWrite(await at(store), `${ROOT}/docs/a.md`)).toBeNull()
   const map = store.files.get(`${R}/SHIFT.md`) ?? ''
   expect(map).toContain(
-    '- `docs/dev.md` — releases\n  sections: Release\n  pinned: Users get only tagged releases.\n  pinned (Release): Tag first,\n    then the catalog.',
+    '- `docs/dev.md` — releases\n  sections: Release\n  pinned: · Users get only tagged releases.\n  pinned (Release): · Tag first,\n    · then the catalog.',
   )
   expect(map).toContain('every block still shows')
   expect(await docsReport(await at(store))).toContain('- Pinned: 59 characters')
 
   const docs = [{ path: 'docs/dev.md', description: 'd'.repeat(500), sections: ['s'], pins: pinned(PINNED) }]
   const folders = renderMap(docs, { ...DEFAULT_SETTINGS.docs, maxChars: 50 }, [])
-  expect(folders).toContain('- `docs/` — 1 docs: dev.md\n  `docs/dev.md`:\n    pinned: Users get only tagged releases.')
+  expect(folders).toContain('- `docs/` — 1 docs: dev.md\n  `docs/dev.md`:\n    pinned: · Users get only tagged releases.')
 })
