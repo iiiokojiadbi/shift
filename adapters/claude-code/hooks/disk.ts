@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import { loadProject, type Project, type Store } from './core/index'
+import { dirname, loadProject, type Project, type Store } from './core/index'
 
 // The core's store over Claude Code's files and processes.
 export function claudeStore($: EngineInterface): Store {
@@ -27,7 +27,7 @@ export function claudeStore($: EngineInterface): Store {
     },
     exists: path => $.fs.exists(path),
     move: async (from, to) => {
-      await $.process.run(['mkdir', '-p', to.slice(0, to.lastIndexOf('/'))])
+      await $.process.run(['mkdir', '-p', dirname(to)])
       const moved = await $.process.run(['mv', from, to])
 
       return moved.exitCode === 0 ? null : moved.stderr.trim()

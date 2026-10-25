@@ -1,5 +1,6 @@
 import { DIR, MOD } from './layout'
 import { frontmatter, type Heading, headings, lineCount, type Pin, pinned } from './markdown'
+import { basename, dirname, fromRoot, normalize } from './paths'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
 import type { Store } from './store'
@@ -73,7 +74,7 @@ export async function brokenLinks(store: Store, root: string, path: string, text
     for (const found of text.matchAll(/\]\(([^)#\s]+\.md)(?:#[^)]*)?\)/g)) {
       const link = found[1] ?? ''
       if (/^[a-z]+:/i.test(link) || link.includes('*') || targets.has(link)) continue
-      targets.set(link, joinPath(path.slice(0, path.lastIndexOf('/') + 1), link))
+      targets.set(link, normalize(`${dirname(path)}/${link}`))
     }
   }
   const missing: string[] = []
@@ -182,11 +183,7 @@ export async function docOutline({ store, root }: Project, file: string): Promis
 export async function docsMentioning({ store, root, settings }: Project, file: string): Promise<string> {
   const dirs = settings.docs.dirs
   if (dirs.length === 0) return 'The owner turned the docs off: `[docs] dirs = []`.'
-  const name =
-    file
-      .split('/')
-      .filter(part => part !== '')
-      .at(-1) ?? ''
+  const name = basename(file)
   if (name === '') return 'Name a file.'
   const pattern = new RegExp(`(?<![\\w-])${escapeRegExp(name)}(?![\\w-])`)
   const found: string[] = []
@@ -199,22 +196,6 @@ export async function docsMentioning({ store, root, settings }: Project, file: s
   return found.length === 0
     ? `No document in ${where} mentions \`${name}\`.`
     : [`\`${name}\` is mentioned in:`, ...found.map(path => `- ${path}`)].join('\n')
-}
-
-function fromRoot(root: string, file: string): string {
-  return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file.replace(/^\.\//, '')
-}
-
-// A path from the project's root for `link` written in a file under `base`; null when it climbs out of the project.
-function joinPath(base: string, link: string): string | null {
-  const parts: string[] = []
-  for (const part of `${base}${link}`.split('/')) {
-    if (part === '' || part === '.') continue
-    if (part !== '..') parts.push(part)
-    else if (parts.pop() === undefined) return null
-  }
-
-  return parts.join('/')
 }
 
 function escapeRegExp(text: string): string {
@@ -281,7 +262,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
   if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, '', MAP_END].join('\n')
   const folders = new Map<string, Doc[]>()
   for (const doc of docs) {
-    const folder = doc.path.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : '.'
+    const folder = dirname(doc.path)
     folders.set(folder, [...(folders.get(folder) ?? []), doc])
   }
   // A folder before the folders inside it.
@@ -315,7 +296,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
         : [
             sorted.map(([folder, inside]) =>
               [
-                `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => doc.path.slice(doc.path.lastIndexOf('/') + 1)).join(', ')}`,
+                `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => basename(doc.path)).join(', ')}`,
                 ...inside.flatMap(doc => (doc.pins.length === 0 ? [] : [`  \`${doc.path}\`:`, ...pinRows(doc.pins, '  ')])),
               ].join('\n'),
             ),

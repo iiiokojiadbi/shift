@@ -118,10 +118,6 @@ export function parseOpenInput(raw: Record<string, unknown>): OpenInput | string
   return { name, status, ...fields, about: text(raw, 'about'), items, links }
 }
 
-export function resolvePath(root: string, path: string): string {
-  return path.startsWith('/') ? path : `${root}/${path.replace(/^\.\//, '')}`
-}
-
 export function parseHistoryCount(raw: Record<string, unknown>): number | string {
   const count = raw.count ?? HISTORY_DEFAULT
   if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > HISTORY_MAX) {

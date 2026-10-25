@@ -1,6 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { DOCS_MAP_MAX_CHARS, DOCS_PINNED_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
 import { quote } from './markdown'
+import { isInside } from './paths'
 
 // The owner's settings for one project; the agent does not edit them.
 export type Settings = {
@@ -197,11 +198,6 @@ export function settingValue(settings: Settings, key: string): string | null {
   const value = holder[field]
 
   return value === null || value === undefined ? null : JSON.stringify(value).replace(/","/g, '", "')
-}
-
-// Relative, without a way out of the project.
-function isInside(path: string): boolean {
-  return path !== '' && !path.startsWith('/') && !path.split('/').includes('..')
 }
 
 function withoutComment(line: string): string {

@@ -258,6 +258,14 @@ test("records changed by the agent's tools are told only when broken, by someone
   expect(outside).not.toContain('refuses')
 })
 
+test('an OWNER.md the settings put in the root is looked at as one in .shift/', async () => {
+  const p = await project({ [`${R}/settings.toml`]: '[files]\nowner = "OWNER.md"', [`${ROOT}/OWNER.md`]: '# Owner decisions\n\nnone' })
+  const first = await changedRecords(p, null, 'agent')
+  expect(Object.keys(first.seen)).toContain('OWNER.md')
+  await p.store.write(`${ROOT}/OWNER.md`, '# Owner decisions\n\n## Work\n\n- «green first»')
+  expect((await changedRecords(p, first.seen, 'other')).body).toContain('`OWNER.md` changed outside your tools')
+})
+
 test('a task unchanged through many shifts is named after a shift, with its status and how many', async () => {
   const p = await project({ [`${R}/tasks/tests/track.md`]: TRACK })
   const snap = (name: string, track: string) => {

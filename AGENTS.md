@@ -45,6 +45,7 @@ core/                      shared logic, pure TypeScript, no harness imports —
   src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files, the records changed around a tool
   src/about.ts             about.md: written and read back by one module
   src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks
+  src/paths.ts             paths: dirname, basename, join, normalize, from and to the root, inside the project
   src/records.ts tasks.ts glossary.ts archive.ts   the checks of the records
   src/settings.ts          settings.toml: a row per key
   src/docs.ts              the project's documents: the map, tocs, remarks, outline, mentions

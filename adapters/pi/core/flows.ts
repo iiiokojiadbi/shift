@@ -3,7 +3,6 @@ import { OUTCOME, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
 import { docsReport, refreshDocs } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
-import { resolvePath } from './input'
 import {
   ARCHIVE,
   BOARD,
@@ -28,6 +27,7 @@ import {
   taskFile,
 } from './layout'
 import { formatItem, formatK, itemsOf, sections } from './markdown'
+import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
 import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
@@ -101,16 +101,15 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
 async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
   const stamped = async (dir: string, only?: (name: string) => boolean): Promise<Seen> =>
     Object.fromEntries(
-      Object.entries(await store.stamps(`${root}/${dir}`))
-        .filter(([name]) => (name.endsWith('.md') || `${dir}/${name}` === SETTINGS) && (only?.(name) ?? true))
-        .map(([name, stamp]) => [`${dir}/${name}`, stamp]),
+      Object.entries(await store.stamps(join(root, dir)))
+        .filter(([name]) => (name.endsWith('.md') || join(dir, name) === SETTINGS) && (only?.(name) ?? true))
+        .map(([name, stamp]) => [join(dir, name), stamp]),
     )
-  const at = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')))
   const own = new Set([BOARD, TASK_LIST, LETTER, SETTINGS, settings.files.owner, settings.files.glossary])
   const tasks = await store.list(`${root}/${TASKS}`, 'dir')
   const parts = await Promise.all([
-    ...[...new Set([DIR, at(settings.files.owner), at(settings.files.glossary)])].map(dir =>
-      stamped(dir, name => own.has(`${dir}/${name}`)),
+    ...[...new Set([DIR, dirname(settings.files.owner), dirname(settings.files.glossary)])].map(dir =>
+      stamped(dir, name => own.has(join(dir, name))),
     ),
     ...tasks.flatMap(name => [
       stamped(`${TASKS}/${name}`, file => file === NAMES.task || file === NAMES.track),
@@ -272,7 +271,7 @@ export async function resumeShift(project: Project): Promise<{ text: string; pro
   const letter = await project.store.read(`${dir}/${NAMES.letter}`)
   if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
 
-  return { text: `Picking up shift ${dir.split('/').at(-1)}.`, prompt: resumePrompt(letter, await handBack(project, dir)) }
+  return { text: `Picking up shift ${basename(dir)}.`, prompt: resumePrompt(letter, await handBack(project, dir)) }
 }
 
 // The records, the last shifts and the documents' remarks as they are now, for the message after a shift.
@@ -316,7 +315,7 @@ export async function stuckTasks(project: Project): Promise<Stuck[]> {
 
 // The harness did not let the history go: about.md says why, the row tells the owner — even when about.md fails.
 export async function shiftNotMade(project: Project, shift: PendingShift, why: string, tokensBefore: number | undefined): Promise<string> {
-  const row = NOT_MADE(shiftName(shift), why)
+  const row = NOT_MADE(basename(shift.dir), why)
 
   return recordFailure(project, shift, renderAbout({ ...shift, tokensBefore, result: OUTCOME.notShifted(why) }), row)
 }
@@ -328,7 +327,7 @@ export async function shiftUnsettled(
   why: string,
   tokensBefore: number | undefined,
 ): Promise<string> {
-  const row = UNSETTLED(shiftName(shift), why)
+  const row = UNSETTLED(basename(shift.dir), why)
 
   return recordFailure(project, shift, renderAbout({ ...shift, tokensBefore, result: OUTCOME.unsettled(why) }), row)
 }
@@ -370,7 +369,7 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
       renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
     )
   const back = await handBack(project, shift.dir)
-  const name = shiftName(shift)
+  const name = basename(shift.dir)
 
   if (shift.after === 'continue' && !isCapped) {
     await outcome(OUTCOME.continuing(shrank))
@@ -442,10 +441,6 @@ export async function staleLayout({ store, root }: Project): Promise<string | nu
   }
 
   return null
-}
-
-function shiftName(shift: PendingShift): string {
-  return shift.dir.split('/').at(-1) ?? shift.dir
 }
 
 // What /shift-tasks shows: the open tasks as listed, with their items' count, and the items not closed of those in
