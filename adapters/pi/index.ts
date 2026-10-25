@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import type { CompactionEntry, CompactionResult, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import type { CompactionEntry, CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent'
 import { estimateTokens, findCutPoint, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
 import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, WaitNote } from './core/index'
@@ -273,8 +273,14 @@ export default function shift(pi: ExtensionAPI): void {
   }
 }
 
-// pi lets go only of what lies before the cut it finds by keepRecentTokens, counted from the last let-go; with the cut
-// at the start it refuses as "session too small". The same cut is found here, before the shift is accepted.
+// pi lets go only of the messages before the cut it finds by keepRecentTokens, counted from the last let-go; with none
+// there — a history no bigger, the cut on its first message — it refuses as "session too small". The same cut is
+// found here, before the shift is accepted.
+// What a let-go summarizes: the conversation, not the system prompt pi records as a message of its own.
+function summarized(entry: SessionEntry): boolean {
+  return entry.type === 'message' ? entry.message.role !== 'system' : entry.type === 'custom_message' || entry.type === 'branch_summary'
+}
+
 function cannotLetGo(ctx: ExtensionContext): string | null {
   const keep = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model).keepRecentTokens
   const branch = ctx.sessionManager.getBranch()
@@ -282,7 +288,7 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
   const kept = last === -1 ? -1 : branch.findIndex(entry => entry.id === (branch[last] as CompactionEntry).firstKeptEntryId)
   const start = kept === -1 ? Math.max(0, last + 1) : kept
   const cut = findCutPoint(branch, start, branch.length, keep)
-  if (cut.isSplitTurn || cut.firstKeptEntryIndex > start) return null
+  if (branch.slice(start, cut.firstKeptEntryIndex).some(summarized)) return null
   const since = branch.slice(start).reduce((sum, entry) => sum + (entry.type === 'message' ? estimateTokens(entry.message) : 0), 0)
 
   return `the history since the last let-go is about ${formatK(since)} tokens, and pi keeps its last ${formatK(keep)} whole, so it has nothing to let go.`
