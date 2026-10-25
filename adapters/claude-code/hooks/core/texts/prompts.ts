@@ -198,12 +198,15 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
   ].join('\n')
 }
 
+// After a let-go the agent cannot tell its first shift from a later one, and read the guide before every shift.
+const GUIDE_KNOWN = `You have shifted here before: read ${GUIDE_TOOL} again only if a refusal sends you to it.`
+
 export function continuePrompt(letter: string, back: HandedBack): string {
-  return shiftMessage('Shift done. You continue from where you stopped.', letter, back, [`Continue from "${NEXT}".`])
+  return shiftMessage('Shift done. You continue from where you stopped.', letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`])
 }
 
 export function waitContext(letter: string, back: HandedBack): string {
-  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, back)
+  return shiftMessage("You shifted and waited for the owner; the owner's message is above.", letter, back, [GUIDE_KNOWN])
 }
 
 export function resumePrompt(letter: string, back: HandedBack): string {

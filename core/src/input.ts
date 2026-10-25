@@ -13,7 +13,7 @@ import {
   TASKS,
 } from './layout'
 import { dated, isOneOf, quote } from './markdown'
-import type { ArchiveInput, OpenInput, ShiftInput, TrackInput } from './types'
+import type { ArchiveInput, ItemChange, OpenInput, ShiftInput, TrackInput } from './types'
 
 // A string argument, trimmed; '' when it is missing or not a string.
 function text(raw: Record<string, unknown>, key: string): string {
@@ -139,14 +139,38 @@ export function parsePath(raw: Record<string, unknown>, key: 'path' | 'file'): s
 export function parseTrackInput(raw: Record<string, unknown>): TrackInput | string {
   const task = taskName(raw, 'task')
   if (typeof task !== 'string') return task.problem
-  const item = optional(raw, 'item')
+  const status = optional(raw, 'status')
   const note = optional(raw, 'note')
-  const add = raw.add === true
+  if (Array.isArray(raw.items) && raw.items.length > 0) {
+    if (optional(raw, 'item') !== null) return 'Pass item inside items, or leave items out.'
+    const items: ItemChange[] = []
+    for (const [n, each] of raw.items.entries()) {
+      const change = itemChange(typeof each === 'object' && each !== null ? (each as Record<string, unknown>) : {})
+      if (typeof change === 'string') return `items[${n}]: ${change}`
+      items.push(change)
+    }
+    if (status === null) return { task, items, own: null }
+    const own = ownStatus(status, note)
+
+    return typeof own === 'string' ? own : { task, items, own }
+  }
+  if (optional(raw, 'item') === null) {
+    const own = ownStatus(status ?? '', note)
+
+    return typeof own === 'string' ? own : { task, items: [], own }
+  }
+  const change = itemChange(raw)
+
+  return typeof change === 'string' ? change : { task, items: [change], own: null }
+}
+
+// One item's change: its words, a status of a track item, a one-line note.
+function itemChange(raw: Record<string, unknown>): ItemChange | string {
+  const item = text(raw, 'item')
   const status = text(raw, 'status')
-  const allowed: readonly string[] = item === null ? FOCUS : STATUSES
-  if (!allowed.includes(status))
-    return `status for ${item === null ? `a task in ${TASK_LIST}` : 'a track item'} is one of ${quote(allowed)}.`
-  if (add && item === null) return "add needs item: the new item's name."
+  const note = optional(raw, 'note')
+  if (item === '') return "item is empty: words of the item's name."
+  if (!isOneOf(STATUSES, status)) return `status for a track item is one of ${quote(STATUSES)}.`
   for (const [key, value] of [
     ['item', item],
     ['note', note],
@@ -154,7 +178,16 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
     const problem = value === null ? null : lineProblem(key, value, { noDates: true })
     if (problem !== null) return problem
   }
-  if (item === null && status !== 'in progress' && note === null) return `A ${status} task carries its reason in its line: pass note.`
 
-  return { task, item, status, note, add }
+  return { item, status, note, add: raw.add === true }
+}
+
+// The task's own status in TASKS.md: a waiting or deferred one carries its reason.
+function ownStatus(status: string, note: string | null): { status: string; note: string | null } | string {
+  if (!isOneOf(FOCUS, status)) return `status for a task in ${TASK_LIST} is one of ${quote(FOCUS)}.`
+  const problem = note === null ? null : lineProblem('note', note, { noDates: true })
+  if (problem !== null) return problem
+  if (status !== 'in progress' && note === null) return `A ${status} task carries its reason in its line: pass note.`
+
+  return { status, note }
 }

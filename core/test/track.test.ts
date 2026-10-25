@@ -68,6 +68,51 @@ test('add puts a new item at the end, once; without an item the task line in TAS
   expect('deny' in missing && missing.deny).toContain('the task is not open')
 })
 
+test("several items in one call are set together, or none when one fails; status beside them is the task's own", async () => {
+  const store = memoryStore({ [`${R}/tasks/adapters/track.md`]: TRACK, [`${R}/TASKS.md`]: LIST })
+  const both = await updateTrack(
+    await loadProject(store, ROOT),
+    call({
+      task: 'adapters',
+      items: [
+        { item: 'pi adapter', status: 'done', note: 'shipped' },
+        { item: 'distribution', status: 'in progress' },
+        { item: 'codex', status: 'open', add: true },
+      ],
+      status: 'waiting for owner',
+      note: 'the owner tries pi',
+    }),
+  )
+  expect(both).toEqual({
+    result: [
+      'adapters/track.md: - [done] pi adapter — shipped',
+      'adapters/track.md: - [in progress] pi distribution — ask the owner',
+      'adapters/track.md: - [open] codex',
+      '.shift/TASKS.md: - [waiting for owner] [adapters](tasks/adapters/) — the owner tries pi',
+    ].join('\n'),
+  })
+  const before = store.files.get(`${R}/tasks/adapters/track.md`)
+  const failed = await updateTrack(
+    await loadProject(store, ROOT),
+    call({
+      task: 'adapters',
+      items: [
+        { item: 'opencode', status: 'done' },
+        { item: 'adapter', status: 'done' },
+      ],
+    }),
+  )
+  expect('deny' in failed && failed.deny).toContain('items[1]: "adapter" is in 2 items of adapters')
+  expect('deny' in failed && failed.deny).toContain('Nothing was written.')
+  expect(store.files.get(`${R}/tasks/adapters/track.md`)).toBe(before)
+
+  expect(parseTrackInput({ task: 'adapters', items: [{ item: 'x', status: 'waiting for owner' }] })).toContain(
+    'items[0]: status for a track item',
+  )
+  expect(parseTrackInput({ task: 'adapters', item: 'x', items: [{ item: 'y', status: 'done' }] })).toContain('Pass item inside items')
+  expect(parseTrackInput({ task: 'adapters' })).toContain('status for a task')
+})
+
 test('an item reads the same everywhere: a cramped status line is found, and a new note on a done item is not done again', async () => {
   const store = memoryStore({
     [`${R}/tasks/adapters/track.md`]: '- [done]pi adapter\n- [open] opencode adapter\n',

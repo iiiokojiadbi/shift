@@ -28,7 +28,7 @@ import { quote } from '../markdown'
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how, see ${GUIDE_TOOL}. After the call, end the turn with one line.`
 
 export const GUIDE_DESCRIPTION =
-  'How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it before the first shift of a session.'
+  'How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it once, before your first shift in a project; after that only when a refusal sends you to it — the steps do not change between shifts.'
 
 export const SETUP_DESCRIPTION =
   "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
@@ -73,7 +73,7 @@ export const OPEN_SCHEMA = {
 
 export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
 
-export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item.`
+export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item. Several items at once — when a stage closes one item and opens the next: items, a list of {item, status, note, add}, applied together or not at all; status beside items is then the task's own.`
 
 export const TRACK_SCHEMA = {
   type: 'object',
@@ -83,8 +83,23 @@ export const TRACK_SCHEMA = {
     status: { type: 'string', enum: [...new Set([...STATUSES, ...FOCUS])] },
     note: { type: 'string', description: 'One line: replaces what follows " — ".' },
     add: { type: 'boolean', description: 'true: add item as a new item.' },
+    items: {
+      type: 'array',
+      description:
+        'Several items in one call, in place of item: each found or added as item alone would be; one that fails writes nothing.',
+      items: {
+        type: 'object',
+        properties: {
+          item: { type: 'string' },
+          status: { type: 'string', enum: [...STATUSES] },
+          note: { type: 'string' },
+          add: { type: 'boolean' },
+        },
+        required: ['item', 'status'],
+      },
+    },
   },
-  required: ['task', 'status'],
+  required: ['task'],
 }
 
 export const STATUS_DESCRIPTION =
@@ -169,7 +184,8 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [GUIDE_TOOL]: {
     label: 'Shift guide',
     description: GUIDE_DESCRIPTION,
-    brief: 'how to shift properly and how the files are laid out. Read it before the first shift of a session.',
+    brief:
+      'how to shift properly and how the files are laid out. Read it once, before your first shift in a project; after that only when a refusal sends you to it — the steps do not change between shifts.',
     schema: GUIDE_SCHEMA,
   },
   [TOOL]: { label: 'Shift', description: TOOL_DESCRIPTION, brief: 'make a shift.', schema: TOOL_SCHEMA },
@@ -188,7 +204,7 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [TRACK_TOOL]: {
     label: 'Task status',
     description: TRACK_DESCRIPTION,
-    brief: `set a track item's status or add an item, found by words of its name; without an item, the task's own status in \`${TASK_LIST}\`.`,
+    brief: `set a track item's status or add an item, found by words of its name, several at once with items; without an item, the task's own status in \`${TASK_LIST}\`.`,
     schema: TRACK_SCHEMA,
   },
   [HISTORY_TOOL]: {

@@ -12,7 +12,10 @@ export type Gauge = { base: number | null; hinted: number | null; unassisted: bo
 export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
 
 // What task_track asks for: an item of a task's track by words of its name, or the task's own line in TASKS.md.
-export type TrackInput = { task: string; item: string | null; status: string; note: string | null; add: boolean }
+// One track item's change: found by words of its name, or added.
+export type ItemChange = { item: string; status: string; note: string | null; add: boolean }
+// Track items changed together, all or none, and the task's own status in TASKS.md.
+export type TrackInput = { task: string; items: ItemChange[]; own: { status: string; note: string | null } | null }
 
 // A task to open: its folder name, its title, goal and done-when for task.md, its first items, and its line with
 // the links under it for TASKS.md.
