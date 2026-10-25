@@ -17,54 +17,54 @@ const call = (raw: Record<string, unknown>) => {
   return input
 }
 
-test('an item is found by words of its name, never by its note, and only when one matches', async () => {
+test('an item is found by its id; a track written without ids is numbered first', async () => {
   const store = memoryStore({ [`${R}/tasks/adapters/track.md`]: TRACK, [`${R}/TASKS.md`]: LIST })
-  const done = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'distribution', status: 'done' }))
-  expect(done).toEqual({ result: 'adapters/track.md: - [done] pi distribution — ask the owner' })
+  const done = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', id: 2, status: 'done' }))
+  expect(done).toEqual({ result: 'adapters/track.md: - [done] #2 pi distribution — ask the owner' })
 
   const noted = await updateTrack(
     await loadProject(store, ROOT),
-    call({ task: 'adapters', item: 'OPENCODE', status: 'in progress', note: 'started' }),
+    call({ task: 'adapters', id: '#3', status: 'in progress', note: 'started' }),
   )
-  expect(noted).toEqual({ result: 'adapters/track.md: - [in progress] opencode adapter — started' })
+  expect(noted).toEqual({ result: 'adapters/track.md: - [in progress] #3 opencode adapter — started' })
 
-  const many = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'adapter', status: 'done' }))
-  expect('deny' in many && many.deny).toContain(
-    '"adapter" is in 2 items of adapters:\n1. - [in progress] pi adapter — built\n2. - [in progress] opencode adapter — started',
-  )
-  const none = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'built', status: 'done' }))
-  expect('deny' in none && none.deny).toContain('No item of adapters has "built" in its name. Its items:\n1. - [in progress] pi adapter')
+  const none = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', id: 7, status: 'done' }))
+  expect('deny' in none && none.deny).toContain('No item #7 in adapters. Its items:\n- [in progress] #1 pi adapter — built')
 
-  await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'pi adapter', status: 'done' }))
-  const last = await updateTrack(
-    await loadProject(store, ROOT),
-    call({ task: 'adapters', item: 'opencode', status: 'dropped', note: 'later' }),
-  )
+  await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', id: 1, status: 'done' }))
+  const last = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', id: 3, status: 'dropped', note: 'later' }))
   expect('result' in last && last.result).toContain('Every item of adapters is closed: archive it with task_archive')
   expect(store.files.get(`${R}/tasks/adapters/track.md`)).toBe(
-    '- [done] pi adapter — built\n- [done] pi distribution — ask the owner\n- [dropped] opencode adapter — later\n',
+    '- [done] #1 pi adapter — built\n- [done] #2 pi distribution — ask the owner\n- [dropped] #3 opencode adapter — later\n',
   )
 })
 
-test('add puts a new item at the end, once; without an item the task line in TASKS.md takes the status', async () => {
-  const store = memoryStore({ [`${R}/tasks/adapters/track.md`]: TRACK, [`${R}/TASKS.md`]: LIST })
-  expect(await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'codex', status: 'open', add: true }))).toEqual({
-    result: 'adapters/track.md: - [open] codex',
+test('a new item takes the next id, never one taken; an id written twice or left out by hand is given anew', async () => {
+  const store = memoryStore({
+    [`${R}/tasks/adapters/track.md`]: '- [done] #4 pi adapter\n- [open] #4 opencode adapter\n- [open] codex\n',
+    [`${R}/TASKS.md`]: LIST,
   })
-  expect(store.files.get(`${R}/tasks/adapters/track.md`)?.endsWith('- [open] opencode adapter\n- [open] codex\n')).toBe(true)
-  const twice = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'Codex', status: 'open', add: true }))
-  expect('deny' in twice && twice.deny).toContain('already an item')
+  expect(await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'gemini', status: 'open' }))).toEqual({
+    result: 'adapters/track.md: - [open] #7 gemini',
+  })
+  expect(store.files.get(`${R}/tasks/adapters/track.md`)).toBe(
+    '- [done] #4 pi adapter\n- [open] #5 opencode adapter\n- [open] #6 codex\n- [open] #7 gemini\n',
+  )
+  const twice = await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'Codex', status: 'open' }))
+  expect('deny' in twice && twice.deny).toContain('"Codex" is already an item of adapters: #6.')
 
+  expect(parseTrackInput({ task: 'adapters', id: 1, item: 'x', status: 'done' })).toContain('Pass id to change an item, or item to add')
+  expect(parseTrackInput({ task: 'adapters', id: 'one', status: 'done' })).toContain('id is the number of a track item')
   expect(parseTrackInput({ task: 'adapters', status: 'deferred' })).toContain('pass note')
   expect(parseTrackInput({ task: 'adapters', status: 'done' })).toContain('"in progress", "deferred", "waiting for owner"')
-  expect(parseTrackInput({ task: 'adapters', item: 'x', status: 'deferred' })).toContain('"in progress", "open", "done", "dropped"')
-  expect(parseTrackInput({ task: 'adapters', item: 'x', status: 'done', note: 'on 2026-10-24' })).toContain('A date in note')
+  expect(parseTrackInput({ task: 'adapters', id: 1, status: 'deferred' })).toContain('"in progress", "open", "done", "dropped"')
+  expect(parseTrackInput({ task: 'adapters', id: 1, status: 'done', note: 'on 2026-10-24' })).toContain('A date in note')
 
   await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', status: 'waiting for owner', note: 'the owner tries pi' }))
   expect(store.files.get(`${R}/TASKS.md`)).toBe(
     '# Tasks\n\n- [waiting for owner] [adapters](tasks/adapters/) — the owner tries pi\n  - after: [core](archive/core/)\n',
   )
-  const missing = await updateTrack(await loadProject(store, ROOT), call({ task: 'nope', item: 'x', status: 'done' }))
+  const missing = await updateTrack(await loadProject(store, ROOT), call({ task: 'nope', id: 1, status: 'done' }))
   expect('deny' in missing && missing.deny).toContain('the task is not open')
 })
 
@@ -75,9 +75,9 @@ test("several items in one call are set together, or none when one fails; status
     call({
       task: 'adapters',
       items: [
-        { item: 'pi adapter', status: 'done', note: 'shipped' },
-        { item: 'distribution', status: 'in progress' },
-        { item: 'codex', status: 'open', add: true },
+        { id: 1, status: 'done', note: 'shipped' },
+        { id: 2, status: 'in progress' },
+        { item: 'codex', status: 'open' },
       ],
       status: 'waiting for owner',
       note: 'the owner tries pi',
@@ -85,9 +85,9 @@ test("several items in one call are set together, or none when one fails; status
   )
   expect(both).toEqual({
     result: [
-      'adapters/track.md: - [done] pi adapter — shipped',
-      'adapters/track.md: - [in progress] pi distribution — ask the owner',
-      'adapters/track.md: - [open] codex',
+      'adapters/track.md: - [done] #1 pi adapter — shipped',
+      'adapters/track.md: - [in progress] #2 pi distribution — ask the owner',
+      'adapters/track.md: - [open] #4 codex',
       '.shift/TASKS.md: - [waiting for owner] [adapters](tasks/adapters/) — the owner tries pi',
     ].join('\n'),
   })
@@ -97,19 +97,19 @@ test("several items in one call are set together, or none when one fails; status
     call({
       task: 'adapters',
       items: [
-        { item: 'opencode', status: 'done' },
-        { item: 'adapter', status: 'done' },
+        { id: 3, status: 'done' },
+        { id: 9, status: 'done' },
       ],
     }),
   )
-  expect('deny' in failed && failed.deny).toContain('items[1]: "adapter" is in 2 items of adapters')
+  expect('deny' in failed && failed.deny).toContain('items[1]: No item #9 in adapters')
   expect('deny' in failed && failed.deny).toContain('Nothing was written.')
   expect(store.files.get(`${R}/tasks/adapters/track.md`)).toBe(before)
 
-  expect(parseTrackInput({ task: 'adapters', items: [{ item: 'x', status: 'waiting for owner' }] })).toContain(
+  expect(parseTrackInput({ task: 'adapters', items: [{ id: 1, status: 'waiting for owner' }] })).toContain(
     'items[0]: status for a track item',
   )
-  expect(parseTrackInput({ task: 'adapters', item: 'x', items: [{ item: 'y', status: 'done' }] })).toContain('Pass item inside items')
+  expect(parseTrackInput({ task: 'adapters', id: 1, items: [{ id: 2, status: 'done' }] })).toContain('Pass id and item inside items')
   expect(parseTrackInput({ task: 'adapters' })).toContain('status for a task')
 })
 
@@ -118,10 +118,8 @@ test('an item reads the same everywhere: a cramped status line is found, and a n
     [`${R}/tasks/adapters/track.md`]: '- [done]pi adapter\n- [open] opencode adapter\n',
     [`${R}/TASKS.md`]: LIST,
   })
-  expect(
-    await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', item: 'pi adapter', status: 'done', note: 'shipped' })),
-  ).toEqual({
-    result: 'adapters/track.md: - [done] pi adapter — shipped',
+  expect(await updateTrack(await loadProject(store, ROOT), call({ task: 'adapters', id: 1, status: 'done', note: 'shipped' }))).toEqual({
+    result: 'adapters/track.md: - [done] #1 pi adapter — shipped',
   })
   const work = (track: string) => ({
     board: '',
@@ -135,7 +133,7 @@ test('an item reads the same everywhere: a cramped status line is found, and a n
     oldOwner: false,
   })
   const before = { work: work('- [done] pi adapter — built'), index: null }
-  expect(segment({ work: work('- [done] pi adapter — shipped'), index: null }, before).done).toEqual([])
+  expect(segment({ work: work('- [done] #1 pi adapter — shipped'), index: null }, before).done).toEqual([])
   expect(segment({ work: work('- [done] pi adapter\n- [dropped] opencode — later'), index: null }, before).dropped).toEqual([
     'adapters: opencode — later',
   ])
@@ -163,7 +161,8 @@ test('a task opens valid by construction: its files and its line with links, or 
   expect(store.files.get(`${R}/TASKS.md`)).toEndWith(
     '- [in progress] [delivery](tasks/delivery/) — notes to the agent\n  - needs: [adapters](tasks/adapters/) — the slots first\n  - continues: [core](archive/core/)\n',
   )
-  expect(store.files.get(`${R}/tasks/delivery/track.md`)).toBe('- [open] the core — over a port\n- [open] Claude Code\n')
+  expect(store.files.get(`${R}/tasks/delivery/track.md`)).toBe('- [open] #1 the core — over a port\n- [open] #2 Claude Code\n')
+  expect('result' in opened && opened.result).toContain('Its items, each changed with task_track by its id:\n- [open] #1 the core')
   const task = store.files.get(`${R}/tasks/delivery/task.md`) ?? ''
   expect(task).toStartWith('# Delivery\n\n## Goal\n\none module\n\n## Done when\n\nboth adapters\n\n## Owner decisions\n\nnone\n')
   expect(checkTask({ name: 'delivery', task, track: '', notes: [] })).toBeNull()

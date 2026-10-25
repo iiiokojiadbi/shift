@@ -35,8 +35,8 @@ export const NOTE_KINDS = {
 
 export type NoteKind = keyof typeof NOTE_KINDS
 
-export const OPENED = (name: string, line: string) =>
-  `Opened ${TASKS}/${name}/ with task.md and track.md, and its line in ${TASK_LIST}:\n${line}\nIts decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
+export const OPENED = (name: string, line: string, track: string) =>
+  `Opened ${TASKS}/${name}/ with task.md and track.md, and its line in ${TASK_LIST}:\n${line}\n${track === '' ? '' : `Its items, each changed with ${TRACK_TOOL} by its id:\n${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
 
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`

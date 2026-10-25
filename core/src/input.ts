@@ -138,7 +138,7 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
   const status = optional(raw, 'status')
   const note = optional(raw, 'note')
   if (Array.isArray(raw.items) && raw.items.length > 0) {
-    if (optional(raw, 'item') !== null) return 'Pass item inside items, or leave items out.'
+    if (optional(raw, 'item') !== null || raw.id !== undefined) return 'Pass id and item inside items, or leave items out.'
     const items: ItemChange[] = []
     for (const [n, each] of raw.items.entries()) {
       const change = itemChange(typeof each === 'object' && each !== null ? (each as Record<string, unknown>) : {})
@@ -150,7 +150,7 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
 
     return typeof own === 'string' ? own : { task, items, own }
   }
-  if (optional(raw, 'item') === null) {
+  if (optional(raw, 'item') === null && raw.id === undefined) {
     const own = ownStatus(status ?? '', note)
 
     return typeof own === 'string' ? own : { task, items: [], own }
@@ -160,12 +160,14 @@ export function parseTrackInput(raw: Record<string, unknown>): TrackInput | stri
   return typeof change === 'string' ? change : { task, items: [change], own: null }
 }
 
-// One item's change: its words, a status of a track item, a one-line note.
+// One item's change: its id, or the text of a new item; a status of a track item, a one-line note.
 function itemChange(raw: Record<string, unknown>): ItemChange | string {
-  const item = text(raw, 'item')
+  const item = optional(raw, 'item')
+  const id = itemId(raw.id)
   const status = text(raw, 'status')
   const note = optional(raw, 'note')
-  if (item === '') return "item is empty: words of the item's name."
+  if (raw.id !== undefined && id === null) return 'id is the number of a track item, as in its #<id>.'
+  if ((id === null) === (item === null)) return 'Pass id to change an item, or item to add a new one.'
   if (!isOneOf(STATUSES, status)) return `status for a track item is one of ${quote(STATUSES)}.`
   for (const [key, value] of [
     ['item', item],
@@ -175,7 +177,13 @@ function itemChange(raw: Record<string, unknown>): ItemChange | string {
     if (problem !== null) return problem
   }
 
-  return { item, status, note, add: raw.add === true }
+  return id === null ? { item: item ?? '', status, note } : { id, status, note }
+}
+
+// A positive whole number, given as one or as a string, with or without its `#`.
+function itemId(raw: unknown): number | null {
+  const id = typeof raw === 'string' ? Number(raw.replace(/^#/, '')) : raw
+  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : null
 }
 
 // The task's own status in TASKS.md: a waiting or deferred one carries its reason.

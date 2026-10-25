@@ -44,6 +44,7 @@ import {
   waitContext,
 } from './texts/prompts'
 import { CONTINUING, NOT_MADE, renderTasks, type TaskView, UNSETTLED, WAITING } from './texts/rows'
+import { numberTracks } from './track'
 import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles, Work } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
@@ -147,6 +148,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if (letterProblem !== null) return { deny: letterProblem }
 
   if (settings.enabled) await refreshDocs(project)
+  await numberTracks(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const previousDir = await previousShift(project)
@@ -213,7 +215,7 @@ export async function openTask(project: Project, input: OpenInput): Promise<{ de
   const task: TaskFiles = {
     name: input.name,
     task: renderTask(input),
-    track: input.items.map(item => `${formatItem('open', item.name, item.note)}\n`).join(''),
+    track: input.items.map((item, n) => `${formatItem('open', n + 1, item.name, item.note)}\n`).join(''),
     notes: [],
   }
   const listPath = `${root}/${TASK_LIST}`
@@ -226,7 +228,7 @@ export async function openTask(project: Project, input: OpenInput): Promise<{ de
   await store.write(`${folder}/${NAMES.track}`, task.track ?? '')
   await store.write(listPath, list)
 
-  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about)) }
+  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), task.track ?? '') }
 }
 
 function renderTask(input: OpenInput): string {
@@ -458,7 +460,10 @@ export async function tasksView(project: Project): Promise<string> {
       status: task.status,
       name: task.name,
       about: task.about,
-      items: task.status === 'in progress' ? open.map(item => ({ status: item.status, name: item.name })) : null,
+      items:
+        task.status === 'in progress'
+          ? open.map(item => ({ status: item.status, name: item.id === null ? item.name : `#${item.id} ${item.name}` }))
+          : null,
       closed: items.length - open.length,
       total: items.length,
     })

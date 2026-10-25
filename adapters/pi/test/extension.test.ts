@@ -90,9 +90,9 @@ test('a project without docs shows no docs tools, neither as tools nor in the do
   expect(run.systemPromptOptions.sections.shift).toContain('- `task_track` — ')
   expect(run.systemPromptOptions.sections.shift).not.toContain('doc_outline')
 
-  expect(await pi.call('task_track', { task: 't', item: 'test', status: 'done' })).toContain('- [done] write the test')
-  expect(await readFile(join(root, '.shift/tasks/t/track.md'), 'utf8')).toBe('- [done] write the test\n')
-  await expect(pi.call('task_track', { task: 'nope', item: 'x', status: 'done' })).rejects.toThrow('the task is not open')
+  expect(await pi.call('task_track', { task: 't', id: 1, status: 'done' })).toContain('- [done] #1 write the test')
+  expect(await readFile(join(root, '.shift/tasks/t/track.md'), 'utf8')).toBe('- [done] #1 write the test\n')
+  await expect(pi.call('task_track', { task: 'nope', id: 1, status: 'done' })).rejects.toThrow('the task is not open')
   expect(pi.tools.get('task_track')?.executionMode).toBe('sequential')
   expect(pi.tools.get('shift_guide')?.executionMode).toBeUndefined()
 })

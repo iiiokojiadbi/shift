@@ -140,20 +140,24 @@ export function findDate(text: string): string | null {
   return null
 }
 
-// Every `- ` line of a text as an item; a line without a `[status]` has an empty one.
+// Every `- ` line of a text as an item; a line without a `[status]` has an empty one, a track item without `#<id>`
+// a null id.
 export function itemsOf(text: string): Item[] {
   return text.split('\n').flatMap((raw, index) => {
     if (!raw.startsWith('- ')) return []
     const line = raw.trim()
     const match = /^- \[([^\]]+)\] *(.*)$/.exec(line)
     const rest = match?.[2] ?? line.slice(2).trim()
-    const cut = rest.indexOf(' — ')
+    const id = /^#(\d+) +/.exec(rest)
+    const named = id === null ? rest : rest.slice(id[0].length)
+    const cut = named.indexOf(' — ')
 
     return [
       {
         status: match?.[1] ?? '',
-        name: cut === -1 ? rest : rest.slice(0, cut),
-        note: cut === -1 ? null : rest.slice(cut + 3),
+        id: id === null ? null : Number(id[1]),
+        name: cut === -1 ? named : named.slice(0, cut),
+        note: cut === -1 ? null : named.slice(cut + 3),
         rest,
         line,
         index,
@@ -162,8 +166,8 @@ export function itemsOf(text: string): Item[] {
   })
 }
 
-export function formatItem(status: string, name: string, note: string | null): string {
-  return `- [${status}] ${name}${note === null ? '' : ` — ${note}`}`
+export function formatItem(status: string, id: number, name: string, note: string | null): string {
+  return `- [${status}] #${id} ${name}${note === null ? '' : ` — ${note}`}`
 }
 
 export function formatK(n: number): string {

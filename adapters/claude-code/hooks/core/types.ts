@@ -11,9 +11,9 @@ export type Gauge = { base: number | null; hinted: number | null; unassisted: bo
 
 export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
 
-// What task_track asks for: an item of a task's track by words of its name, or the task's own line in TASKS.md.
-// One track item's change: found by words of its name, or added.
-export type ItemChange = { item: string; status: string; note: string | null; add: boolean }
+// What task_track asks for: items of a task's track, or the task's own line in TASKS.md.
+// One track item's change: an item found by its id, or a new item by its text.
+export type ItemChange = ({ id: number } | { item: string }) & { status: string; note: string | null }
 // Track items changed together, all or none, and the task's own status in TASKS.md.
 export type TrackInput = { task: string; items: ItemChange[]; own: { status: string; note: string | null } | null }
 
@@ -33,7 +33,7 @@ export type OpenInput = {
 export type ArchiveInput = { name: string; outcome: (typeof OUTCOMES)[number]; about: string }
 
 // A `- [status] name — note` line of a block: `rest` is all after the status, `index` the line's place in the text.
-export type Item = { status: string; name: string; note: string | null; rest: string; line: string; index: number }
+export type Item = { status: string; id: number | null; name: string; note: string | null; rest: string; line: string; index: number }
 
 // The board's tasks: status, folder name and the note after the dash.
 export type FocusTask = { status: string; name: string; line: string }

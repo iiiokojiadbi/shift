@@ -99,7 +99,8 @@ test('the shift tool snapshots the letter, the board and the tasks, and accepts 
   expect(String(answer.result)).toContain('Shift accepted')
   expect(files.get(`${DIR}/letter.md`)).toBe(LETTER)
   expect(files.get(`${DIR}/board.md`)).toBe(BOARD)
-  expect(files.get(`${DIR}/tasks/tests/track.md`)).toBe(TRACK)
+  // The shift gave the items ids.
+  expect(files.get(`${DIR}/tasks/tests/track.md`)).toBe('- [in progress] #1 fix the parser\n- [open] #2 cover the archive')
   expect(files.get(`${DIR}/OWNER.md`)).toBe(OWNER)
   expect(files.get(`${DIR}/knowledge/traps.md`)).toBe(TRAPS)
   expect(files.get(`${DIR}/about.md`)).toContain('result: pending')
@@ -387,7 +388,7 @@ test("records are looked at around every tool: the agent's own change told only 
   // The mod's own tool writes a record: remembered, never named as someone else's at the next tool.
   files.set('/proj/.shift/board.md', BOARD)
   await bash()
-  await $.tool.call({ tool: 'mcp__shift__task_track', task: 'tests', item: 'cover', status: 'done', note: 'a longer note than before' })
+  await $.tool.call({ tool: 'mcp__shift__task_track', task: 'tests', id: 2, status: 'done', note: 'a longer note than before' })
   expect((await bash()).context).toBeUndefined()
 })
 

@@ -105,7 +105,8 @@ test('an accepted shift snapshots the records and leaves a pending about.md', as
 
   expect(shift.dir).toBe(DIR)
   expect(shift.hold).toBe('HOLD-THIS')
-  expect(shift.segment.done).toEqual(['tests: fix the parser'])
+  // The shift numbered the track written without ids.
+  expect(shift.segment.done).toEqual(['tests: #1 fix the parser'])
   expect(shift.focus).toEqual(['tests'])
   for (const name of [
     'letter.md',

@@ -76,29 +76,28 @@ export const OPEN_SCHEMA = {
 
 export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
 
-export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With item: a track item of the task — item is words of its name (before " — "), enough to find one; a fragment that finds none or several is refused with the items listed. Without item: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). add: true adds item as a new item. Several items at once — when a stage closes one item and opens the next: items, a list of {item, status, note, add}, applied together or not at all; status beside items is then the task's own.`
+export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With id: the track item with that id, the number in its "#<id>". With item: a new item with that text, given the next id. Without either: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). Several items at once — when a stage closes one item and opens the next: items, a list of {id or item, status, note}, applied together or not at all; status beside items is then the task's own.`
 
 export const TRACK_SCHEMA = {
   type: 'object',
   properties: {
     task: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
-    item: { type: 'string', description: "Words of the track item's name; leave out to set the task's own status." },
+    id: { type: 'integer', description: 'The track item to change: the number in its "#<id>".' },
+    item: { type: 'string', description: 'The text of a new track item; what matters goes in note.' },
     status: { type: 'string', enum: [...new Set([...STATUSES, ...FOCUS])] },
     note: { type: 'string', description: 'One line: replaces what follows " — ".' },
-    add: { type: 'boolean', description: 'true: add item as a new item.' },
     items: {
       type: 'array',
-      description:
-        'Several items in one call, in place of item: each found or added as item alone would be; one that fails writes nothing.',
+      description: 'Several items in one call, in place of id and item: each changed or added as alone; one that fails writes nothing.',
       items: {
         type: 'object',
         properties: {
+          id: { type: 'integer' },
           item: { type: 'string' },
           status: { type: 'string', enum: [...STATUSES] },
           note: { type: 'string' },
-          add: { type: 'boolean' },
         },
-        required: ['item', 'status'],
+        required: ['status'],
       },
     },
   },
@@ -207,7 +206,7 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [TRACK_TOOL]: {
     label: 'Task status',
     description: TRACK_DESCRIPTION,
-    brief: `set a track item's status or add an item, found by words of its name, several at once with items; without an item, the task's own status in \`${TASK_LIST}\`.`,
+    brief: `set a track item's status by its id or add an item, several at once with items; without either, the task's own status in \`${TASK_LIST}\`.`,
     schema: TRACK_SCHEMA,
   },
   [HISTORY_TOOL]: {

@@ -6,9 +6,9 @@ import type { Store } from './store'
 import { formatTaskLine, taskLine } from './tasks'
 import type { Item, ItemChange, TrackInput } from './types'
 
-// Statuses set by a tool instead of an edit by hand: a track item found by the words of its name, or a task's own
-// line in TASKS.md. Items carry no ids — the records stay clean, and the agent knows the words it wrote; a fragment
-// that finds no item or several is refused with the items listed, so the wrong one is never changed.
+// Statuses set by a tool instead of an edit by hand: a track item found by its id, or a task's own line in TASKS.md.
+// An id is the item's `#<n>`, given by the mod when the item is added and never reused in the track: a call names an
+// item in a few characters, not by the words of its name.
 
 export async function updateTrack(project: Project, input: TrackInput): Promise<{ deny: string } | { result: string }> {
   const { store, root } = project
@@ -45,7 +45,7 @@ async function setTaskStatus(
   return { result: `${TASK_LIST}: ${lines[at]}` }
 }
 
-// Every change applied to the track in order, then written once: one that finds no item or several writes nothing.
+// Every change applied to the track in order, then written once: one that finds no item writes nothing.
 async function setItems(
   store: Store,
   root: string,
@@ -53,8 +53,9 @@ async function setItems(
   changes: readonly ItemChange[],
 ): Promise<{ deny: string } | { result: string }> {
   const path = taskFile(`${root}/${DIR}`, task, 'track')
-  let text = await store.read(path)
-  if (text === null) return { deny: `No ${TASKS}/${task}/track.md: the task is not open.` }
+  const read = await store.read(path)
+  if (read === null) return { deny: `No ${TASKS}/${task}/track.md: the task is not open.` }
+  let text = numberItems(read)
   const lines: string[] = []
   for (const [n, change] of changes.entries()) {
     const applied = applyItem(text, task, change)
@@ -72,29 +73,57 @@ async function setItems(
 function applyItem(text: string, task: string, change: ItemChange): { deny: string } | { text: string; line: string } {
   const lines = text.split('\n')
   const items = itemsOf(text).filter(item => item.status !== '')
-  const listed = (found: readonly Item[]) => found.map((each, n) => `${n + 1}. ${each.line}`).join('\n')
-  const wanted = change.item.toLowerCase()
 
-  if (change.add) {
-    if (items.some(each => each.name.toLowerCase() === wanted)) return { deny: `"${change.item}" is already an item of ${task}.` }
-    const line = formatItem(change.status, change.item, change.note)
+  if ('item' in change) {
+    const wanted = change.item.toLowerCase()
+    const same = items.find(each => each.name.toLowerCase() === wanted)
+    if (same !== undefined) return { deny: `"${change.item}" is already an item of ${task}: #${same.id}.` }
+    const line = formatItem(change.status, nextId(items), change.item, change.note)
     const body = text.trimEnd()
 
     return { text: `${body === '' ? '' : `${body}\n`}${line}\n`, line }
   }
 
-  const exact = items.filter(each => each.name.toLowerCase() === wanted)
-  const found = exact.length === 1 ? exact : items.filter(each => each.name.toLowerCase().includes(wanted))
-  if (found.length > 1) {
-    return { deny: `"${change.item}" is in ${found.length} items of ${task}:\n${listed(found)}\nCall again with words that find one.` }
+  const found = items.find(each => each.id === change.id)
+  if (found === undefined) {
+    return { deny: `No item #${change.id} in ${task}. Its items:\n${items.map(each => each.line).join('\n')}` }
   }
-  const only = found[0]
-  if (only === undefined) {
-    return {
-      deny: `No item of ${task} has "${change.item}" in its name. Its items:\n${listed(items)}\nCall again with words of one of them, or add: true for a new item.`,
-    }
-  }
-  lines[only.index] = formatItem(change.status, only.name, change.note ?? only.note)
+  lines[found.index] = formatItem(change.status, change.id, found.name, change.note ?? found.note)
 
-  return { text: lines.join('\n'), line: lines[only.index] ?? '' }
+  return { text: lines.join('\n'), line: lines[found.index] ?? '' }
+}
+
+// Ids for the track items without one, or with one an earlier item took — added by hand, or written before items had
+// ids — numbered on from the highest; the text as it was when every item has its own.
+export function numberItems(text: string): string {
+  const items = itemsOf(text).filter(item => item.status !== '')
+  let next = nextId(items)
+  const lines = text.split('\n')
+  const seen = new Set<number>()
+  for (const item of items) {
+    if (item.id !== null && !seen.has(item.id)) {
+      seen.add(item.id)
+      continue
+    }
+    lines[item.index] = formatItem(item.status, next++, item.name, item.note)
+  }
+
+  return lines.join('\n')
+}
+
+// Every open task's track numbered where it has items without ids: done at a shift, so the tracks it hands back
+// carry an id on every item.
+export async function numberTracks(project: Project): Promise<void> {
+  const { store, root } = project
+  for (const task of await store.list(`${root}/${TASKS}`, 'dir')) {
+    const path = taskFile(`${root}/${DIR}`, task, 'track')
+    const text = await store.read(path)
+    if (text === null) continue
+    const numbered = numberItems(text)
+    if (numbered !== text) await store.write(path, numbered)
+  }
+}
+
+function nextId(items: readonly Item[]): number {
+  return Math.max(0, ...items.map(item => item.id ?? 0)) + 1
 }
