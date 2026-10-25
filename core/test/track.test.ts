@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { openTask } from '../src/flows'
+import { openTask, tasksView } from '../src/flows'
 import { segment } from '../src/history'
 import { parseOpenInput, parseTrackInput } from '../src/input'
 import { loadProject } from '../src/project'
@@ -184,4 +184,24 @@ test('a task opens valid by construction: its files and its line with links, or 
   if (typeof input === 'string') throw new Error(input)
   await openTask(await loadProject(empty, ROOT), input)
   expect(empty.files.get(`${R}/TASKS.md`)).toBe('# Tasks\n\n- [in progress] [first](tasks/first/) — a\n')
+})
+
+test('/shift-tasks shows every open task, and the items not closed of those in progress', async () => {
+  const list = `${LIST}- [deferred] [later](tasks/later/) — after the adapters\n`
+  const store = memoryStore({
+    [`${R}/tasks/adapters/track.md`]: TRACK.replace('[in progress] pi adapter', '[done] pi adapter'),
+    [`${R}/tasks/later/track.md`]: '- [open] one\n',
+    [`${R}/TASKS.md`]: list,
+  })
+  expect(await tasksView(await loadProject(store, ROOT))).toBe(
+    [
+      '[in progress] adapters — pi and opencode (1 of 3 items closed)',
+      '    [open] pi distribution',
+      '    [open] opencode adapter',
+      '[deferred] later — after the adapters (0 of 1 items closed)',
+    ].join('\n'),
+  )
+  expect(await tasksView(await loadProject(memoryStore({ [`${R}/TASKS.md`]: '# Tasks\n\nnone\n' }), ROOT))).toBe(
+    'No open tasks in .shift/TASKS.md.',
+  )
 })

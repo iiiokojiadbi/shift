@@ -6,6 +6,7 @@ import { resolvePath } from './input'
 import {
   ARCHIVE,
   BOARD,
+  CLOSED,
   DIR,
   GUIDE_TOOL,
   HOLD,
@@ -41,7 +42,7 @@ import {
   resumePrompt,
   waitContext,
 } from './texts/prompts'
-import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
+import { CONTINUING, NOT_MADE, renderTasks, type TaskView, UNSETTLED, WAITING } from './texts/rows'
 import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles, Work } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
@@ -433,4 +434,28 @@ export async function staleLayout({ store, root }: Project): Promise<string | nu
 
 function shiftName(shift: PendingShift): string {
   return shift.dir.split('/').at(-1) ?? shift.dir
+}
+
+// What /shift-tasks shows: the open tasks as listed, with their items' count, and the items not closed of those in
+// progress. Read only; a list the shift would refuse is shown as far as it parses.
+export async function tasksView(project: Project): Promise<string> {
+  const { store, root } = project
+  const parsed = parseTaskList((await store.read(`${root}/${TASK_LIST}`)) ?? '')
+  if (typeof parsed === 'string') return `${TASK_LIST}: ${parsed}`
+  const views: TaskView[] = []
+  for (const task of parsed) {
+    const track = (await store.read(taskFile(`${root}/${DIR}`, task.name, 'track'))) ?? ''
+    const items = itemsOf(track).filter(item => item.status !== '')
+    const open = items.filter(item => !CLOSED.has(item.status))
+    views.push({
+      status: task.status,
+      name: task.name,
+      about: task.about,
+      items: task.status === 'in progress' ? open.map(item => ({ status: item.status, name: item.name })) : null,
+      closed: items.length - open.length,
+      total: items.length,
+    })
+  }
+
+  return renderTasks(views)
 }

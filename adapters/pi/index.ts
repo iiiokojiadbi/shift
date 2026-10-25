@@ -29,7 +29,10 @@ import {
   sessionFiles,
   shiftBase,
   startSession,
+  TASKS_COMMAND,
+  TASKS_DESCRIPTION,
   TOOLS,
+  tasksView,
 } from './core/index'
 import { projectAt } from './store'
 
@@ -82,6 +85,11 @@ export default function shift(pi: ExtensionAPI): void {
       },
     })
   }
+
+  pi.registerCommand(TASKS_COMMAND, {
+    description: TASKS_DESCRIPTION,
+    handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await projectAt(ctx.cwd)), 'info'),
+  })
 
   pi.registerCommand(RESUME_COMMAND, {
     description: RESUME_DESCRIPTION,

@@ -34,6 +34,8 @@ export const GUIDE_DESCRIPTION =
 export const SETUP_DESCRIPTION =
   "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
 
+export const TASKS_DESCRIPTION = 'The open tasks and the items of those in progress, read from .shift/; the agent is not asked'
+
 export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent'
 
 export const SETUP_SCHEMA = { type: 'object', properties: {} }

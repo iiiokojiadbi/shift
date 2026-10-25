@@ -22,7 +22,10 @@ import {
   SOURCES,
   sessionFiles,
   startSession,
+  TASKS_COMMAND,
+  TASKS_DESCRIPTION,
   TOOLS,
+  tasksView,
   unassistedInstructions,
 } from './core/index'
 import { projectOf } from './disk'
@@ -53,6 +56,7 @@ export const register: Register = on => {
       await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.schema, isDeferred: false })
     }
     await $.command.register({ name: RESUME_COMMAND, description: RESUME_DESCRIPTION })
+    await $.command.register({ name: TASKS_COMMAND, description: TASKS_DESCRIPTION, immediate: true })
 
     return next(e)
   })
@@ -135,6 +139,9 @@ export const register: Register = on => {
 
     return { text: resumed.text, context: [prompt] }
   })
+
+  // For the owner: it runs at once, even mid-turn, and asks the agent nothing.
+  on('command.run', { command: TASKS_COMMAND }, async $ => ({ text: await tasksView(await projectOf($)) }))
 
   on('turn.complete', async ($, e, next) => {
     const ended = await next(e)

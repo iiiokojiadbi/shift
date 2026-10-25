@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { MAX_AUTO_STREAK, NAMES } from '../layout'
+import { MAX_AUTO_STREAK, NAMES, TASK_LIST } from '../layout'
 
 // The owner's rows in the transcript: what became of a shift. Short, one line each.
 
@@ -21,3 +21,26 @@ export const UNSETTLED = (name: string, why: string) =>
 export const DELIVERED = (files: readonly string[], dir: string) => `went with your message: ${files.join(', ')} — ${dir}/${NAMES.letter}`
 
 export const NOT_CONTINUED = (why: string) => `the next turn did not start after the shift — ${why}; send any message to go on`
+
+// What /shift-tasks shows the owner: every open task, and under one in progress its items not closed yet.
+export type TaskView = {
+  status: string
+  name: string
+  about: string
+  items: { status: string; name: string }[] | null
+  closed: number
+  total: number
+}
+
+export function renderTasks(tasks: readonly TaskView[]): string {
+  if (tasks.length === 0) return `No open tasks in ${TASK_LIST}.`
+  return tasks
+    .map(task => {
+      const head = `[${task.status}] ${task.name} — ${task.about}`
+      const count = task.total === 0 ? '' : ` (${task.closed} of ${task.total} items closed)`
+      const items = (task.items ?? []).map(item => `    [${item.status}] ${item.name}`)
+
+      return [head + count, ...items].join('\n')
+    })
+    .join('\n')
+}
