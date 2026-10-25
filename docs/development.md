@@ -10,6 +10,8 @@ description: Working on the repo: tooling, the commands and what each checks, th
 - Tests
 - Installing for development
 - Release
+  - Claude Code
+  - pi
 <!-- /toc -->
 
 ## Tooling

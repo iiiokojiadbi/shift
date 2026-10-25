@@ -162,26 +162,21 @@ test('resume says why there is nothing, else hands the letter last', async () =>
   expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
 })
 
-test('after the let-go: continue counts the streak, a capped continue and a wait leave the note', async () => {
+test('after the let-go: continue goes on from the letter, however many came before; a wait leaves the note', async () => {
   const store = await project()
   const shift = await accepted(store)
-  const letGo = { shift, messages: [{ role: 'user', text: 'DIGEST' }], before: 300_000, after: 20_000, streak: 0 }
+  const letGo = { shift, messages: [{ role: 'user', text: 'DIGEST' }], before: 300_000, after: 20_000 }
 
   const going = await settleShift(store, letGo)
   expect(going).toMatchObject({
     after: 'continue',
-    streak: 1,
     row: `shift 20260102-030405 done (300K → 20K), continuing from the letter — ${DIR}/letter.md`,
   })
   expect(store.files.get(`${DIR}/summary.md`)).toContain('DIGEST')
   expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
 
-  const capped = await settleShift(store, { ...letGo, streak: 3 })
-  expect(capped.after).toBe('wait')
-  expect(capped.row).toContain('3 in a row without you')
-  expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe(
-    'shifted (300K → 20K), waiting: 3 shifts in a row without the owner',
-  )
+  // No count of shifts without the owner: the agent works on through as many as the work takes.
+  for (let n = 0; n < 5; n++) expect((await settleShift(store, letGo)).after).toBe('continue')
 
   const waiting = await settleShift(store, { ...letGo, shift: { ...shift, after: 'wait' } })
   if (waiting.after !== 'wait') throw new Error('expected a wait')
@@ -197,7 +192,7 @@ test('a let-go that failed is written down; the base comes back only from this s
   expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
   expect(await shiftBase(store, 's1')).toBeNull()
 
-  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000, streak: 0 })
+  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
   expect(await shiftBase(store, 's1')).toBe(20_000)
   expect(await shiftBase(store, 's2')).toBeNull()
 })
@@ -218,7 +213,7 @@ test('a note beside a task: checked, snapshotted, listed after a shift with its 
   const store = await project({ [`${R}/tasks/tests/notes/fences.md`]: NOTE, [`${R}/tasks/tests/track.md`]: linked })
   const shift = await accepted(store)
   expect(store.files.get(`${DIR}/tasks/tests/notes/fences.md`)).toBe(NOTE)
-  const settled = await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000, streak: 0 })
+  const settled = await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
   const prompt = settled.after === 'continue' ? settled.prompt : ''
   expect(prompt).toContain(
     '<notes path=".shift/tasks/tests/notes/" note="read a note when its item comes up">\n- .shift/tasks/tests/notes/fences.md — what the parser does with fences\n</notes>',

@@ -26,9 +26,6 @@ export const RESUME_COMMAND = 'unshift'
 
 export const TASKS_COMMAND = 'shift-tasks'
 
-// Consecutive self-continued shifts before the mod stops and waits for the owner.
-export const MAX_AUTO_STREAK = 3
-
 // The board is the state of the work; past this it has turned into a diary.
 export const BOARD_MAX_LINES = 150
 

@@ -13,7 +13,6 @@ import {
   INDEX,
   KNOWLEDGE,
   LETTER,
-  MAX_AUTO_STREAK,
   NAMES,
   OLD_DIR,
   SETTINGS,
@@ -351,19 +350,14 @@ export type LetGo = {
   messages: readonly { role: string; text: string }[]
   before: number | undefined
   after: number
-  // `continue` shifts in a row without the owner before this one.
-  streak: number
 }
 
-// After the let-go: the summary and the outcome on disk, then continue, or wait — asked for, or forced after
-// `MAX_AUTO_STREAK` continues in a row without the owner.
+// After the let-go: the summary and the outcome on disk, then continue or wait, as the agent asked.
 export async function settleShift(project: Project, letGo: LetGo): Promise<Settled> {
   const { store } = project
   const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
   await store.write(`${shift.dir}/${NAMES.summary}`, summary)
-  const streak = letGo.streak + 1
-  const isCapped = shift.after === 'continue' && streak > MAX_AUTO_STREAK
   const shrank = `${formatK(before ?? 0)} → ${formatK(after)}`
   const outcome = (result: string) =>
     store.write(
@@ -373,22 +367,20 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
   const back = await handBack(project, shift.dir)
   const name = basename(shift.dir)
 
-  if (shift.after === 'continue' && !isCapped) {
+  if (shift.after === 'continue') {
     await outcome(OUTCOME.continuing(shrank))
 
     return {
       after: 'continue',
-      streak,
       prompt: continuePrompt(shift.letter, back),
       row: CONTINUING(name, shrank, shift.dir),
     }
   }
 
-  const why = isCapped ? `waiting: ${MAX_AUTO_STREAK} shifts in a row without the owner` : 'waiting for the owner'
-  await outcome(OUTCOME.waiting(shrank, why))
+  await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
   const note = { context: waitContext(shift.letter, back), dir: shift.dir, files: deliveredFiles(back.work) }
 
-  return { after: 'wait', note, row: WAITING(name, shrank, isCapped) }
+  return { after: 'wait', note, row: WAITING(name, shrank) }
 }
 
 // The fill the stretch started from, if the last shift was this session's: a fresh process counts from there.

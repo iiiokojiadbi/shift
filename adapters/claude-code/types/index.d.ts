@@ -51,7 +51,6 @@ declare module 'claude-code' {
     shift: {
       pending: PendingShift | null
       waitNote: WaitNote | null
-      autoStreak: number
       // true from a bare /unshift until its own prompt goes, or the owner's message comes first and makes it needless.
       resumeKick: boolean
       gauge: Gauge

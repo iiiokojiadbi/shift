@@ -1,24 +1,14 @@
 import { expect, test } from 'bun:test'
 import { acceptShift } from '../src/flows'
 import { letGoGauge } from '../src/hint'
-import {
-  afterTurn,
-  FRESH_LOOP,
-  holdShift,
-  type LetGoHarness,
-  type Loop,
-  type LoopState,
-  loopHint,
-  ownerSpoke,
-  waitingNote,
-} from '../src/loop'
+import { afterTurn, FRESH_LOOP, holdShift, type LetGoHarness, type Loop, type LoopState, loopHint, waitingNote } from '../src/loop'
 import { frontmatter } from '../src/markdown'
 import type { Gauge } from '../src/types'
 import { BOARD, LETTER, listWith, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
 
 // A loop over a variable that keeps its rows, and a project with one shift accepted and held.
-async function setUp(after: 'continue' | 'wait' = 'continue', streak = 0) {
+async function setUp(after: 'continue' | 'wait' = 'continue') {
   const project = await memoryProject(
     {
       [`${R}/letter.md`]: LETTER,
@@ -31,7 +21,7 @@ async function setUp(after: 'continue' | 'wait' = 'continue', streak = 0) {
     ROOT,
   )
   const rows: [string, string][] = []
-  const kept: { state: LoopState } = { state: { ...FRESH_LOOP, streak } }
+  const kept: { state: LoopState } = { state: { ...FRESH_LOOP } }
   const loop: Loop = {
     read: async () => kept.state,
     update: async change => {
@@ -73,20 +63,20 @@ test('an aborted turn lets nothing go; a failed let-go is told as an error; both
     false,
   )
   expect(failed.rows).toEqual([['error', expect.stringContaining('not made — the let-go failed: Error: busy')]])
-  // To continue: the agent goes on at once, its history whole, within the count of runs without the owner.
+  // To continue: the agent goes on at once, its history whole.
   expect(prompts).toEqual([expect.stringContaining('<shift note="from the mod: the shift was not made">')])
-  expect(failed.kept.state.streak).toBe(1)
   expect(failed.kept.state.note).toBeNull()
 
-  const capped = await setUp('continue', 3)
+  // To wait: the note goes with the owner's next message.
+  const waiting = await setUp('wait')
   await afterTurn(
-    capped.project,
-    capped.loop,
+    waiting.project,
+    waiting.loop,
     harness(async () => Promise.reject(new Error('busy')), prompts),
     false,
   )
   expect(prompts).toHaveLength(1)
-  expect(capped.kept.state.note).toMatchObject({ files: ['the note that the shift failed'] })
+  expect(waiting.kept.state.note).toMatchObject({ files: ['the note that the shift failed'] })
 })
 
 test('a failure whose about.md cannot be written is still told, and says so', async () => {
@@ -106,27 +96,20 @@ test('a failure after the let-go is told and written as let go but not settled',
   await afterTurn(broken.project, broken.loop, throwing, false)
   expect(broken.rows).toEqual([['error', expect.stringContaining('the history was let go, but the message after it failed')]])
   // The agent lost its history and got nothing back: it is sent to its records.
-  expect(broken.kept.state.streak).toBe(1)
+  expect(broken.kept.state.note).toBeNull()
   expect(frontmatter(broken.project.files.get(`${broken.dir}/about.md`) ?? '').get('result')).toBe('let go, not settled: Error: disk')
 })
 
-test('continue starts the next turn and counts the streak; past the cap, and on wait, the note waits for the owner', async () => {
+test('continue starts the next turn; on wait the note waits for the owner', async () => {
   const prompts: string[] = []
   const going = await setUp()
   await afterTurn(going.project, going.loop, harness(digest, prompts), false)
-  expect(going.kept.state.streak).toBe(1)
   expect(prompts[0]).toContain('Shift done')
   expect(going.rows[0]?.[1]).toContain('continuing from the letter')
-
-  const capped = await setUp('continue', 3)
-  await afterTurn(capped.project, capped.loop, harness(digest), false)
-  expect(capped.kept.state.note?.dir).toBe(capped.dir)
 
   const waiting = await setUp('wait')
   await afterTurn(waiting.project, waiting.loop, harness(digest), false)
   expect(waiting.kept.state.note?.context).toContain('HOLD-THIS')
-  await ownerSpoke(waiting.loop)
-  expect(waiting.kept.state.streak).toBe(0)
   const note = await waitingNote(waiting.loop)
   expect(waiting.kept.state.note).not.toBeNull()
   await note?.delivered()
@@ -152,18 +135,14 @@ test('no hint while a shift is pending', async () => {
   expect(await loopHint(loop, keeper)).toContain('let the history go by itself')
 })
 
-test('the owner speaking during the let-go resets the count; a turn that does not start is told, not recorded against the shift', async () => {
-  const { project, loop, kept, rows, dir } = await setUp('continue', 2)
+test('a turn that does not start after the shift is told, not recorded against the shift', async () => {
+  const { project, loop, rows, dir } = await setUp()
   const harness: LetGoHarness = {
     fill: async () => 300_000,
-    letGo: async () => {
-      await ownerSpoke(loop)
-      return { messages: [], after: 20_000 }
-    },
+    letGo: async () => ({ messages: [], after: 20_000 }),
     continueWith: async () => Promise.reject(new Error('busy')),
   }
   await afterTurn(project, loop, harness, false)
-  expect(kept.state.streak).toBe(1)
   expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
   expect(rows.at(-1)).toEqual(['error', expect.stringContaining('the next turn did not start after the shift — Error: busy')])
 })

@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { MAX_AUTO_STREAK, NAMES, TASK_LIST } from '../layout'
+import { NAMES, TASK_LIST } from '../layout'
 
 // The owner's rows in the transcript: what became of a shift. Short, one line each.
 
@@ -12,8 +12,8 @@ export const NOT_MADE = (name: string, why: string) => `shift ${name} not made �
 export const CONTINUING = (name: string, shrank: string, dir: string) =>
   `shift ${name} done (${shrank}), continuing from the letter — ${dir}/${NAMES.letter}`
 
-export const WAITING = (name: string, shrank: string, capped: boolean) =>
-  `shift ${name} done (${shrank})${capped ? `, ${MAX_AUTO_STREAK} in a row without you` : ''} — waiting for you, the letter goes with your next message`
+export const WAITING = (name: string, shrank: string) =>
+  `shift ${name} done (${shrank}) — waiting for you, the letter goes with your next message`
 
 export const UNSETTLED = (name: string, why: string) =>
   `shift ${name}: the history was let go, but the message after it failed — ${why}; the letter is in the shift's folder`

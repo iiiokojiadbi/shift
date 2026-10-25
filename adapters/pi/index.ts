@@ -19,7 +19,6 @@ import {
   gaugeStatus,
   letGoGauge,
   MOD,
-  ownerSpoke,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
   resumeShift,
@@ -122,11 +121,9 @@ export default function shift(pi: ExtensionAPI): void {
     loop = { ...loop, note: last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null }
   })
 
-  // The owner's own input, idle or typed mid-run, starts the count of shifts without them over; only a message that
-  // starts a run takes the waiting letter with it.
-  pi.on('input', async (event, ctx) => {
+  // The owner's own input: only a message that starts a run takes the waiting letter with it.
+  pi.on('input', async (event, _ctx) => {
     if (!enabled || event.source === 'extension') return
-    await ownerSpoke(loopOf(ctx))
     if (event.streamingBehavior === undefined) ownerTyped = true
   })
 

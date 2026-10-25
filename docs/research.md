@@ -29,7 +29,7 @@ Read at `e518363`: the article, `CHANGELOG.md`, the core (`kernel/src/compress.t
 **What to beware of:**
 - **A stale directive in the handoff.** An invented "verbatim" quote of the user landed in the summary as the current task and the session looped (#309). Our letter is a live directive by design, so the owner is quoted only with the words as said, and open work is in tasks with a status.
 - **Some models write the summary as text.** Asked to compress, the model answers with `<analysis>`/`<summary>` instead of calling the tool, and the session stalls. So the model reads only "shift" — never "compression", "summary" or "compaction".
-- **Loops on failed calls.** A model repeated 161 failed calls for 2 h 42 min. A refusal names its fix, and three `continue` shifts in a row without the owner force a wait.
+- **Loops on failed calls.** A model repeated 161 failed calls for 2 h 42 min. A refusal names its fix, and a shift whose records did not change since the last one is refused, so an agent cannot shift on and on without working. There is no cap on `continue` shifts without the owner: the agent is meant to go on through sessions by itself.
 - **Fake confirmations.** The model wrote 17 times that the fold was done when it was not. The mod checks state on disk, not the conversation.
 - **Auto-compaction turned off without a net.** Bypassing their proxy left a session with no compression at all (#2290). The shift never turns off the harness's own let-go; it adds instructions to it.
 - **Cancelling someone else's compaction** only on a direct sign that it is automatic (#1382).

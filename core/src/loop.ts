@@ -1,6 +1,5 @@
 import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, takeHint } from './hint'
-import { MAX_AUTO_STREAK } from './layout'
 import { basename } from './paths'
 import type { Project } from './project'
 import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, UNSETTLED_NOTE } from './texts/prompts'
@@ -14,8 +13,6 @@ import type { PendingShift, Settled, WaitNote } from './types'
 export type LoopState = {
   // The shift accepted in this turn, let go once the turn ends.
   pending: PendingShift | null
-  // `continue` shifts in a row without the owner.
-  streak: number
   // The letter and the records waiting for the owner's next message.
   note: WaitNote | null
 }
@@ -43,7 +40,7 @@ export type LetGoHarness = {
   afterLetGo?(): Promise<void>
 }
 
-export const FRESH_LOOP: LoopState = { pending: null, streak: 0, note: null }
+export const FRESH_LOOP: LoopState = { pending: null, note: null }
 
 // An accepted shift waits for its turn to end.
 export async function holdShift(loop: Loop, shift: PendingShift): Promise<void> {
@@ -86,8 +83,6 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
       messages: done.messages,
       before: done.before ?? before,
       after: done.after ?? (await harness.fill()) ?? 0,
-      // Read now: the owner may have spoken while the history was let go.
-      streak: (await loop.read()).streak,
     })
   } catch (error) {
     const why = String(error)
@@ -101,28 +96,19 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
     loop.tell(settled.row, 'info')
     return
   }
-  const { streak } = settled
-  await loop.update(current => ({ ...current, streak }))
   loop.tell(settled.row, 'info')
   // The shift is settled and written; a turn that does not start is told, not recorded against it.
   await harness.continueWith(settled.prompt).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
 }
 
 // A failed shift is told to the agent, who was told it was accepted: at once when it was to continue and may go on,
-// within the same count of runs without the owner; otherwise with the owner's next message.
+// otherwise with the owner's next message.
 async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift, context: string, goOn: boolean): Promise<void> {
-  const { streak } = await loop.read()
-  if (goOn && shift.after === 'continue' && streak < MAX_AUTO_STREAK) {
-    await loop.update(current => ({ ...current, streak: current.streak + 1 }))
+  if (goOn && shift.after === 'continue') {
     await harness.continueWith(context).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
     return
   }
   await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
-}
-
-// The owner spoke: the count of shifts without them starts over.
-export async function ownerSpoke(loop: Loop): Promise<void> {
-  await loop.update(state => ({ ...state, streak: 0 }))
 }
 
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed

@@ -9,7 +9,6 @@ import {
   FRESH_GAUGE,
   FRESH_LOOKS,
   letGoGauge,
-  ownerSpoke,
   type Project,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
@@ -167,10 +166,7 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     if (!(await read($, enabled))) return next(e)
     const owner = OWNER_ORIGINS.has(e.origin?.kind ?? '')
-    if (owner) {
-      await ownerSpoke(loopOf($))
-      await update($, resumeKick, () => false)
-    }
+    if (owner) await update($, resumeKick, () => false)
     // A message queued while a tool runs does not start a run: what changed meanwhile may be that tool's.
     const told = await atPrompt(courierOf($), { runStarts: false, owner })
     if (told.notes.length === 0) return next(e)
