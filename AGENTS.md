@@ -1,98 +1,84 @@
 ---
-description: The project's map and standing facts: what shift is, the tree of the repo, how to work on it and release, facts not obvious from the code. Read first.
+description: The project's map and the rules for every change: what shift is, where the documentation is and how it is kept, the tree of the repo, the rules of working on it. Read first.
 ---
 
 # shift
 
 <!-- toc -->
+- Documentation
 - Tree
-- Working on it
-- Facts that are not obvious from the code
+- Rules for every change
 <!-- /toc -->
 
 An agent decides by itself when to **shift**: at a stage boundary it updates its work board and task folders, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and tasks in progress back whole and continues from where it stopped. The agent does not change — only what is in front of it does.
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.
 
-Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next). Another harness in Go or Rust may come later. The concept and its reasoning are in `docs/concept.md`.
+Harnesses: Claude Code (first, done as a mod), pi (an extension), opencode (next). Another harness in Go or Rust may come later.
+
+## Documentation
+
+The documents live in `docs/` and this file; the mod keeps them — a toc in each, remarks after a write — and maps them, with their descriptions and sections, into the session block through `.shift/SHIFT.md`, so they are in front of you in every session. Open a document for the details; the map only points.
+
+- `docs/concept.md` — the idea, the loop, how the model sees it, open questions;
+- `docs/records.md` — what the agent keeps in `.shift/` and why;
+- `docs/hints.md` — when the mod hints a shift, the gauge;
+- `docs/architecture.md` — the core's modules, the ports, where a change goes;
+- `docs/adapters.md` — each harness's slots and the facts about it;
+- `docs/development.md` — commands, tests, installing, the release;
+- `docs/research.md` — what the design stands on from outside;
+- `docs/archive/` — superseded design notes, kept for reasoning.
+
+Keep it yourself, as part of the work, not on request: a change to how the mod works, its interfaces, a harness's behaviour or the release goes into its document in the same commit; `docs_mentioning` names the documents that mention a changed file. Only the important parts — what a reader could not see from the code and would get wrong without: design, interfaces, reasons, traps, procedures. No dates, no history, no changelog — that is what git and `.shift/` are for; a fact lives in one place, and a document links to another instead of repeating it. A new document gets a `description:` that says what is in it and when to open it.
 
 ## Tree
 
 ```
-core/                      shared logic, pure TypeScript, no harness imports
-  src/types.ts             data shapes: work, tasks, gauge, shift input, segment
-  src/layout.ts            names and paths: tools, the records' file names once (NAMES) and their paths, sections, statuses, limits, atPlaces
-  src/input.ts             parsing and checking tool arguments
-  src/markdown.ts          sections, items, frontmatter, dates, number formatting
-  src/records.ts           checks of the letter, the board and the task folders
-  src/tasks.ts             TASKS.md: the open tasks, their links, its checks, the list after archiving
-  src/glossary.ts          GLOSSARY.md: articles with signed lines and their checks
-  src/docs.ts              the documents of `[docs] dirs`, folders or single files, read by one reader: the map in SHIFT.md, the toc, remarks and broken links after a write, the outline and mentions tools
-  src/settings.ts          the owner's settings.toml: a flat TOML subset — `enabled`, `knowledge`, `commit`, `[files]`, `[docs]`; each key one row: its version, the kind of its value, where it lives in the settings, what it does
-  src/project.ts           loadProject: the store, the root and the parsed settings, read once per hook or tool call; one policy for a broken settings file
-  src/setup.ts             what `shift_setup` answers: the settings here, the session's files and whether they changed
-  src/archive.ts           archiving checks and the index line
-  src/track.ts             task_track: a track item found by words of its name, or a task's line in TASKS.md, takes a status
-  src/about.ts             about.md: its outcomes, written and read back by one module
+core/                      shared logic, pure TypeScript, no harness imports — docs/architecture.md
+  src/project.ts           loadProject: the store, the root and the parsed settings, once per hook or tool call
+  src/store.ts             the storage port (files, a move, git); reading the records and writing a snapshot
+  src/layout.ts            names and paths (NAMES once), sections, statuses, limits, atPlaces
+  src/tools.ts             the tool table and what a session starts with
+  src/loop.ts              the shift loop over a port: hold, let go, continue or wait, the owner's message
+  src/hint.ts              when to hint, the gauge over a port, shift_status, a hint inside a tool result
+  src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files
+  src/about.ts             about.md: written and read back by one module
+  src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks
+  src/records.ts tasks.ts glossary.ts archive.ts   the checks of the records
+  src/settings.ts          settings.toml: a row per key
+  src/docs.ts              the project's documents: the map, tocs, remarks, outline, mentions
+  src/input.ts             tool arguments
   src/history.ts           shift folders, the stretch's segment, shift_history
-  src/store.ts             the storage port an adapter implements (files, a move, git); reading the records and writing a shift's snapshot by the same names
-  src/tools.ts             the tool table: a row per tool with its texts and `run`; which tools a project shows; what a session starts with
-  src/loop.ts              the shift loop: an accepted shift held, the let-go after the turn, continue or wait, the owner's next message, over a small port an adapter fills
-  src/flows.ts             accepting a shift, archiving, history, resume, what follows a let-go, the base after a restart, the files for every session
-  src/hint.ts              when to hint a shift, what the history grew from, shift_status, how the hint rides in a tool result; the gauge keeper over a small port an adapter fills
-  src/texts/doctrine.ts    the "Shift" system-prompt section, its tool list from the tools shown, and the full guide
-  src/texts/tools.ts       each tool's label, description, doctrine line and schema
-  src/texts/prompts.ts     compaction instructions and the messages after a shift
-  src/texts/rows.ts        the owner's rows about a shift
+  src/types.ts             data shapes
+  src/texts/               every word the model or the owner reads: doctrine and guide, tools, prompts, rows
   src/index.ts             re-exports everything
-  test/                    `bun test` of all core logic over an in-memory store, fixtures.ts the records once; its own tsconfig with bun's types
+  test/                    bun test of all core logic over an in-memory store; fixtures.ts
 adapters/
-  claude-code/             the Claude Code plugin (a mod: hooks module in TypeScript)
+  claude-code/             the Claude Code plugin (a mod) — docs/adapters.md
     .claude-plugin/        plugin.json; types/ is generated by Claude Code and not committed
     hooks/register.ts      wiring: the table's tools, the command and the hooks
-    hooks/{state,disk,hint,handover}.ts   constants, the store over $.fs and $.process, the gauge port, the loop port over atoms and the let-go
+    hooks/{state,disk,hint,handover}.ts   constants, the store, the gauge port, the loop port and the let-go
     hooks/core/            GENERATED copy of core/src — never edit
     types/index.d.ts       the plugin's state contract
-    tests/                 `claude plugin test` of the wiring only: hooks, state, delivery; core logic is tested in core/test
+    tests/                 claude plugin test of the wiring only
   pi/                      the pi extension package (pi 1.4.0 ExtensionAPI)
-    package.json           the `pi` manifest; pi and typebox are peers the host supplies
-    index.ts               the table's tools, the command, events: the doctrine section, hints, the let-go after a run settles, continue and wait
-    store.ts               the store over node's fs and git
+    index.ts store.ts      the table's tools, the events, the ports; the store over node
     core/                  GENERATED copy of core/src — never edit
-    test/                  `bun test` of the extension over a stand-in of pi's API and a temporary project
-.claude-plugin/marketplace.json   the repo as a local marketplace for development; lists adapters/claude-code
+    test/                  bun test over a stand-in of pi's API
+.claude-plugin/marketplace.json   the repo as a local marketplace for development
 scripts/sync-core.ts       copies core/src into every adapter; --check fails on a stale copy
-docs/concept.md            the concept, the loop, the records, hints, core and adapters, lessons
-docs/archive/              superseded design notes, kept for reasoning
+docs/                      the documentation, above
 lefthook.yml  biome.json  package.json
 ```
 
 `.shift/` is the agent's own records for this project (board, owner decisions, knowledge, tasks, archive, shifts). It is local and never committed.
 
-## Working on it
+## Rules for every change
 
-- Tooling: bun. `bun install` also installs the git hooks (lefthook).
-- Edit shared logic only in `core/src/`, then `bun run sync-core`. A harness may load only files inside its plugin folder, so each adapter carries a copy; the pre-commit hook fails on a stale one.
-- `bun run check` (copies + biome), `bun run fix`, `bun run typecheck`, `bun run test` (core and pi, then the Claude Code adapter), `bun run validate`.
-- A flow that does not depend on the harness goes into the core over a port: `Store` for files, `GaugeKeeper` for the gauge, `Loop` and `LetGoHarness` for the shift loop. The adapter keeps only wiring, where its state lives, measurement, the let-go call and delivery.
-- A new tool: its name in `layout.ts`, its texts in `texts/tools.ts`, a row in `tools.ts`; the adapters register every row. Only a test that calls it in the Claude Code suite needs its arguments in `McpToolInputs` (`types/index.d.ts`).
-- Install for Claude Code: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install shift@iiiokojiadbi`. That marketplace is a separate repo listing all of the owner's plugins; it points at `adapters/claude-code` here.
-- Local development: `claude plugin marketplace add <path to this repo>` and `claude plugin install shift@shift` — a marketplace added from a local path loads the plugin in place, edits apply on `/reload-plugins`. Do not have both installed at once.
-- Try the pi adapter: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place). pi refuses to compact a history smaller than `keepRecentTokens` (20K by default); a test project can lower it in `.pi/settings.json` and run with `--approve`. `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first.
-- Release: bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, run `claude plugin tag adapters/claude-code --push` (tag `shift--v<version>`), then set the entry's `ref` to that tag in the `iiiokojiadbi/claude-plugins` catalog. Users get only tagged releases.
-- Lint findings are fixed, never silenced.
-- A new settings key is one row of `SETTING_KEYS` in `core/src/settings.ts` — the version it ships in, the kind of its value, where it lives in `Settings`, what it does: `shift_setup` shows it as new.
+- Edit shared logic only in `core/src/`, then `bun run sync-core`; run it again after `bun run fix` touched `core/src/`.
+- Before a commit: `bun run check`, `bun run typecheck`, `bun run test`; `bun run validate` when the Claude Code plugin changed. Lint findings are fixed, never silenced.
+- A behaviour two adapters would do the same way goes into the core over a port; an adapter keeps only wiring, where its state lives, measurement, the let-go call and delivery.
 - A flow takes the loaded `Project`, never a store and a root: an adapter loads it once per hook or tool call (`projectOf($)`, `projectAt(cwd)`).
-
-## Facts that are not obvious from the code
-
-- Claude Code hooks module: imports only relative files inside the plugin folder and `claude-code`. Each file declares the state atoms it reads or writes — the engine's scan does not follow an atom through an import. `types/index.d.ts` must be self-contained, so it mirrors `ShiftAfter` and `Gauge` from the core. `$` may be passed across files only into a function declaration (`function f($) {…}`), never into an arrow bound to a name.
-- Text the model reads says only "shift": "compression", "summary", "compaction" make a model write a summary as text instead of calling the tool.
-- A hint goes inside the last tool result as a `<system-reminder>`: a separate block in that row is shown to the owner as their own message.
-- Everything the mod puts before the model is wrapped in an `<shift …>` tag; inside a shift's message each record is a `<file path="…">`. Records have headings and code blocks of their own, so only a tag marks where a file ends.
-- A shift's message is ordered by how a context is read: records first, the last shifts' descriptions in the middle, the letter last. The recent-shift lines carry no `after`: a column of past waits pulls the agent towards waiting.
-- A resume or a `/clear` inside a running Claude Code starts no `session.start`: the plugin reads the session's files again when `$.session.id()` differs from the one they were read for.
-- Plugin state lives in the harness's memory: it survives a reload of the plugin's code, not a restart. What must outlive a restart is on disk or rebuilt from the history.
-- The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
+- A text the model reads interpolates the constant its check uses, and says only "shift" — never "compression", "summary" or "compaction" (`docs/concept.md`).
 - Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English.
-- `AGENTS.md` is the project's map and its standing facts. Keep it current; no dates, no history — that is what git and `.shift/` are for.
+- A release follows `docs/development.md`; users get only tagged releases.
