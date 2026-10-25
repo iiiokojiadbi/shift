@@ -1,6 +1,6 @@
 {
   "name": "shift",
-  "version": "0.25.0",
+  "version": "0.25.1",
   "description": "The agent shifts itself at a stage boundary: keeps a work board, writes itself a letter, steers the compaction and resumes from the letter",
   "author": {
     "name": "iiiokojiadbi"
