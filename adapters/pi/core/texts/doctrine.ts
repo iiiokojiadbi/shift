@@ -314,7 +314,7 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 
 The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
 
-To come back to an archived topic, open a new task and put \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
+To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
 
 export const SETUP_LAYOUT = `\`\`\`
 ${DIR}/

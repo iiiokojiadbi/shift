@@ -71,7 +71,11 @@ export type HandedBack = {
   recent: Recent
   dir: string
   remarks: string | null
+  // Tasks whose files went unchanged through many shifts, with how many.
+  stuck: Stuck[]
 }
+
+export type Stuck = { name: string; status: string; shifts: number }
 
 // What one stretch of work did, from the files against the previous shift's snapshot.
 export type Segment = { done: string[]; dropped: string[]; archived: string[]; open: string[] }

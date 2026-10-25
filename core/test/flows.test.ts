@@ -1,6 +1,17 @@
 import { expect, test } from 'bun:test'
-import { acceptShift, archiveTask, changedRecords, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
+import {
+  acceptShift,
+  archiveTask,
+  changedRecords,
+  resumeShift,
+  settleShift,
+  shiftBase,
+  shiftHistory,
+  shiftNotMade,
+  stuckTasks,
+} from '../src/flows'
 import { frontmatter } from '../src/markdown'
+import { renderStuck } from '../src/texts/prompts'
 import type { PendingShift, ShiftInput } from '../src/types'
 import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
@@ -244,4 +255,18 @@ test("records changed by the agent's tools are told only when broken, by someone
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools — by the owner or another session')
   expect(outside).not.toContain('board.md')
   expect(outside).not.toContain('refuses')
+})
+
+test('a task unchanged through many shifts is named after a shift, with its status and how many', async () => {
+  const p = await project({ [`${R}/tasks/tests/track.md`]: TRACK })
+  const snap = (name: string, track: string) => {
+    p.files.set(`${R}/shifts/${name}/tasks/tests/task.md`, TASK)
+    p.files.set(`${R}/shifts/${name}/tasks/tests/track.md`, track)
+  }
+  snap('20260101-000000', '- [open] earlier')
+  for (const n of [1, 2, 3, 4]) snap(`2026010${n}-000000`, TRACK)
+  expect(await stuckTasks(p)).toEqual([])
+  snap('20260105-000000', TRACK)
+  expect(await stuckTasks(p)).toEqual([{ name: 'tests', status: 'in progress', shifts: 5 }])
+  expect(renderStuck(await stuckTasks(p))).toContain('- tests (in progress) — 5 shifts')
 })

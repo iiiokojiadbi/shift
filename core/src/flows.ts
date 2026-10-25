@@ -17,15 +17,18 @@ import {
   OLD_DIR,
   SETTINGS,
   SHIFTS,
+  STUCK_LOOKBACK,
+  STUCK_SHIFTS,
   TASK_LIST,
   TASK_SECTIONS,
   TASKS,
   TRACK_TOOL,
+  taskFile,
 } from './layout'
 import { formatItem, formatK, sections } from './markdown'
 import type { Project } from './project'
-import { checkLetter, checkTask, checkWork, checkWritten } from './records'
-import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, writeSnapshot } from './store'
+import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
+import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
 import { archiveInList, checkTaskList, formatTaskLine, parseTaskList, withTask } from './tasks'
 import {
   ACCEPTED,
@@ -39,7 +42,7 @@ import {
   waitContext,
 } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
-import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
+import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -256,7 +259,34 @@ async function handBack(project: Project, dir: string): Promise<HandedBack> {
     recent: await recentShifts(project),
     dir,
     remarks: await docsReport(project),
+    stuck: await stuckTasks(project),
   }
+}
+
+// The listed tasks whose task.md and track.md are the same in the latest shifts' snapshots as now, through at least
+// STUCK_SHIFTS of them: counted from the snapshots, since the records carry no dates.
+export async function stuckTasks(project: Project): Promise<Stuck[]> {
+  const { store, root } = project
+  const work = await readRecords(project)
+  if (work === null) return []
+  const shifts = (await shiftNames(project)).slice(-STUCK_LOOKBACK).reverse()
+  const stuck: Stuck[] = []
+  for (const listed of listedTasks(work)) {
+    const now = work.tasks.find(task => task.name === listed.name)
+    if (now === undefined) continue
+    let count = 0
+    for (const name of shifts) {
+      const base = `${root}/${SHIFTS}/${name}`
+      const same =
+        (await store.read(taskFile(base, listed.name, 'task'))) === now.task &&
+        (await store.read(taskFile(base, listed.name, 'track'))) === now.track
+      if (!same) break
+      count++
+    }
+    if (count >= STUCK_SHIFTS) stuck.push({ name: listed.name, status: listed.status, shifts: count })
+  }
+
+  return stuck
 }
 
 // The harness did not let the history go: about.md says why, the row tells the owner.

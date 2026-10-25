@@ -160,5 +160,11 @@ export const HISTORY_MAX = 50
 // How many shifts' descriptions go back with the message after a shift.
 export const RECENT_SHIFTS = 10
 
+// A task whose files went unchanged through this many shifts is named after a shift: waiting may have become stuck.
+export const STUCK_SHIFTS = 5
+
+// How far back the snapshots are compared for it.
+export const STUCK_LOOKBACK = 30
+
 export const NAME = /^[a-z0-9][a-z0-9-]*$/
 export const NAME_RULE = 'lowercase latin, digits and dashes'

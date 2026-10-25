@@ -1,6 +1,7 @@
 import { readAbout } from '../about'
 import {
   ARCHIVE,
+  ARCHIVE_TOOL,
   atPlaces,
   BOARD,
   DIR,
@@ -22,7 +23,7 @@ import {
 import { frontmatter } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
-import type { HandedBack, PendingShift, Recent, SessionFile, Work } from '../types'
+import type { HandedBack, PendingShift, Recent, SessionFile, Stuck, Work } from '../types'
 
 // The `note=` of each kind of note the mod tells the agent, so it tells the note from what the note came with.
 export const NOTE_KINDS = {
@@ -150,6 +151,14 @@ export function renderRecent(recent: Recent): string {
   ].join('\n')
 }
 
+// Tasks whose files went unchanged through many shifts: a wait that may have become stuck, or work forgotten.
+export function renderStuck(stuck: readonly Stuck[]): string {
+  return [
+    `Tasks unchanged through the last shifts — still right? Ask the owner, change the status, or archive the task as dropped with ${ARCHIVE_TOOL}:`,
+    ...stuck.map(task => `- ${task.name} (${task.status}) — ${task.shifts} shifts`),
+  ].join('\n')
+}
+
 // Everything a shift hands back, in one tag that names the mod: the agent sees at once what came from where.
 // Ordered by how a context is read: the records first as reference, the recent shifts in the middle, the letter last,
 // right before the turn, so its "Next" is what the agent sees closest to acting.
@@ -166,6 +175,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     '',
     renderRecent(recent),
     '',
+    ...(back.stuck.length === 0 ? [] : [renderStuck(back.stuck), '']),
     ...(remarks === null ? [] : ['Documents with remarks from the mod — fix them as the work passes by them:', '', remarks, '']),
     'Your letter to yourself, written right before the shift:',
     '',

@@ -29,7 +29,7 @@ Roles: the harness's digest answers "what was", the letter "what next", the boar
 
 - **Only "shift".** The words "compression", "summary", "compaction" are absent from everything the model reads: some models answer them with an `<analysis>`/`<summary>` text instead of a tool call.
 - **What came from the mod is tagged.** The doctrine is `<shift note="…">`, what a shift hands back is `<shift folder="…">` with the letter in `<letter path="…">`, each record in `<file path="…">`, the map in `<knowledge path="…">`. Records carry headings and code blocks of their own, so only a tag marks where a file ends, and the agent tells the mod's text from the owner's instructions at once.
-- **In what order.** A model reads the start of a context as a frame, the middle weakest, the end as what to do now. So a shift hands back the records first, then the descriptions of the last shifts oldest first, then the letter last, right before the turn. A recent shift's line is its folder and description only: a column of past `wait` pulled the agent towards waiting.
+- **In what order.** A model reads the start of a context as a frame, the middle weakest, the end as what to do now. So a shift hands back the records first, then the descriptions of the last shifts oldest first, then the letter last, right before the turn. A recent shift's line is its folder and description only: a column of past `wait` pulled the agent towards waiting. Tasks unchanged through many shifts are named after the recent shifts, before the letter.
 - **In English.** Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English; the readers are agents.
 
 ## Out of scope
