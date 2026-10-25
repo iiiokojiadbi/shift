@@ -36,7 +36,7 @@ The stretch starts at the first fill after any let-go — the agent's shift or t
 
 The gauge is the stretch's count: the fill it started from, the fill at the last hint, whether the last let-go was unasked, and the growth per source. The harness gives no token count per row, so every row of the main history is counted in characters by source — a tool by its name, the agent's own responses, the owner's messages, attachments and reminders — and a hint names the largest shares: "Mostly from: Bash 51%, your responses 30%". A large share of tool output no longer needed is the strongest reason to shift.
 
-The core keeps the gauge over a `GaugeKeeper` port; the adapter only stores it and reads its history. The gauge lives in the harness's memory, so a fresh process (a restart, a resumed session) restores it once: the base from the last shift's `about.md` if that shift was this session's, the growth from the history as it is, plus whatever it counted meanwhile.
+The core keeps the gauge over a `GaugeKeeper` port; the adapter only stores it and reads its history. The gauge lives in the harness's memory, so a fresh process (a restart, a resumed session) restores it once: the base from the last shift's `about.md` if that shift was this session's, the growth from the history as it is, plus whatever it counted meanwhile, and the last hint as the last step the history has passed since the base — its hint was given before the restart, so a restart never repeats it, and the next step still hints.
 
 ## Delivery
 

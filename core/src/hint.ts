@@ -230,16 +230,31 @@ function complete(current: Gauge | null): Gauge {
 }
 
 // The base from the last shift of this session, the growth from the history plus whatever this process counted before
-// the restore finished. Once; a let-go marks the count whole itself.
+// the restore finished, and the last hint as given before. Once; a let-go marks the count whole itself.
 async function restore(keeper: GaugeKeeper): Promise<void> {
   if (complete(await keeper.read()).whole) return
   const base = await keeper.base()
   const growth = await keeper.history()
+  const reading = await keeper.reading(false)
   await keeper.update(current => {
     const now = complete(current)
     if (now.whole) return now
     const merged = Object.entries(now.growth).reduce((sum, [source, chars]) => addGrowth(sum, source, chars), { ...now, growth })
+    const from = now.base ?? base
 
-    return { ...merged, base: now.base ?? base, whole: true }
+    return { ...merged, base: from, hinted: now.hinted ?? lastStep(from, reading), whole: true }
   })
+}
+
+// The last step the history has passed since the base: its hint was given before the restart, so it is not repeated,
+// and the next step still hints.
+export function lastStep(base: number | null, { tokens, window, threshold }: Reading): number | null {
+  if (base === null || tokens === undefined || tokens < base) return null
+  const limit = threshold ?? window
+  const final = finalAt(limit)
+  if (tokens >= final) return final + Math.floor((tokens - final) / finalStep(limit)) * finalStep(limit)
+  const step = softStep(limit)
+  const passed = Math.floor((tokens - base) / step)
+
+  return passed > 0 ? base + passed * step : null
 }

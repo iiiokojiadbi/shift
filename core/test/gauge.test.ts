@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { countGrowth, type GaugeKeeper, gaugeStatus, letGoGauge, takeHint } from '../src/hint'
+import { countGrowth, FRESH_GAUGE, type GaugeKeeper, gaugeStatus, lastStep, letGoGauge, takeHint } from '../src/hint'
 import type { Gauge, Reading } from '../src/types'
 
 // A keeper over a variable, with a history and a base as a fresh process would find them.
@@ -26,9 +26,31 @@ test('a fresh process restores once: the base of this session, the history plus 
   kept.gauge = { base: null, hinted: null, unassisted: false, growth: { Bash: 100 }, whole: false }
   await countGrowth(port, 'Bash', 50)
   expect(kept.gauge).toMatchObject({ base: 40_000, whole: true, growth: { 'your responses': 400, Bash: 150 } })
-  expect(await takeHint(port)).toContain('Shift hint')
   expect(await gaugeStatus(port)).toContain('Since the last shift: +110K.')
   expect(kept.restores).toBe(1)
+})
+
+test('a restart does not repeat a hint already given; the next step still hints', async () => {
+  const limits = { window: 1_000_000, threshold: 1_000_000 }
+  const soft = keeper({ tokens: 640_000, ...limits }, {}, 20_000)
+  soft.kept.gauge = FRESH_GAUGE
+  expect(await takeHint(soft.port)).toBeNull()
+  expect(soft.kept.gauge?.hinted).toBe(520_000)
+  const later = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
+  later.kept.gauge = await soft.port.read()
+  expect(await takeHint(later.port)).toContain('830K of 1000K used')
+
+  const final = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
+  final.kept.gauge = FRESH_GAUGE
+  expect(await takeHint(final.port)).toBeNull()
+  expect(final.kept.gauge?.hinted).toBe(800_000)
+})
+
+test('a restart before the first step leaves no hint behind it', () => {
+  const reading = { tokens: 90_000, window: 200_000, threshold: undefined }
+  expect(lastStep(20_000, reading)).toBeNull()
+  expect(lastStep(null, reading)).toBeNull()
+  expect(lastStep(20_000, { ...reading, tokens: undefined })).toBeNull()
 })
 
 test('after a let-go the count is whole from its start; one the agent did not ask for is told at its next look', async () => {
