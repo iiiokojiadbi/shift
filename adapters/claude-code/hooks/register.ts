@@ -1,11 +1,14 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import {
+  afterTool,
   afterWrite,
-  type ChangedBy,
-  changedRecords,
+  atPrompt,
+  beforeTool,
+  type Courier,
   doctrine,
   FRESH_GAUGE,
+  FRESH_LOOKS,
   holdShift,
   letGoGauge,
   ownerSpoke,
@@ -15,17 +18,16 @@ import {
   RESUME_GO,
   renderSessionFiles,
   resumeShift,
+  runEnded,
   SOURCES,
   sessionFiles,
   startSession,
   TOOLS,
   unassistedInstructions,
-  waitingNote,
-  withHint,
 } from './core/index'
 import { projectOf } from './disk'
 import { handOver, loopOf } from './handover'
-import { countGrowth, statusText, takeHint } from './hint'
+import { countGrowth, keeperOf, statusText } from './hint'
 import { OWNER_ORIGINS, PLUGIN } from './state'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
@@ -35,8 +37,7 @@ const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 const filesSession = atom({ plugin: 'shift', key: 'filesSession' } as const, null)
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
 const resumeKick = atom({ plugin: 'shift', key: 'resumeKick' } as const, false)
-const running = atom({ plugin: 'shift', key: 'running' } as const, 0)
-const seen = atom({ plugin: 'shift', key: 'seen' } as const, null)
+const looks = atom({ plugin: 'shift', key: 'looks' } as const, FRESH_LOOKS)
 
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
@@ -71,23 +72,27 @@ export const register: Register = on => {
 
   // Registered before the table's tools, so it wraps them too: a hook registered later runs inside it, and the mod's own
   // tools answer without passing the call on.
-  // The records are looked at around every tool of the main agent: what changed before it began is someone else's,
-  // what changed while it ran is the agent's own. While another tool runs the change before is not looked at — it may
-  // be that tool's. The mod's own tools write the records validly: what they wrote is only remembered.
+  // Every note to the agent mid-turn goes with a tool's result: what changed in the records around a tool of the main
+  // agent, the docs after a write, a hint. A subagent's write gets only the docs.
   on('tool.call', async ($, e, next) => {
-    if (e.agentId !== undefined || !(await read($, enabled))) return next(e)
-    // A look that fails says nothing: it must never stand between the agent and its tool.
-    const outside = (await read($, running)) === 0 ? await recordsNote($, 'other').catch(() => null) : null
-    await update($, running, count => count + 1)
+    if (!(await read($, enabled))) return next(e)
+    const courier = courierOf($)
+    const main = e.agentId === undefined
+    const before = main ? await beforeTool(courier) : []
     let done: Awaited<ReturnType<typeof next>>
     try {
       done = await next(e)
-    } finally {
-      await update($, running, count => Math.max(0, count - 1))
+    } catch (error) {
+      if (main) await afterTool(courier, before, null)
+      throw error
     }
-    // A tool that ran read-only changed nothing: no look after it.
-    const own = done.isReadOnly === true ? null : await recordsNote($, 'agent').catch(() => null)
-    const notes = [outside, e.tool.startsWith(`mcp__${PLUGIN}__`) ? null : own].filter((each): each is string => each !== null)
+    const path = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : undefined
+    const written = (e.tool === 'Edit' || e.tool === 'Write') && done.deny === undefined && done.isError !== true ? path : undefined
+    const notes = main
+      ? await afterTool(courier, before, { own: e.tool.startsWith(`mcp__${PLUGIN}__`), readOnly: done.isReadOnly === true, written })
+      : written === undefined
+        ? []
+        : await afterWrite(courier, written)
     if (notes.length === 0) return done
     if (done.deny !== undefined) return { ...done, deny: [done.deny, ...notes].join('\n\n') }
 
@@ -115,10 +120,6 @@ export const register: Register = on => {
     )
   }
 
-  // After the agent writes a file the docs follow it: the toc and the map, and remarks in the result, once.
-  on('tool.call', { tool: 'Edit' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
-  on('tool.call', { tool: 'Write' }, async ($, e, next) => withDocsNote($, e.file_path, await next(e))).catch((_$, e, next) => next(e))
-
   // The letter enters the history with the command itself, so the owner's words — typed with the command or sent
   // right after it — come after the letter, never before it. A bare command starts the turn with a prompt of its own.
   on('command.run', { command: RESUME_COMMAND }, async ($, e) => {
@@ -140,37 +141,37 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return ended
 
     const aborted = e.reason === 'aborted'
+    // No tool of the turn runs any more, whatever a process that ended mid-tool left counted.
+    if (await read($, enabled)) await runEnded(courierOf($))
     if ((await loopOf($).read()).pending !== null) $.clock.after(300, () => void handOver($, aborted))
 
     return ended
   })
 
-  // Every row of the main history is counted by source; a hint rides inside a tool result: mid-turn, at the agent's next look, with no row of its own.
+  // Every row of the main history is counted by source.
   on('session.append', async ($, e, next) => {
     if (e.agentId !== undefined || !(await read($, enabled))) return next(e)
     const source = growthSource(e.door, e.origin)
     if (source !== null) await countGrowth($, source, e.message.content)
-    if (e.door !== 'tool-result') return next(e)
-    const hint = await takeHint($)
-    if (hint === null) return next(e)
 
-    return next({ ...e, message: { ...e.message, content: withHint(e.message.content, hint) } })
+    return next(e)
   }).catch((_$, e, next) => next(e))
 
+  // Between turns the notes come with the next prompt: what changed in the records meanwhile, a hint, and after a wait
+  // the letter with the owner's own message — the terminal, the remote bridge or the SDK host.
   on('prompt.submit', async ($, e, next) => {
     if (!(await read($, enabled))) return next(e)
-    // Records changed between turns — by the owner's hand or another session — are told with the next prompt.
-    const added = [await recordsNote($, 'other'), await takeHint($)].filter((each): each is string => each !== null)
-    const hinted = added.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...added] }
-    // Only the owner's own message: the terminal, the remote bridge or the SDK host.
-    if (!OWNER_ORIGINS.has(e.origin?.kind ?? '')) return next(hinted)
-    await ownerSpoke(loopOf($))
-    await update($, resumeKick, () => false)
-    const note = await waitingNote(loopOf($))
-    if (note === null) return next(hinted)
-    // Cleared only once the message has entered with it, and the row stands under it: a failed hook keeps the letter.
-    const entered = await next({ ...hinted, context: [...(hinted.context ?? []), note.context] })
-    await note.delivered()
+    const owner = OWNER_ORIGINS.has(e.origin?.kind ?? '')
+    if (owner) {
+      await ownerSpoke(loopOf($))
+      await update($, resumeKick, () => false)
+    }
+    // A message queued while a tool runs does not start a run: what changed meanwhile may be that tool's.
+    const told = await atPrompt(courierOf($), { runStarts: false, owner })
+    if (told.notes.length === 0) return next(e)
+    // Told and cleared only once the message has entered with them, and the row stands under it: a failed hook keeps the letter.
+    const entered = await next({ ...e, context: [...(e.context ?? []), ...told.notes] })
+    await told.delivered()
 
     return entered
   }).catch(($, e, next) => {
@@ -215,24 +216,17 @@ async function kick($: EngineInterface): Promise<void> {
   await $.prompt.submit({ text: RESUME_GO })
 }
 
-// A written file's result with the mod's check of the docs after it, when there is anything to say.
-async function withDocsNote<Done extends { deny?: unknown; isError?: unknown; context?: readonly string[] }>(
-  $: EngineInterface,
-  file: string,
-  done: Done,
-): Promise<Done> {
-  if (done.deny !== undefined || done.isError === true || !(await read($, enabled))) return done
-  const note = await afterWrite(await projectOf($), file)
-
-  return note === null ? done : { ...done, context: [...(done.context ?? []), note] }
-}
-
-// The check of the records changed since the mod last looked; the first look only remembers them.
-async function recordsNote($: EngineInterface, by: ChangedBy): Promise<string | null> {
-  const changed = await changedRecords(await projectOf($), await read($, seen), by)
-  await update($, seen, () => changed.seen)
-
-  return changed.note
+// The notes to the agent over the plugin's state: the looks at the records in their atom, the loop and the gauge.
+function courierOf($: EngineInterface): Courier {
+  return {
+    loop: loopOf($),
+    gauge: keeperOf($),
+    project: () => projectOf($),
+    looks: () => read($, looks),
+    updateLooks: async change => {
+      await update($, looks, change)
+    },
+  }
 }
 
 // SHIFT.md, OWNER.md, GLOSSARY.md, TASKS.md and the owner's own files, read for the session that runs now.

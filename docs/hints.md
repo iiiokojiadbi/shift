@@ -40,7 +40,7 @@ The core keeps the gauge over a `GaugeKeeper` port; the adapter only stores it a
 
 ## Delivery
 
-A hint goes inside the last tool result — in Claude Code as a `<system-reminder>`, since a text block of its own in that row is shown to the owner as their own message; in pi as a text block. Between turns it goes with the next message. It stays in the history: no harness offers a channel that does not, so loops are held back by "one hint per new growth". Every hint is also a dim row for the owner, so the owner sees what the agent is told. No hint while a shift is pending.
+A hint is one of the notes `delivery.ts` hands out (`docs/architecture.md`): it goes with a tool's result — in Claude Code as the result's `context`, in pi as a text block — and between turns with the next message, in a `<shift note="a hint from the mod, …">` tag. It stays in the history: no harness offers a channel that does not, so loops are held back by "one hint per new growth". Every hint is also a dim row for the owner, so the owner sees what the agent is told. No hint while a shift is pending.
 
 `shift_status` answers on request: the fill against the window, where the harness lets the history go by itself, the growth since the last shift, when the next hints come and what the history grew from.
 

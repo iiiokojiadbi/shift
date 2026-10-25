@@ -105,8 +105,8 @@ test('continue starts the next turn and counts the streak; past the cap, and on 
   expect(await waitingNote(waiting.loop)).toBeNull()
 })
 
-test('no hint while a shift is pending; a hint is told to the owner too', async () => {
-  const { loop, rows } = await setUp()
+test('no hint while a shift is pending', async () => {
+  const { loop } = await setUp()
   let gauge: Gauge | null = letGoGauge(true)
   const keeper = {
     read: async () => gauge,
@@ -120,7 +120,6 @@ test('no hint while a shift is pending; a hint is told to the owner too', async 
   expect(await loopHint(loop, keeper)).toBeNull()
   await loop.update(state => ({ ...state, pending: null }))
   expect(await loopHint(loop, keeper)).toContain('let the history go by itself')
-  expect(rows.at(-1)?.[0]).toBe('info')
 })
 
 test('the owner speaking during the let-go resets the count; a turn that does not start is told, not recorded against the shift', async () => {

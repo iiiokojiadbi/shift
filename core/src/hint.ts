@@ -1,4 +1,4 @@
-import { BOARD, MOD, TASK_LIST, TASKS, TOOL } from './layout'
+import { BOARD, TASK_LIST, TASKS, TOOL } from './layout'
 import { formatK } from './markdown'
 import type { Gauge, Reading } from './types'
 
@@ -151,26 +151,6 @@ export function renderStatus(current: Gauge, { tokens, window, threshold }: Read
   if (shares.length > 0) lines.push(`Grown mostly from: ${shares.map(each => `${each.source} ${each.share}%`).join(', ')}.`)
 
   return lines.join('\n')
-}
-
-// A hint as a text block of its own inside a tool result, for a harness whose results are lists of blocks.
-export function hintBlock(hint: string): string {
-  return `<${MOD} note="a hint from the mod, not part of this result">\n${hint}\n</${MOD}>`
-}
-
-// A hint goes inside the last tool result, framed as a system note: a block of its own would show as the owner's words.
-export function withHint<Block extends { type: string }>(content: readonly Block[], hint: string): Block[] {
-  const note = `<system-reminder>\n${hint}\n</system-reminder>`
-  const at = content.map(block => block.type).lastIndexOf('tool_result')
-  if (at === -1) return [...content]
-  const block = content[at] as Block & { content?: unknown }
-  const inner = block.content
-  const merged =
-    typeof inner === 'string' || inner === undefined
-      ? `${inner ?? ''}\n\n${note}`.trimStart()
-      : [...(inner as readonly unknown[]), { type: 'text', text: note }]
-
-  return content.map((each, index) => (index === at ? ({ ...block, content: merged } as Block) : each))
 }
 
 export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`, \`${TASK_LIST}\` and the tasks in progress in \`${TASKS}/\`, and check where you stand against them.`

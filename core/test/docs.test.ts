@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
-import { docOutline, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
-import { afterWrite, sessionFiles } from '../src/flows'
+import { docOutline, docsAfterWrite, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
+import { sessionFiles } from '../src/flows'
 import { pinned } from '../src/markdown'
-import { loadProject } from '../src/project'
+import { loadProject, type Project } from '../src/project'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
 import type { Store } from '../src/store'
@@ -11,6 +11,12 @@ import { R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 
 const at = (store: Store) => loadProject(store, ROOT)
+// The docs' remarks after a write as one text; null when there are none.
+const afterWrite = async (project: Project, file: string) => {
+  const lines = await docsAfterWrite(project, file)
+
+  return lines.length === 0 ? null : lines.join('\n')
+}
 const SETTINGS = `${R}/settings.toml`
 const DOC = '---\ndescription: what A holds\n---\n\n# A\n\n## One\n> the first\n\n```\n## not a heading\n```\n\n### Deep\n\n## Two\n'
 

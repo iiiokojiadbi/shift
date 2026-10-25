@@ -23,6 +23,15 @@ import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
 import type { HandedBack, PendingShift, Recent, SessionFile, Work } from '../types'
 
+// The `note=` of each kind of note the mod tells the agent, so it tells the note from what the note came with.
+export const NOTE_KINDS = {
+  hint: 'a hint from the mod, not part of what it came with',
+  records: "the mod's check of the records just changed",
+  docs: "the mod's check of the file just written",
+} as const
+
+export type NoteKind = keyof typeof NOTE_KINDS
+
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
 

@@ -217,30 +217,30 @@ test("records changed by the agent's tools are told only when broken, by someone
   const p = await project()
   const put = (path: string, text: string) => p.store.write(`${R}/${path}`, text)
   const first = await changedRecords(p, null, 'agent')
-  expect(first.note).toBeNull()
+  expect(first.body).toBeNull()
   expect(Object.keys(first.seen)).toContain('.shift/tasks/tests/track.md')
-  expect((await changedRecords(p, first.seen, 'agent')).note).toBeNull()
+  expect((await changedRecords(p, first.seen, 'agent')).body).toBeNull()
 
   await put('tasks/tests/track.md', '- [done] fix the parser\n- [done] cover the archive')
   const whole = await changedRecords(p, first.seen, 'agent')
-  expect(whole.note).toBeNull()
+  expect(whole.body).toBeNull()
 
   await put('board.md', '## Goal\nthe mod')
   await put('tasks/tests/track.md', '- [half] fix the parser')
   await put('letter.md', '## Where I am\nhere')
   const broken = await changedRecords(p, whole.seen, 'agent')
-  expect(broken.note).toContain('`.shift/board.md`: The board lacks sections: "## Decisions"')
-  expect(broken.note).toContain('`.shift/tasks/tests/track.md`: Track items without a status')
-  expect(broken.note).toContain('`.shift/letter.md`: The letter')
-  expect(broken.note).toContain('if you are still writing them, go on')
+  expect(broken.body).toContain('`.shift/board.md`: The board lacks sections: "## Decisions"')
+  expect(broken.body).toContain('`.shift/tasks/tests/track.md`: Track items without a status')
+  expect(broken.body).toContain('`.shift/letter.md`: The letter')
+  expect(broken.body).toContain('if you are still writing them, go on')
   // Told once: unchanged since, the same broken board says nothing more; another record is not this look's.
-  expect((await changedRecords(p, broken.seen, 'agent')).note).toBeNull()
+  expect((await changedRecords(p, broken.seen, 'agent')).body).toBeNull()
   // Rewritten with the same text: a new stamp, no change.
   await put('board.md', '## Goal\nthe mod')
-  expect((await changedRecords(p, broken.seen, 'other')).note).toBeNull()
+  expect((await changedRecords(p, broken.seen, 'other')).body).toBeNull()
 
   await put('OWNER.md', '# Owner decisions\n\n## Work\n\n- «green first, always»')
-  const outside = (await changedRecords(p, broken.seen, 'other')).note ?? ''
+  const outside = (await changedRecords(p, broken.seen, 'other')).body ?? ''
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools — by the owner or another session')
   expect(outside).not.toContain('board.md')
   expect(outside).not.toContain('refuses')

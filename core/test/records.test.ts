@@ -24,7 +24,6 @@ import {
   shiftDir,
   shiftFill,
   shiftHint,
-  withHint,
 } from '../src/index'
 import { BOARD, boardWith, check, LETTER, listWith, OWNER, TESTS, TRAPS, taskMd, WORK } from './fixtures'
 
@@ -145,20 +144,6 @@ test('archiving: done needs every item closed, the index line carries the title 
   const index = addToIndex(null, line)
   expect(index).toContain('# Archive')
   expect(addToIndex(index, '- [dropped] [X](x/) — no')).toMatch(/green; continues old-tests, parser\n- \[dropped\]/)
-})
-
-test('a hint goes inside the last tool result, whatever its content is', () => {
-  const first = { type: 'tool_result', content: [{ type: 'text', text: 'a' }] }
-  const blocks = [first, { type: 'tool_result', content: 'b' }]
-  expect(withHint(blocks, 'H')).toEqual([first, { type: 'tool_result', content: 'b\n\n<system-reminder>\nH\n</system-reminder>' }])
-  expect(withHint([first], 'H')[0]).toEqual({
-    type: 'tool_result',
-    content: [
-      { type: 'text', text: 'a' },
-      { type: 'text', text: '<system-reminder>\nH\n</system-reminder>' },
-    ],
-  })
-  expect(withHint([{ type: 'text' }], 'H')).toEqual([{ type: 'text' }])
 })
 
 test('the summarizer gets the hold and is told not to plan', () => {

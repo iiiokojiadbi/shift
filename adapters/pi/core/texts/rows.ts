@@ -3,8 +3,9 @@ import { MAX_AUTO_STREAK, NAMES } from '../layout'
 
 // The owner's rows in the transcript: what became of a shift. Short, one line each.
 
-// A hint the agent got, shown to the owner too: the owner sees what the agent is told, and it is not their message.
-export const HINTED = (hint: string) => `to the agent — ${hint}`
+// A note the agent got — a hint, a check — shown to the owner too: the owner sees what the agent is told, and it is
+// not their message. One line, however many the note has.
+export const TOLD = (body: string) => `to the agent — ${body.split('\n').join(' ')}`
 
 export const NOT_MADE = (name: string, why: string) => `shift ${name} not made — ${why}`
 

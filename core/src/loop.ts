@@ -2,7 +2,7 @@ import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, takeHint } from './hint'
 import type { Project } from './project'
 import { compactInstructions } from './texts/prompts'
-import { DELIVERED, HINTED, NOT_CONTINUED, NOT_MADE, UNSETTLED } from './texts/rows'
+import { DELIVERED, NOT_CONTINUED, NOT_MADE, UNSETTLED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
 // The shift loop: from an accepted shift through the let-go to continuing or waiting for the owner, and the owner's
@@ -48,13 +48,11 @@ export async function holdShift(loop: Loop, shift: PendingShift): Promise<void> 
   await loop.update(state => ({ ...state, pending: shift }))
 }
 
-// A hint for the agent if the fill calls for one, told to the owner too; none while a shift is pending.
+// A hint for the agent if the fill calls for one; none while a shift is pending.
 export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<string | null> {
   if ((await loop.read()).pending !== null) return null
-  const text = await takeHint(gauge)
-  if (text !== null) loop.tell(HINTED(text), 'info')
 
-  return text
+  return takeHint(gauge)
 }
 
 // Once the turn has ended: a pending shift lets the history go, unless the turn was aborted. Every outcome is written

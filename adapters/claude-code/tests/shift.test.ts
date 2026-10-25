@@ -294,7 +294,7 @@ test('task_archive moves the folder and writes the index line', async ($, on) =>
   expect(again.deny).toContain('already exists')
 })
 
-test('a hint rides on a tool result and on a prompt, and a let-go starts a new stretch', async ($, on) => {
+test('a hint goes with a tool result and with a prompt, and a let-go starts a new stretch', async ($, on) => {
   const files = project()
   let tokens = 20000
   const prompts: (readonly string[] | undefined)[] = []
@@ -305,6 +305,9 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
     return { text: e.text }
   })
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [], toolResults: [] }] }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }) as never)
+  const bash = () => $.tool.call({ tool: 'Bash', command: 'x' } as never)
+  // The row a result adds to the history is counted by its tool.
   const toolResult = () =>
     $.session.append({
       message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] },
@@ -313,24 +316,15 @@ test('a hint rides on a tool result and on a prompt, and a let-go starts a new s
       uuid: 'u',
     })
 
+  await bash()
   await toolResult()
   tokens = 165000
-  const hinted = (await toolResult()).message?.content
-  expect(hinted?.length).toBe(1)
-  expect(JSON.stringify(hinted?.[0])).toContain('"content":"ok\\n\\n<system-reminder>\\nShift hint')
-  expect(JSON.stringify(hinted?.[0])).toContain('Mostly from: Bash')
+  const hinted = String((await bash()).context)
+  expect(hinted).toContain('<shift note="a hint from the mod, not part of what it came with">\nShift hint')
+  expect(hinted).toContain('Mostly from: Bash')
   expect(logs.filter(line => line.startsWith('to the agent — Shift hint'))).toHaveLength(1)
   tokens = 170000
-  expect(JSON.stringify(await toolResult())).not.toContain('Shift hint')
-  files.set('/proj/.shift/board.md', '## Goal\nthe mod, still')
-  const own = await $.session.append({
-    message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'y', content: 'ok' }] },
-    door: 'tool-result',
-    origin: { kind: 'tool', tool: 'mcp__shift__task_track' },
-    uuid: 'v',
-  })
-  expect(JSON.stringify(own)).not.toContain('records just changed')
-  expect(JSON.stringify(await toolResult())).not.toContain('records just changed')
+  expect(String((await bash()).context)).not.toContain('Shift hint')
   tokens = 175000
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
   expect(String(prompts[0])).toContain('175K of 200K used')

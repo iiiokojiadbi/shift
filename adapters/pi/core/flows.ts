@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { OUTCOME, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
-import { docsAfterWrite, docsReport, refreshDocs } from './docs'
+import { docsReport, refreshDocs } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import { resolvePath } from './input'
 import {
@@ -14,7 +14,6 @@ import {
   KNOWLEDGE,
   LETTER,
   MAX_AUTO_STREAK,
-  MOD,
   NAMES,
   OLD_DIR,
   SETTINGS,
@@ -35,13 +34,6 @@ import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, Shif
 
 export type ShiftCall = { input: ShiftInput; at: number; sessionId: string }
 
-// After the agent wrote a file the docs follow it: the toc, the map and remarks, as one note; null when all is well.
-export async function afterWrite(project: Project, file: string): Promise<string | null> {
-  const lines = await docsAfterWrite(project, file)
-
-  return lines.length === 0 ? null : `<${MOD} note="the mod's check of the file just written">\n${lines.join('\n')}\n</${MOD}>`
-}
-
 // What the mod last saw of the records: per file, by its path from the project's root, its stamp and a fingerprint of
 // its text as `<stamp>#<fingerprint>`.
 export type Seen = Record<string, string>
@@ -54,8 +46,8 @@ export type ChangedBy = 'agent' | 'other'
 // is told as it is written, not hundreds of K later. The agent's own change is told only when broken; someone else's
 // is told always, so the agent reads it before writing over it. The first look only remembers; a removed file is the
 // shift's to tell.
-export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; note: string | null }> {
-  if (!project.settings.enabled) return { seen: seen ?? {}, note: null }
+export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; body: string | null }> {
+  if (!project.settings.enabled) return { seen: seen ?? {}, body: null }
   // A new stamp alone is not a change: a file rewritten with the same text, or edited and put back, says nothing.
   const now: Seen = {}
   const changed: string[] = []
@@ -72,7 +64,7 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
     now[path] = `${stamp}#${hash}`
     if (seen !== null && was.slice(at + 1) !== hash) changed.push(path)
   }
-  if (changed.length === 0) return { seen: now, note: null }
+  if (changed.length === 0) return { seen: now, body: null }
 
   const work = await readRecords(project)
   const lines: string[] = []
@@ -84,9 +76,8 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
     if (problem !== null) lines.push(`\`${path}\`: ${problem}`)
   }
   if (broken) lines.push('The shift refuses until they are fixed; if you are still writing them, go on.')
-  const note = lines.length === 0 ? null : `<${MOD} note="the mod's check of the records just changed">\n${lines.join('\n')}\n</${MOD}>`
 
-  return { seen: now, note }
+  return { seen: now, body: lines.length === 0 ? null : lines.join('\n') }
 }
 
 // Every file the record checks look at, by its path from the project's root, with its stamp: a listing per folder,

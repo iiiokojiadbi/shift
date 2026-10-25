@@ -1,4 +1,4 @@
-// The contract must be self-contained: ShiftAfter, Gauge, PendingShift and WaitNote mirror the core's types of the same name.
+// The contract must be self-contained: ShiftAfter, Gauge, PendingShift, Looks and WaitNote mirror the core's types of the same name.
 export type ShiftAfter = 'continue' | 'wait'
 export type Gauge = { base: number | null; hinted: number | null; unassisted: boolean; growth: Record<string, number>; whole: boolean }
 
@@ -14,6 +14,8 @@ export type PendingShift = {
   at: number
   segment: { done: string[]; dropped: string[]; archived: string[]; open: string[] }
 }
+
+export type Looks = { seen: Record<string, string> | null; running: number }
 
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }
@@ -50,10 +52,9 @@ declare module 'claude-code' {
       // The session the block was read for: a resume or a /clear in the same process starts no session, so a new id
       // is what tells the block to be read again.
       filesSession: string | null
-      // The records as the mod last saw them, `<stamp>#<fingerprint>` per path from the project's root; null before the first look.
-      seen: Record<string, string> | null
-      // The main agent's tools running now: a change seen while one runs may be its own.
-      running: number
+      // The records as the mod last saw them, `<stamp>#<fingerprint>` per path from the project's root, null before the
+      // first look; and the main agent's tools running now: a change seen while one runs may be its own.
+      looks: Looks
     }
   }
 }
