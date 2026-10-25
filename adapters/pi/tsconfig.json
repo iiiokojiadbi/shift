@@ -4,5 +4,5 @@
     "lib": ["es2023", "dom"],
     "types": ["node"]
   },
-  "include": ["*.ts", "core"]
+  "include": ["*.ts", "shift", "core"]
 }

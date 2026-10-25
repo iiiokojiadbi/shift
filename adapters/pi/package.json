@@ -9,7 +9,7 @@
   ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./shift/index.ts"
     ]
   },
   "peerDependencies": {

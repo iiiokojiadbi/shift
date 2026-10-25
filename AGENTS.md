@@ -65,6 +65,7 @@ adapters/
     tests/                 claude plugin test of the wiring only; data.ts GENERATED from core/test/data.ts
   pi/                      the pi extension package (pi 1.4.0 ExtensionAPI)
     index.ts store.ts      the table's tools, the events, the ports; the store over node
+    shift/index.ts         the entry pi loads: its folder names the extension "shift"
     core/                  GENERATED copy of core/src — never edit
     test/                  bun test over a stand-in of pi's API
 .claude-plugin/marketplace.json   the repo as a local marketplace for development

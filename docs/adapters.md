@@ -58,6 +58,7 @@ The adapter is an extension package, `adapters/pi/`, over pi 1.4.0's `ExtensionA
 - pi reads the session's files anew before every run, so its block is never stale.
 - The notes: `tool_call` → `beforeTool`, kept by `toolCallId`; `tool_result` → `afterTool` (`read`, `grep`, `find`, `ls` are read-only); a nested call (`parentToolCallId`) gets only the docs after its write. `before_agent_start` → `atPrompt` with `runStarts`, which resets the count of tools running, in case a blocked call never got its result.
 - `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first. A headless `pi -p` in a fresh project waits silently unless run with `-a` and stdin closed.
+- pi names a local extension in its `[Extensions]` list by the folder of its `index.ts`, not by `package.json`'s name: the entry is `shift/index.ts`, which re-exports `index.ts`, so the list shows `shift`.
 - Try it: `pi -e ./adapters/pi` for one run, or `pi install ./adapters/pi` (loads in place).
 
 ## opencode
