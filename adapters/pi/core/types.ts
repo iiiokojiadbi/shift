@@ -14,6 +14,19 @@ export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
 // What task_track asks for: an item of a task's track by words of its name, or the task's own line in TASKS.md.
 export type TrackInput = { task: string; item: string | null; status: string; note: string | null; add: boolean }
 
+// A task to open: its folder name, its title, goal and done-when for task.md, its first items, and its line with
+// the links under it for TASKS.md.
+export type OpenInput = {
+  name: string
+  title: string
+  goal: string
+  doneWhen: string
+  status: string
+  about: string
+  items: { name: string; note: string | null }[]
+  links: { kind: 'needs' | 'after' | 'continues'; name: string; why: string | null }[]
+}
+
 export type ArchiveInput = { name: string; outcome: (typeof OUTCOMES)[number]; about: string }
 
 // A `- [status] name — note` line of a block: `rest` is all after the status, `index` the line's place in the text.

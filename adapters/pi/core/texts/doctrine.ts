@@ -28,6 +28,7 @@ import {
   OLD_DIR,
   OLD_OWNER,
   OLD_TASKS_SECTION,
+  OPEN_TOOL,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -113,7 +114,7 @@ const TASK_RULES = `A task is one line of work, split by meaning: a feature, an 
 - \`track.md\` — the task's tracker: one line per item, \`- [status] item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand; closed items stay until the task is archived — the track is the task's history;
 - \`${NAMES.notes}/\` — notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` — \`- [open] item — see [what it holds](${NAMES.notes}/<file>.md)\` — or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
 
-Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
+Open a task with \`${OPEN_TOOL}\`, which writes its folder, its files and its line valid at once. Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
 
 const GLOSSARY_RULES = `\`${GLOSSARY}\` holds the project's own words, one article each — names, codes, abbreviations, terms that mean something particular here:
 

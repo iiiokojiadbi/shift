@@ -161,7 +161,7 @@ function checkBoard(board: string): string | null {
   )
 }
 
-function checkTask({ name, task, track, notes: notes_ }: TaskFiles): string | null {
+export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): string | null {
   const where = `${TASKS}/${name}/`
   if (task === null) return `${where} has no task.md.`
   if (track === null) return `${where} has no track.md.`

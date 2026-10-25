@@ -1,6 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { ARCHIVE_TOOL, FOCUS, NAME, NAME_RULE, TASK_LIST, TASKS, TASKS_MAX_LINES } from './layout'
 import { dated, overLimit, quote } from './markdown'
+import type { OpenInput } from './types'
 
 // TASKS.md: every open task, one line each, and under it the links to other tasks and archived ones.
 //
@@ -126,6 +127,26 @@ function needsCycle(tasks: readonly ListedTask[]): string[] | null {
   }
 
   return null
+}
+
+// TASKS.md with a new task's line and its links appended; a link points into the archive when the task is archived.
+// A list that said "none" says it no more.
+export function withTask(text: string | null, input: OpenInput, archived: readonly string[]): string {
+  const lines = [
+    formatTaskLine(input.status, input.name, input.name, input.about),
+    ...input.links.map(link => {
+      const place = archived.includes(link.name) ? 'archive' : 'tasks'
+      return `  - ${link.kind}: [${link.name}](${place}/${link.name}/)${link.why === null ? '' : ` — ${link.why}`}`
+    }),
+  ]
+  if (text === null) return `# Tasks\n\n${lines.join('\n')}\n`
+  const kept = text
+    .split('\n')
+    .filter(line => line.trim() !== 'none')
+    .join('\n')
+    .trimEnd()
+
+  return `${kept}\n${/^- \[/m.test(kept) ? '' : '\n'}${lines.join('\n')}\n`
 }
 
 // After archiving `name`: its line and links leave, and the links of others point into the archive; what was needed is

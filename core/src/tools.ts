@@ -1,6 +1,6 @@
 import { docOutline, docsMentioning } from './docs'
-import { acceptShift, archiveTask, keepRecordsOut, shiftHistory, staleLayout } from './flows'
-import { parseArchiveInput, parseHistoryCount, parsePath, parseShiftInput, parseTrackInput } from './input'
+import { acceptShift, archiveTask, keepRecordsOut, openTask, shiftHistory, staleLayout } from './flows'
+import { parseArchiveInput, parseHistoryCount, parseOpenInput, parsePath, parseShiftInput, parseTrackInput } from './input'
 import {
   ARCHIVE_TOOL,
   atPlaces,
@@ -9,6 +9,7 @@ import {
   HISTORY_TOOL,
   MENTIONS_TOOL,
   MOD,
+  OPEN_TOOL,
   OUTLINE_TOOL,
   SETUP_TOOL,
   STATUS_TOOL,
@@ -69,6 +70,15 @@ const ROWS: readonly Row[] = [
       if (typeof input === 'string') return { deny: input }
 
       return acceptShift(await call.project(), { input, at: await call.now(), sessionId: await call.sessionId() })
+    },
+  },
+  {
+    name: OPEN_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      const input = parseOpenInput(raw)
+
+      return typeof input === 'string' ? { deny: input } : openTask(await call.project(), input)
     },
   },
   {

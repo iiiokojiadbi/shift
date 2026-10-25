@@ -19,16 +19,28 @@ import {
   SETTINGS,
   SHIFTS,
   TASK_LIST,
+  TASK_SECTIONS,
   TASKS,
+  TRACK_TOOL,
 } from './layout'
-import { formatK, sections } from './markdown'
+import { formatItem, formatK, sections } from './markdown'
 import type { Project } from './project'
-import { checkLetter, checkWork, checkWritten } from './records'
+import { checkLetter, checkTask, checkWork, checkWritten } from './records'
 import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, writeSnapshot } from './store'
-import { archiveInList, parseTaskList } from './tasks'
-import { ACCEPTED, ARCHIVED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
+import { archiveInList, checkTaskList, formatTaskLine, parseTaskList, withTask } from './tasks'
+import {
+  ACCEPTED,
+  ARCHIVED,
+  continuePrompt,
+  deliveredFiles,
+  EXCLUDED,
+  NOT_IGNORED,
+  OPENED,
+  resumePrompt,
+  waitContext,
+} from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
-import type { ArchiveInput, HandedBack, PendingShift, SessionFile, Settled, ShiftInput } from './types'
+import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, TaskFiles } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -163,6 +175,40 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
 }
 
 // Moves a finished or dropped task's folder to the archive and adds its line to the index.
+// A task opened valid by construction: task.md by its sections, track.md with its first items, and its line with the
+// links in TASKS.md — all checked before anything is written, so a refusal leaves the records as they were.
+export async function openTask(project: Project, input: OpenInput): Promise<{ deny: string } | { result: string }> {
+  const { store, root } = project
+  const folder = `${root}/${TASKS}/${input.name}`
+  if (await store.exists(folder)) return { deny: `${TASKS}/${input.name}/ already exists: set its status with ${TRACK_TOOL}.` }
+  const archived = await store.list(`${root}/${ARCHIVE}`, 'dir')
+  if (archived.includes(input.name))
+    return { deny: `${input.name} is archived: open a task under another name with continues: ${input.name}.` }
+  const task: TaskFiles = {
+    name: input.name,
+    task: renderTask(input),
+    track: input.items.map(item => `${formatItem('open', item.name, item.note)}\n`).join(''),
+    notes: [],
+  }
+  const listPath = `${root}/${TASK_LIST}`
+  const list = withTask(await store.read(listPath), input, archived)
+  const folders = [...(await store.list(`${root}/${TASKS}`, 'dir')), input.name]
+  const problem = checkTask(task) ?? checkTaskList(list, folders, archived)
+  if (problem !== null) return { deny: `Nothing was written. ${problem}` }
+
+  await store.write(`${folder}/${NAMES.task}`, task.task ?? '')
+  await store.write(`${folder}/${NAMES.track}`, task.track ?? '')
+  await store.write(listPath, list)
+
+  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about)) }
+}
+
+function renderTask(input: OpenInput): string {
+  const body: Record<string, string> = { Goal: input.goal, 'Done when': input.doneWhen }
+
+  return `# ${input.title}\n${TASK_SECTIONS.map(section => `\n## ${section}\n\n${body[section] ?? 'none'}\n`).join('')}`
+}
+
 export async function archiveTask(project: Project, input: ArchiveInput): Promise<{ deny: string } | { result: string }> {
   const { store, root } = project
   const from = `${root}/${TASKS}/${input.name}`

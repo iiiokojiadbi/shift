@@ -13,7 +13,7 @@ import {
   TASKS,
 } from './layout'
 import { dated, isOneOf, quote } from './markdown'
-import type { ArchiveInput, ShiftInput, TrackInput } from './types'
+import type { ArchiveInput, OpenInput, ShiftInput, TrackInput } from './types'
 
 // A string argument, trimmed; '' when it is missing or not a string.
 function text(raw: Record<string, unknown>, key: string): string {
@@ -67,6 +67,55 @@ export function parseArchiveInput(raw: Record<string, unknown>): ArchiveInput | 
   if (!isOneOf(OUTCOMES, outcome)) return `outcome must be ${quote(OUTCOMES, ' or ')}.`
 
   return about(raw, 'what the task was and how it ended') ?? { name, outcome, about: text(raw, 'about') }
+}
+
+// The lines of a list argument, each `words — what matters` split at its first " — "; what is wrong with one otherwise.
+function splitLines(raw: Record<string, unknown>, key: string): { name: string; note: string | null }[] | string {
+  const value = raw[key] ?? []
+  if (!Array.isArray(value) || value.some(each => typeof each !== 'string')) return `${key} is a list of lines.`
+  const lines: { name: string; note: string | null }[] = []
+  for (const each of value as string[]) {
+    const line = each.trim()
+    const problem = line === '' ? `${key} has an empty line.` : lineProblem(key, line, { noDates: true })
+    if (problem !== null) return problem
+    const at = line.indexOf(' — ')
+    lines.push(at === -1 ? { name: line, note: null } : { name: line.slice(0, at).trim(), note: line.slice(at + 3).trim() || null })
+  }
+
+  return lines
+}
+
+export function parseOpenInput(raw: Record<string, unknown>): OpenInput | string {
+  const name = taskName(raw, 'name')
+  if (typeof name !== 'string') return name.problem
+  const status = text(raw, 'status') || 'in progress'
+  if (!(FOCUS as readonly string[]).includes(status)) return `status is one of ${quote(FOCUS)}.`
+  const fields = { title: text(raw, 'title'), goal: text(raw, 'goal'), doneWhen: text(raw, 'done_when') }
+  for (const [key, value] of [
+    ['title', fields.title],
+    ['goal', fields.goal],
+    ['done_when', fields.doneWhen],
+  ] as const) {
+    if (value === '') return `${key} is empty.`
+    const problem = key === 'title' ? lineProblem(key, value, { noDates: true }) : dated(key, value, 'Tasks have no dates.')
+    if (problem !== null) return problem
+  }
+  const what = status === 'in progress' ? 'what the task is' : `what the task is and why it is ${status}`
+  const line = about(raw, what)
+  if (line !== null) return line
+  const items = splitLines(raw, 'items')
+  if (typeof items === 'string') return items
+  const links: OpenInput['links'] = []
+  for (const kind of ['needs', 'after', 'continues'] as const) {
+    const listed = splitLines(raw, kind)
+    if (typeof listed === 'string') return listed
+    for (const each of listed) {
+      if (!NAME.test(each.name)) return `${kind}: "${each.name}" is not a task name — ${NAME_RULE}, then " — why" if it needs one.`
+      links.push({ kind, name: each.name, why: each.note })
+    }
+  }
+
+  return { name, status, ...fields, about: text(raw, 'about'), items, links }
 }
 
 export function resolvePath(root: string, path: string): string {

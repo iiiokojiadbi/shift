@@ -11,6 +11,8 @@ import {
   INDEX,
   LETTER,
   MENTIONS_TOOL,
+  NAME_RULE,
+  OPEN_TOOL,
   OUTCOMES,
   OUTLINE_TOOL,
   SETUP_TOOL,
@@ -36,6 +38,38 @@ export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the let
 export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
+
+export const OPEN_DESCRIPTION = `Open a task instead of creating its files by hand: writes ${TASKS}/<name>/task.md with its sections, track.md with the first items, and the task's line with its links in ${TASK_LIST}, all checked first — a refusal writes nothing. Decisions, dead ends and owner decisions start as "none".`
+
+const LINK_LINES = (what: string) => ({
+  type: 'array',
+  items: { type: 'string' },
+  description: `Task names, each optionally followed by " — why": ${what}.`,
+})
+
+export const OPEN_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: `The folder name in ${TASKS}/: ${NAME_RULE}.` },
+    title: { type: 'string', description: "One line: the task.md's # title." },
+    goal: { type: 'string', description: 'What the task is for: the "Goal" section.' },
+    done_when: { type: 'string', description: 'When it is finished: the "Done when" section.' },
+    status: { type: 'string', enum: [...FOCUS], description: 'in progress by default; deferred or waiting carries its reason in about.' },
+    about: {
+      type: 'string',
+      description: `One line up to ${ABOUT_MAX} characters after the task's line in ${TASK_LIST}: what it is, and why it waits if it does.`,
+    },
+    items: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The first track items, each "item — what matters" or just "item"; all open.',
+    },
+    needs: LINK_LINES('open tasks this one cannot finish without'),
+    after: LINK_LINES('archived tasks it stands on'),
+    continues: LINK_LINES('archived tasks it picks up'),
+  },
+  required: ['name', 'title', 'goal', 'done_when', 'about'],
+}
 
 export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
 
@@ -139,6 +173,12 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
     schema: GUIDE_SCHEMA,
   },
   [TOOL]: { label: 'Shift', description: TOOL_DESCRIPTION, brief: 'make a shift.', schema: TOOL_SCHEMA },
+  [OPEN_TOOL]: {
+    label: 'Open a task',
+    description: OPEN_DESCRIPTION,
+    brief: `open a task: its folder, task.md, track.md and its line in \`${TASK_LIST}\`, checked before anything is written.`,
+    schema: OPEN_SCHEMA,
+  },
   [ARCHIVE_TOOL]: {
     label: 'Archive a task',
     description: ARCHIVE_DESCRIPTION,

@@ -28,7 +28,7 @@ test('every row has its texts; the docs tools only where the mod keeps docs, non
   expect(names(DEFAULT_SETTINGS)).toContain('doc_outline')
   expect(names({ ...DEFAULT_SETTINGS, docs: { ...DEFAULT_SETTINGS.docs, dirs: [] } })).not.toContain('docs_mentioning')
   expect(names({ ...DEFAULT_SETTINGS, enabled: false })).toEqual([])
-  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual(['shift', 'task_archive', 'task_track'])
+  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual(['shift', 'task_open', 'task_archive', 'task_track'])
 })
 
 test('a run parses its arguments and refuses; only the main agent shifts, once a turn', async () => {
