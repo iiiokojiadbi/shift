@@ -8,7 +8,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: core copies
-      glob: "{core/src/**,adapters/*/hooks/core/**,adapters/pi/core/**}"
+      glob: "{core/src/**,core/test/data.ts,adapters/*/hooks/core/**,adapters/pi/core/**,adapters/claude-code/tests/data.ts,scripts/sync-core.ts}"
       run: bun run sync-core --check
     - name: biome
       glob: "*.{ts,js,json,jsonc}"
