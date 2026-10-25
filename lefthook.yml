@@ -1,5 +1,6 @@
 # Language-neutral on purpose: a harness in Go or Rust gets a job of its own with its own glob.
 # Quiet when all is well: one line per job; a failed job prints its whole output.
+# Every job runs a script of package.json, so a command is written once.
 output:
   - summary
   - failure
@@ -8,27 +9,30 @@ pre-commit:
   jobs:
     - name: core copies
       glob: "{core/src/**,adapters/*/hooks/core/**,adapters/pi/core/**}"
-      run: bun scripts/sync-core.ts --check
+      run: bun run sync-core --check
     - name: biome
       glob: "*.{ts,js,json,jsonc}"
       run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
     - name: core types
       glob: "core/**/*.ts"
-      run: bunx tsc -p core && bunx tsc -p core/test
+      run: bun run types:core
     - name: core tests
       glob: "core/**/*.ts"
-      run: bash -o pipefail -c "bun test core/test 2>&1 | grep -v '^(pass) '"
+      run: bash -o pipefail -c "bun run test:core 2>&1 | grep -v '^(pass) '"
     - name: claude-code plugin
       glob: "{adapters/claude-code/**,core/src/**}"
-      run: claude plugin validate adapters/claude-code
+      run: bun run validate
+    - name: claude-code types
+      glob: "{adapters/claude-code/**,core/src/**}"
+      run: bun run types:claude-code
     - name: claude-code tests
       glob: "{adapters/claude-code/**,core/src/**}"
       # Passed tests are left out, a failed one is printed whole.
-      run: bash -o pipefail -c "claude plugin test adapters/claude-code 2>&1 | grep -v '^(pass) '"
+      run: bash -o pipefail -c "bun run test:claude-code 2>&1 | grep -v '^(pass) '"
     - name: pi types
       glob: "{adapters/pi/**,core/src/**}"
-      run: bunx tsc -p adapters/pi && bunx tsc -p adapters/pi/test
+      run: bun run types:pi
     - name: pi tests
       glob: "{adapters/pi/**,core/src/**}"
-      run: bash -o pipefail -c "bun test adapters/pi/test 2>&1 | grep -v '^(pass) '"
+      run: bash -o pipefail -c "bun run test:pi 2>&1 | grep -v '^(pass) '"

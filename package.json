@@ -6,9 +6,15 @@
     "sync-core": "bun scripts/sync-core.ts",
     "check": "bun scripts/sync-core.ts --check && biome check .",
     "fix": "biome check --write .",
-    "test": "bun test core/test adapters/pi/test && claude plugin test adapters/claude-code",
+    "test": "bun run test:core && bun run test:pi && bun run test:claude-code",
+    "test:core": "bun test core/test",
+    "test:pi": "bun test adapters/pi/test",
+    "test:claude-code": "claude plugin test adapters/claude-code",
     "validate": "claude plugin validate adapters/claude-code",
-    "typecheck": "tsc -p core && tsc -p core/test && tsc -p adapters/claude-code --noEmit && tsc -p adapters/pi && tsc -p adapters/pi/test",
+    "typecheck": "bun run types:core && bun run types:claude-code && bun run types:pi",
+    "types:core": "tsc -p core && tsc -p core/test",
+    "types:claude-code": "tsc -p adapters/claude-code --noEmit",
+    "types:pi": "tsc -p adapters/pi && tsc -p adapters/pi/test",
     "prepare": "lefthook install"
   },
   "devDependencies": {

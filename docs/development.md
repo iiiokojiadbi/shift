@@ -23,11 +23,11 @@ Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome
 | `bun run sync-core` | copies `core/src/` into each adapter's `core/`; run after every change in `core/src/`, and again after `bun run fix` touched it |
 | `bun run check` | fails on a stale core copy, then biome |
 | `bun run fix` | biome with fixes |
-| `bun run typecheck` | `tsc` over the core, its tests, both adapters and the pi test |
-| `bun run test` | `bun test` of the core and pi, then `claude plugin test` of the Claude Code plugin |
+| `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:pi` |
+| `bun run test` | every package's tests: `test:core`, `test:pi` (`bun test`), `test:claude-code` (`claude plugin test`) |
 | `bun run validate` | `claude plugin validate` of the Claude Code plugin: the hooks module and its state contract |
 
-The pre-commit hook runs, by the files staged: the copy check, biome (it stages its own fixes), the core's types and tests, the plugin's validation and tests, pi's types and tests. Each job prints one line when it passes and its whole output when it fails.
+The pre-commit hook runs, by the files staged, the same scripts per package — a command is written once, in `package.json`: the copy check, biome (it stages its own fixes), the core's types and tests, the plugin's validation, types and tests, pi's types and tests. Each job prints one line when it passes and its whole output when it fails.
 
 ## Tests
 
