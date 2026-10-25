@@ -69,6 +69,31 @@ export const register: Register = on => {
     return { ...composed, sections: [...composed.sections, ...own] }
   })
 
+  // Registered before the table's tools, so it wraps them too: a hook registered later runs inside it, and the mod's own
+  // tools answer without passing the call on.
+  // The records are looked at around every tool of the main agent: what changed before it began is someone else's,
+  // what changed while it ran is the agent's own. While another tool runs the change before is not looked at — it may
+  // be that tool's. The mod's own tools write the records validly: what they wrote is only remembered.
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId !== undefined || !(await read($, enabled))) return next(e)
+    // A look that fails says nothing: it must never stand between the agent and its tool.
+    const outside = (await read($, running)) === 0 ? await recordsNote($, 'other').catch(() => null) : null
+    await update($, running, count => count + 1)
+    let done: Awaited<ReturnType<typeof next>>
+    try {
+      done = await next(e)
+    } finally {
+      await update($, running, count => Math.max(0, count - 1))
+    }
+    // A tool that ran read-only changed nothing: no look after it.
+    const own = done.isReadOnly === true ? null : await recordsNote($, 'agent').catch(() => null)
+    const notes = [outside, e.tool.startsWith(`mcp__${PLUGIN}__`) ? null : own].filter((each): each is string => each !== null)
+    if (notes.length === 0) return done
+    if (done.deny !== undefined) return { ...done, deny: [done.deny, ...notes].join('\n\n') }
+
+    return { ...done, context: [...(done.context ?? []), ...notes] }
+  }).catch((_$, e, next) => next(e))
+
   // Every tool of the table; a tool the project does not show is never registered, so never called.
   for (const tool of TOOLS) {
     on('tool.call', { tool: `mcp__${PLUGIN}__${tool.name}` as 'mcp__shift__shift' }, async ($, e) => {
@@ -130,28 +155,6 @@ export const register: Register = on => {
     if (hint === null) return next(e)
 
     return next({ ...e, message: { ...e.message, content: withHint(e.message.content, hint) } })
-  }).catch((_$, e, next) => next(e))
-
-  // The records are looked at around every tool of the main agent: what changed before it began is someone else's,
-  // what changed while it ran is the agent's own. While another tool runs the change before is not looked at — it may
-  // be that tool's. The mod's own tools write the records validly: what they wrote is only remembered.
-  on('tool.call', async ($, e, next) => {
-    if (e.agentId !== undefined || !(await read($, enabled))) return next(e)
-    const outside = (await read($, running)) === 0 ? await recordsNote($, 'other') : null
-    await update($, running, count => count + 1)
-    let done: Awaited<ReturnType<typeof next>>
-    try {
-      done = await next(e)
-    } finally {
-      await update($, running, count => Math.max(0, count - 1))
-    }
-    // A tool that ran read-only changed nothing: no look after it.
-    const own = done.isReadOnly === true ? null : await recordsNote($, 'agent')
-    const notes = [outside, e.tool.startsWith(`mcp__${PLUGIN}__`) ? null : own].filter((each): each is string => each !== null)
-    if (notes.length === 0) return done
-    if (done.deny !== undefined) return { ...done, deny: [done.deny, ...notes].join('\n\n') }
-
-    return { ...done, context: [...(done.context ?? []), ...notes] }
   }).catch((_$, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {

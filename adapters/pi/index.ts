@@ -211,11 +211,16 @@ export default function shift(pi: ExtensionAPI): void {
 
   // A hint for the agent if the fill since the last shift calls for one; none while a shift is pending.
   // The check of the records changed since the mod last looked; the first look only remembers them.
+  // A look that fails says nothing: it must never stand between the agent and its tool.
   async function recordsNote(ctx: ExtensionContext, by: ChangedBy): Promise<string | null> {
-    const changed = await changedRecords(await projectAt(ctx.cwd), seen, by)
-    seen = changed.seen
+    try {
+      const changed = await changedRecords(await projectAt(ctx.cwd), seen, by)
+      seen = changed.seen
 
-    return changed.note
+      return changed.note
+    } catch {
+      return null
+    }
   }
 
   function takeHint(ctx: ExtensionContext): Promise<string | null> {

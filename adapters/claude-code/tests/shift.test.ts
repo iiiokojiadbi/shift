@@ -438,6 +438,12 @@ test("records are looked at around every tool: the agent's own change told only 
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools')
   expect(outside).not.toContain('board.md')
   expect((await bash()).context).toBeUndefined()
+
+  // The mod's own tool writes a record: remembered, never named as someone else's at the next tool.
+  files.set('/proj/.shift/board.md', BOARD)
+  await bash()
+  await $.tool.call({ tool: 'mcp__shift__task_track', task: 'tests', item: 'cover', status: 'done', note: 'a longer note than before' })
+  expect((await bash()).context).toBeUndefined()
 })
 
 test('/unshift hands the last letter, the board and the tasks in progress to a fresh session', async ($, on) => {
