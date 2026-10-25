@@ -1,9 +1,11 @@
 import { docsReport } from './docs'
-import { sessionFiles } from './flows'
-import { atPlaces, MOD, SETTINGS } from './layout'
+import { sessionFiles, staleLayout } from './flows'
+import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS } from './layout'
 import { formatK } from './markdown'
 import type { Project } from './project'
+import { checkWork } from './records'
 import { SETTING_KEYS, settingValue } from './settings'
+import { readRecords } from './store'
 import { doctrine, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
 import { fileBlock } from './texts/prompts'
 import { shownTools } from './tools'
@@ -51,6 +53,10 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     ...keys,
     '',
+    '## Records',
+    '',
+    await recordsState(project),
+    '',
     '## The session block',
     '',
     'Loaded whole into every session, with what each costs:',
@@ -69,6 +75,19 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     SETUP_MIGRATION,
   ].join('\n')
+}
+
+// The records as they are, by every check a shift makes but "nothing changed": a rule added in a newer version, or a
+// record broken by a hand outside the agent's tools before the mod looked, shows here and not only at the shift.
+async function recordsState(project: Project): Promise<string> {
+  if (!project.settings.enabled) return 'Off: `enabled = false`, the mod keeps no records here.'
+  const stale = await staleLayout(project)
+  if (stale !== null) return stale
+  const work = await readRecords(project)
+  if (work === null) return `No board yet: create ${BOARD} by the sections in ${GUIDE_TOOL} before the first shift.`
+  const problem = checkWork(work, null, project)
+
+  return problem === null ? 'They pass every check a shift makes.' : `A shift would refuse them now: ${problem}`
 }
 
 // What a text costs in the context: its characters and the tokens they come to, roughly.
