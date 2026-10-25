@@ -30,7 +30,7 @@ export const ARCHIVED = (name: string) =>
 export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir'>): string {
   return [
     'The agent is shifting: it continues this same work right after, from its own letter.',
-    `Its work board (${shift.board}), the owner's decisions (${shift.owner}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/letter.md) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
+    `Its work board (${shift.board}), the owner's decisions (${shift.owner}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     'Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.',
     'Do not write next steps or a plan.',
     '',
@@ -147,7 +147,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     ...(remarks === null ? [] : ['Documents with remarks from the mod — fix them as the work passes by them:', '', remarks, '']),
     'Your letter to yourself, written right before the shift:',
     '',
-    `<letter path="${dir}/letter.md">`,
+    `<letter path="${dir}/${NAMES.letter}">`,
     letter.trim(),
     '</letter>',
     '',
