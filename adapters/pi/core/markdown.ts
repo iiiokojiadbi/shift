@@ -6,16 +6,34 @@ import type { Item } from './types'
 
 export type Heading = { level: number; title: string; line: number; note: string }
 
-const HEADING = /^(#{1,6}) +(.+?)\s*$/
+const HEADING = /^ {0,3}(#{1,6}) +(.+?)\s*$/
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+
+// The lines inside code fences, the fences included: an opener of three or more backticks or tildes, closed by a line
+// of the same character at least as long with nothing else on it. A backtick opener with a backtick after it is
+// inline code, and an opener never closed is no fence, so a stray one never hides the rest of a record.
+function fenced(lines: readonly string[]): Set<number> {
+  const inside = new Set<number>()
+  for (let at = 0; at < lines.length; at++) {
+    const [, mark = '', info = ''] = FENCE.exec(lines[at] ?? '') ?? []
+    if (mark === '' || (mark.startsWith('`') && info.includes('`'))) continue
+    const closer = new RegExp(`^ {0,3}${mark.startsWith('`') ? '`' : '~'}{${mark.length},}\\s*$`)
+    const close = lines.findIndex((line, index) => index > at && closer.test(line))
+    if (close === -1) continue
+    for (let index = at; index <= close; index++) inside.add(index)
+    at = close
+  }
+
+  return inside
+}
 
 // Every heading outside code fences: its level, its title, its line from 1, and the `> ` line right under it.
 export function headings(text: string): Heading[] {
   const lines = text.split('\n')
+  const inside = fenced(lines)
   const found: Heading[] = []
-  let fenced = false
   for (const [index, line] of lines.entries()) {
-    if (line.trimStart().startsWith('```')) fenced = !fenced
-    const match = fenced ? null : HEADING.exec(line)
+    const match = inside.has(index) ? null : HEADING.exec(line)
     if (match === null) continue
     const under = lines[index + 1] ?? ''
     found.push({

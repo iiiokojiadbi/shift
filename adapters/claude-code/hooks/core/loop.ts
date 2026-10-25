@@ -3,8 +3,8 @@ import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, takeHint } from './hint'
 import type { Project } from './project'
 import { compactInstructions } from './texts/prompts'
-import { DELIVERED, HINTED } from './texts/rows'
-import type { PendingShift, WaitNote } from './types'
+import { DELIVERED, HINTED, NOT_CONTINUED, NOT_MADE, UNSETTLED } from './texts/rows'
+import type { PendingShift, Settled, WaitNote } from './types'
 
 // The shift loop: from an accepted shift through the let-go to continuing or waiting for the owner, and the owner's
 // next message. The state and its transitions are the core's; an adapter keeps the state where its harness keeps
@@ -61,41 +61,56 @@ export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<string |
 // Once the turn has ended: a pending shift lets the history go, unless the turn was aborted. Every outcome is written
 // to the shift's about.md and told to the owner; nothing is lost silently.
 export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarness, aborted: boolean): Promise<void> {
-  const state = await loop.read()
-  const shift = state.pending
+  const shift = (await loop.read()).pending
   if (shift === null) return
   await loop.update(current => ({ ...current, pending: null }))
   const before = await harness.fill()
+  // The record of a failure is written before it is told; a failed write still leaves the row.
+  const failed = async (level: Level, write: () => Promise<string>, row: string) => {
+    loop.tell(await write().catch((error: unknown) => `${row} (and about.md was not written: ${String(error)})`), level)
+  }
   if (aborted) {
-    loop.tell(await shiftNotMade(project, shift, 'the turn was aborted', before), 'warning')
+    const why = 'the turn was aborted'
+    await failed('warning', () => shiftNotMade(project, shift, why, before), NOT_MADE(shiftName(shift), why))
     return
   }
 
   const done = await harness.letGo(compactInstructions(shift)).catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
   if ('skip' in done) {
-    loop.tell(await shiftNotMade(project, shift, done.skip, before), 'error')
+    await failed('error', () => shiftNotMade(project, shift, done.skip, before), NOT_MADE(shiftName(shift), done.skip))
     return
   }
+  let settled: Settled
   try {
     await harness.afterLetGo?.()
-    const settled = await settleShift(project, {
+    settled = await settleShift(project, {
       shift,
       messages: done.messages,
       before: done.before ?? before,
       after: done.after ?? (await harness.fill()) ?? 0,
-      streak: state.streak,
+      // Read now: the owner may have spoken while the history was let go.
+      streak: (await loop.read()).streak,
     })
-    if (settled.after === 'continue') {
-      await loop.update(current => ({ ...current, streak: settled.streak }))
-      loop.tell(settled.row, 'info')
-      await harness.continueWith(settled.prompt)
-      return
-    }
-    await loop.update(current => ({ ...current, note: settled.note }))
-    loop.tell(settled.row, 'info')
   } catch (error) {
-    loop.tell(await shiftUnsettled(project, shift, String(error), done.before ?? before), 'error')
+    const why = String(error)
+    await failed('error', () => shiftUnsettled(project, shift, why, done.before ?? before), UNSETTLED(shiftName(shift), why))
+    return
   }
+  if (settled.after === 'wait') {
+    const { note } = settled
+    await loop.update(current => ({ ...current, note }))
+    loop.tell(settled.row, 'info')
+    return
+  }
+  const { streak } = settled
+  await loop.update(current => ({ ...current, streak }))
+  loop.tell(settled.row, 'info')
+  // The shift is settled and written; a turn that does not start is told, not recorded against it.
+  await harness.continueWith(settled.prompt).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
+}
+
+function shiftName(shift: PendingShift): string {
+  return shift.dir.split('/').at(-1) ?? shift.dir
 }
 
 // The owner spoke: the count of shifts without them starts over.

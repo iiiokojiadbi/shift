@@ -68,10 +68,9 @@ export function checkWork(work: Work, previous: Work | null, project: Pick<Proje
 function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
   const { board } = work
   if (project.problem !== null) return `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
-  const owner = project.settings.files.owner
-  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${owner} now. Rename it and call again.`
+  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${OWNER} now. Rename it and call again.`
   if (sections(board).has(OWNER_SECTION)) {
-    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${owner}. Move its lines there as they are, remove the section from the board, and call again.`
+    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }
   if (sections(board).has(OLD_TASKS_SECTION)) {
     return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
@@ -110,7 +109,7 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
     if (problem !== null) return problem
   }
 
-  const glossaryProblem = checkGlossary(work.glossary, project.settings.files.glossary)
+  const glossaryProblem = checkGlossary(work.glossary, GLOSSARY)
   if (glossaryProblem !== null) return glossaryProblem
 
   if (previous !== null && workText(previous) === workText(work)) {

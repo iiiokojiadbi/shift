@@ -122,3 +122,19 @@ test('no hint while a shift is pending; a hint is told to the owner too', async 
   expect(await loopHint(loop, keeper)).toContain('let the history go by itself')
   expect(rows.at(-1)?.[0]).toBe('info')
 })
+
+test('the owner speaking during the let-go resets the count; a turn that does not start is told, not recorded against the shift', async () => {
+  const { project, loop, kept, rows, dir } = await setUp('continue', 2)
+  const harness: LetGoHarness = {
+    fill: async () => 300_000,
+    letGo: async () => {
+      await ownerSpoke(loop)
+      return { messages: [], after: 20_000 }
+    },
+    continueWith: async () => Promise.reject(new Error('busy')),
+  }
+  await afterTurn(project, loop, harness, false)
+  expect(kept.state.streak).toBe(1)
+  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
+  expect(rows.at(-1)).toEqual(['error', expect.stringContaining('the next turn did not start after the shift — Error: busy')])
+})

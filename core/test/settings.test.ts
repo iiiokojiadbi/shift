@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { acceptShift } from '../src/flows'
+import { atPlaces } from '../src/layout'
 import { loadProject } from '../src/project'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
 import { renderWork, unassistedInstructions } from '../src/texts/prompts'
@@ -87,4 +88,9 @@ test('a moved OWNER.md is named where it is: in refusals, the doctrine, the guid
   const guide = await TOOLS.find(tool => tool.name === 'shift_guide')?.run({}, { project: async () => project } as never)
   expect(guide && 'result' in guide && guide.result).not.toContain('.shift/OWNER.md')
   expect(unassistedInstructions(project.settings.files)).toContain('decisions at docs/OWNER.md')
+})
+
+test('a moved path is moved once, even when it holds a default inside it', () => {
+  const files = { owner: 'pkg/.shift/OWNER.md', glossary: '.shift/OWNER.md', shift: '.shift/SHIFT.md' }
+  expect(atPlaces('see .shift/OWNER.md and .shift/GLOSSARY.md', files)).toBe('see pkg/.shift/OWNER.md and .shift/OWNER.md')
 })

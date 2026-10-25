@@ -353,7 +353,7 @@ Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved
 
 ## Coming from the shift skill
 
-A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their making: \`sessions/\`, \`AGENTS.md\`, \`SHIFT.md\` (the skill's own text), a \`shift\` script, \`knowledge/\`, sometimes a \`.git\` of its own. The mod uses the same folder, and works on it only once it has a board. Move it in place, once, entry by entry — nothing is summarized away:
+A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their making: \`sessions/\`, \`AGENTS.md\`, \`SHIFT.md\` (the skill's own text), a \`shift\` script, \`knowledge/\`, sometimes a \`.git\` of its own. The mod uses the same folder, and works on it only once it has a board. Move it in place, once, entry by entry — nothing is dropped:
 - \`knowledge/owner.md\` → \`${OWNER}\`, rules as they are;
 - \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\` stay in \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (Причина → Cause, Делать → Do, Почему → Why, Когда не годится → Not when, Покажет → Shows), drop the date lines and the generated tables of contents;
 - \`knowledge/glossary*.md\` → \`${GLOSSARY}\`, one article per term: the meaning into \`Means\`, other spellings into \`Variants\`; a meaning the files only guessed gets \`Unconfirmed\`;

@@ -18,3 +18,5 @@ export const UNSETTLED = (name: string, why: string) =>
   `shift ${name}: the history was let go, but the message after it failed — ${why}; the letter is in the shift's folder`
 
 export const DELIVERED = (files: readonly string[], dir: string) => `went with your message: ${files.join(', ')} — ${dir}/${NAMES.letter}`
+
+export const NOT_CONTINUED = (why: string) => `the next turn did not start after the shift — ${why}; send any message to go on`

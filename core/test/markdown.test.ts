@@ -35,3 +35,12 @@ test('one line count, one limit refusal, one date refusal', () => {
   expect(dated('X', 'one\nsince 2026-10-24\n', 'No dates.')).toBe('A date in X: "since 2026-10-24". No dates. Remove it.')
   expect(dated('X', 'none', 'No dates.')).toBeNull()
 })
+
+test('fences as CommonMark has them: closed by the same mark at least as long, an unclosed one hides nothing', () => {
+  const keys = (text: string) => [...sections(text).keys()]
+  expect(keys('## A\n```\nx\n## B\n## C\n')).toEqual(['A', 'B', 'C'])
+  expect(keys('## A\n````\n```\n## no\n````\n## B\nb\n')).toEqual(['A', 'B'])
+  expect(keys('## A\n```inline```\nfoo\n## B\nb\n')).toEqual(['A', 'B'])
+  expect(keys('## A\n~~~\n## no\n~~~\n## B\nb\n')).toEqual(['A', 'B'])
+  expect(keys('## A\nMeans: x\n   ## B\nMeans: y\n')).toEqual(['A', 'B'])
+})

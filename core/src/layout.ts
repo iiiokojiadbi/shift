@@ -82,8 +82,15 @@ export const OWNER = `${DIR}/${NAMES.owner}`
 
 // A text written with the default places of OWNER.md, GLOSSARY.md and SHIFT.md, at the places the project's settings
 // give instead: every text names its files once, by the defaults, and is moved here.
+// One pass, so a moved path is never moved again, whatever it looks like.
 export function atPlaces(text: string, files: { owner: string; glossary: string; shift: string }): string {
-  return text.replaceAll(OWNER, files.owner).replaceAll(GLOSSARY, files.glossary).replaceAll(SHIFT_FILE, files.shift)
+  const places: Record<string, string> = { [OWNER]: files.owner, [GLOSSARY]: files.glossary, [SHIFT_FILE]: files.shift }
+
+  return text.replace(new RegExp([OWNER, GLOSSARY, SHIFT_FILE].map(escapeRegExp).join('|'), 'g'), found => places[found] ?? found)
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 // The name owner decisions had before OWNER.md.
 export const OLD_OWNER = `${DIR}/${NAMES.oldOwner}`
