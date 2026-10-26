@@ -231,3 +231,41 @@ test('shift_setup: a file tag inside a record is no file; a moved record is name
   expect(report).toContain("This session's block matches them.")
   expect(report).toContain('Moved by the settings: `.shift/OWNER.md` is at `rules/OWNER.md` here.')
 })
+
+test('a document a script changed gets its toc with the next prompt, once', async () => {
+  const doc = '---\ndescription: d\n---\n# D\n\n## One\n'
+  const project = await memoryProject({ [`${R}/settings.toml`]: '[docs]\ntoc = true', [`${ROOT}/docs/d.md`]: doc }, ROOT)
+  let looks: Looks = FRESH_LOOKS
+  let loop: LoopState = FRESH_LOOP
+  let gauge: Gauge = { ...FRESH_GAUGE, whole: true }
+  const courier: Courier = {
+    project: async () => project,
+    looks: async () => looks,
+    updateLooks: async change => {
+      looks = change(looks)
+    },
+    loop: {
+      read: async () => loop,
+      update: async change => {
+        loop = change(loop)
+      },
+      tell: () => {},
+    },
+    gauge: {
+      read: async () => gauge,
+      update: async change => {
+        gauge = change(gauge)
+      },
+      base: async () => null,
+      history: async () => ({}),
+      reading: async () => ({ tokens: undefined, window: 1_000_000, threshold: undefined }),
+    },
+  }
+  expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
+  await project.store.write(`${ROOT}/docs/d.md`, `${doc}\n## Two\n`)
+  const after = await atPrompt(courier, { runStarts: true, owner: true })
+  expect(after.notes.join('')).toContain('The mod wrote the toc of `docs/d.md`')
+  await after.delivered()
+  expect(await project.store.read(`${ROOT}/docs/d.md`)).toContain('<!-- toc -->\n- One\n- Two\n<!-- /toc -->')
+  expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
+})

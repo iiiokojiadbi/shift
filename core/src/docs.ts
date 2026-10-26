@@ -294,6 +294,29 @@ export async function docPaths(store: Store, root: string, dirs: readonly string
 }
 
 // An entry of `[docs] dirs` as paths from the root are written: `./docs/` is `docs`.
+// Every document the settings name with its stamp, from one listing per folder and no reads: what the next prompt
+// compares to find the documents a script changed, which no Edit or Write told the mod of.
+export async function docStamps(project: Project): Promise<Record<string, string>> {
+  const { store, root, settings } = project
+  const found: Record<string, string> = {}
+  if (!settings.enabled) return found
+  const walk = async (dir: string): Promise<void> => {
+    for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
+      if (name.endsWith('.md')) found[`${dir}/${name}`] = stamp
+    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`)
+  }
+  for (const entry of settings.docs.dirs.map(trimDir)) {
+    if (!isFile(entry)) await walk(entry)
+    else {
+      const folder = dirname(entry)
+      const stamp = (await store.stamps(folder === '.' ? root : `${root}/${folder}`))[basename(entry)]
+      if (stamp !== undefined) found[entry] = stamp
+    }
+  }
+
+  return found
+}
+
 export function trimDir(dir: string): string {
   return dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
 }

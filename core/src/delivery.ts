@@ -1,4 +1,4 @@
-import { followWrite, settleDocs } from './docs'
+import { docStamps, followWrite, refreshDocs, settleDocs } from './docs'
 import { type ChangedBy, changedRecords, type Seen } from './flows'
 import type { GaugeKeeper } from './hint'
 import { MOD } from './layout'
@@ -14,7 +14,8 @@ import { TOLD } from './texts/rows'
 
 // What the mod last saw of the records and how many of the main agent's tools run now: a change seen while one runs
 // may be that tool's own. `written`: the files written since the docs were last settled, from the project's root.
-export type Looks = { seen: Seen | null; running: number; written?: readonly string[] }
+// `docs`: the documents' stamps as the last prompt saw them, so one a script changed is settled like one written.
+export type Looks = { seen: Seen | null; running: number; written?: readonly string[]; docs?: Record<string, string> }
 
 export const FRESH_LOOKS: Looks = { seen: null, running: 0 }
 
@@ -95,6 +96,7 @@ export async function atPrompt(
   const outside = running === 0 ? await look(courier, 'other') : null
   if (outside?.body === null) await remember(courier, outside.seen)
   if (outside?.body != null) notes.push({ kind: 'records', body: outside.body })
+  if (running === 0) await scripted(courier)
   const docs = running === 0 ? await settle(courier) : null
   if (docs !== null) notes.push({ kind: 'docs', body: docs.body })
   const hint = await loopOffer(courier.loop, courier.gauge).catch(() => null)
@@ -109,10 +111,9 @@ export async function atPrompt(
         await courier.updateLooks(current => (same(current.seen, seen) ? { ...current, seen: outside.seen } : current))
       if (docs !== null) {
         const skipped = await docs.write().catch(() => docs.paths)
-        await forget(
-          courier,
-          docs.paths.filter(path => !skipped.includes(path)),
-        )
+        const settled = docs.paths.filter(path => !skipped.includes(path))
+        await forget(courier, settled)
+        await restamp(courier, settled)
       }
       await hint?.take()
       for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
@@ -157,12 +158,49 @@ async function settle(courier: Courier): Promise<{ body: string; paths: readonly
   const settled = await settleDocs(await courier.project(), written).catch(() => null)
   if (settled !== null && settled.lines.length > 0) return { body: settled.lines.join('\n'), paths: written, write: settled.write }
   const skipped = (await settled?.write().catch(() => written)) ?? []
-  await forget(
-    courier,
-    written.filter(path => !skipped.includes(path)),
-  )
+  const done = written.filter(path => !skipped.includes(path))
+  await forget(courier, done)
+  await restamp(courier, done)
 
   return null
+}
+
+// The documents changed since the last prompt that no write of the agent's tools named — a script, a command — are
+// taken as written, and the map follows them. The first look only remembers: there is nothing to compare with yet.
+async function scripted(courier: Courier): Promise<void> {
+  try {
+    const project = await courier.project()
+    const now = await docStamps(project)
+    const before = (await courier.looks()).docs
+    await courier.updateLooks(current => ({ ...current, docs: now }))
+    if (before === undefined) return
+    const changed = Object.keys(now).filter(path => before[path] !== now[path])
+    const removed = Object.keys(before).some(path => now[path] === undefined)
+    if (changed.length === 0 && !removed) return
+    await courier.updateLooks(current => ({
+      ...current,
+      written: [...(current.written ?? []), ...changed.filter(path => !(current.written ?? []).includes(path))],
+    }))
+    await refreshDocs(project, { tocs: false })
+  } catch {
+    // A look that fails says nothing: the documents are settled at the next one, or at a shift.
+  }
+}
+
+// A document settled is remembered as it is now, the toc the mod wrote included, so it is not taken for a script's change.
+async function restamp(courier: Courier, paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) return
+  const now = await docStamps(await courier.project()).catch(() => null)
+  if (now === null) return
+  await courier.updateLooks(current => {
+    if (current.docs === undefined) return current
+    const docs = { ...current.docs }
+    for (const path of paths) {
+      if (now[path] === undefined) delete docs[path]
+      else docs[path] = now[path]
+    }
+    return { ...current, docs }
+  })
 }
 
 // Seen records compared by value: a harness may keep them serialized.
