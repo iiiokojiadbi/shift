@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { docOutline, docsAfterWrite, docsMentioning, docsReport, outline, renderMap, withToc } from '../src/docs'
+import { docOutline, docsMentioning, docsReport, followWrite, outline, renderMap, settleDocs, withToc } from '../src/docs'
 import { sessionFiles } from '../src/flows'
 import { pinned } from '../src/markdown'
 import { loadProject, type Project } from '../src/project'
@@ -11,9 +11,10 @@ import { R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 
 const at = (store: Store) => loadProject(store, ROOT)
-// The docs' remarks after a write as one text; null when there are none.
+// A written file followed, then settled as the next prompt settles it: the remarks as one text, null when there are none.
 const afterWrite = async (project: Project, file: string) => {
-  const lines = await docsAfterWrite(project, file)
+  const path = await followWrite(project, file)
+  const lines = path === null ? [] : await settleDocs(project, [path])
 
   return lines.length === 0 ? null : lines.join('\n')
 }
@@ -43,14 +44,14 @@ test('settings: toc, limits and the files every session gets', () => {
   expect(parseSettings('[docs]\nnope = 1')).toContain('`docs.max_lines`')
 })
 
-test('after a write: the toc and the map follow the document, remarks once, silence when all is well', async () => {
+test('after a run: the toc and the remarks of a written document, silence when all is well', async () => {
   const store = memoryStore({
     [SETTINGS]: '[docs]\ntoc = true\nmax_description = 20\nmax_lines = 30',
     [`${ROOT}/docs/a.md`]: DOC,
     [`${ROOT}/docs/b.md`]: '---\ndescription: B\n---\n\n# B\n\n<!-- toc -->\n<!-- /toc -->\n\nSee [A](a.md) and docs/a.md.\n',
   })
   const first = await afterWrite(await at(store), `${ROOT}/docs/a.md`)
-  expect(first).toContain('rewrote the toc of `docs/a.md`')
+  expect(first).toContain('The mod wrote the toc of `docs/a.md`: read the file')
   expect(store.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->\n- One - the first')
   expect(store.files.get(`${R}/SHIFT.md`)).toContain('`docs/a.md` — what A holds')
   expect(await afterWrite(await at(store), `${ROOT}/docs/a.md`)).toBeNull()
@@ -75,6 +76,27 @@ test('after a write: the toc and the map follow the document, remarks once, sile
 
   store.files.set(SETTINGS, '[docs]\ndirs = []')
   expect(await afterWrite(await at(store), `${ROOT}/docs/c.md`)).toBeNull()
+})
+
+test('mid-run a write moves only the map; the documents of a run are settled together, links to each other kept', async () => {
+  const store = memoryStore({
+    [SETTINGS]: '[docs]\ntoc = true',
+    [`${R}/SHIFT.md`]: '# Shift\n',
+    [`${ROOT}/docs/one.md`]: '---\ndescription: one\n---\n\n# One\n\nSee [two](two.md).\n\n## Part\n',
+  })
+  const project = await at(store)
+  expect(await followWrite(project, `${ROOT}/docs/one.md`)).toBe('docs/one.md')
+  expect(store.files.get(`${ROOT}/docs/one.md`)).not.toContain('<!-- toc -->')
+  expect(store.files.get(`${R}/SHIFT.md`)).toContain('`docs/one.md` — one')
+  store.files.set(`${ROOT}/docs/two.md`, '---\ndescription: two\n---\n\n# Two\n\nSee [one](one.md).\n')
+  expect(await followWrite(project, `${ROOT}/docs/two.md`)).toBe('docs/two.md')
+  expect(await followWrite(project, `${R}/board.md`)).toBeNull()
+
+  expect(await settleDocs(project, ['docs/one.md', 'docs/two.md'])).toEqual([
+    'The mod wrote the tocs of `docs/one.md`, `docs/two.md`: read each before editing it again.',
+  ])
+  expect(store.files.get(`${ROOT}/docs/one.md`)).toContain('<!-- toc -->\n- Part\n<!-- /toc -->')
+  expect(await settleDocs(project, ['docs/one.md', 'docs/two.md'])).toEqual([])
 })
 
 test('the report at a shift, the outline and mentions tools, and [files] always', async () => {
@@ -152,7 +174,7 @@ test('a document at the root named in [docs] dirs is kept like a folder of them'
     [`${ROOT}/docs/a.md`]: DOC,
   })
   const note = (await afterWrite(await at(store), `${ROOT}/AGENTS.md`)) ?? ''
-  expect(note).toContain('rewrote the toc of `AGENTS.md`')
+  expect(note).toContain('wrote the toc of `AGENTS.md`')
   expect(note).toContain('a link to `docs/gone.md` that is not there')
   expect(store.files.get(`${ROOT}/AGENTS.md`)).toContain('# repo\n\n<!-- toc -->\n- Tree\n<!-- /toc -->')
   const map = store.files.get(`${R}/SHIFT.md`) ?? ''

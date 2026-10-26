@@ -79,7 +79,7 @@ export const register: Register = on => {
   // Registered before the table's tools, so it wraps them too: a hook registered later runs inside it, and the mod's own
   // tools answer without passing the call on.
   // Every note to the agent mid-turn goes with a tool's result: what changed in the records around a tool of the main
-  // agent, the docs after a write, a hint. A subagent's write gets only the docs.
+  // agent, a hint. A written file, the main agent's or a subagent's, is followed by the docs, settled with the next prompt.
   on('tool.call', async ($, e, next) => {
     if (!(await read($, enabled))) return next(e)
     const courier = courierOf($)
@@ -94,11 +94,10 @@ export const register: Register = on => {
     }
     const path = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : undefined
     const written = (e.tool === 'Edit' || e.tool === 'Write') && done.deny === undefined && done.isError !== true ? path : undefined
+    if (!main && written !== undefined) await afterWrite(courier, written)
     const notes = main
       ? await afterTool(courier, before, { own: e.tool.startsWith(`mcp__${PLUGIN}__`), readOnly: done.isReadOnly === true, written })
-      : written === undefined
-        ? []
-        : await afterWrite(courier, written)
+      : []
     if (notes.length === 0) return done
     if (done.deny !== undefined) return { ...done, deny: [done.deny, ...notes].join('\n\n') }
 

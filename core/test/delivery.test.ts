@@ -103,16 +103,27 @@ test('a tool that threw is only counted down; a run that ended clears what a dea
   expect(kept.looks.running).toBe(0)
 })
 
-test('the docs follow a written file, in the tool result or a subagent write alike', async () => {
-  const { courier, project, rows } = await setUp()
+test('a written file is settled with the next prompt, by the main agent or a subagent alike, never mid-tool', async () => {
+  const { courier, project, kept, rows } = await setUp()
   await beforeTool(courier)
-  const notes = await afterTool(courier, [], { ...TOOL, written: `${ROOT}/docs/a.md` })
-  expect(notes).toEqual([
-    expect.stringMatching(/^<shift note="the mod's check of the file just written">\nThe mod rewrote the toc of `docs\/a.md`/),
+  expect(await afterTool(courier, [], { ...TOOL, written: `${ROOT}/docs/a.md` })).toEqual([])
+  expect(project.files.get(`${ROOT}/docs/a.md`)).not.toContain('<!-- toc -->')
+  await afterWrite(courier, `${ROOT}/docs/a.md`)
+  expect(kept.looks.written).toEqual(['docs/a.md'])
+
+  kept.looks = { ...kept.looks, running: 1 }
+  expect((await atPrompt(courier, { runStarts: false, owner: true })).notes).toEqual([])
+  expect(project.files.get(`${ROOT}/docs/a.md`)).not.toContain('<!-- toc -->')
+
+  const told = await atPrompt(courier, { runStarts: true, owner: true })
+  expect(told.notes).toEqual([
+    expect.stringMatching(/^<shift note="the mod's check of the files written in the last run">\nThe mod wrote the toc of `docs\/a.md`/),
   ])
   expect(project.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->')
-  expect(rows.at(-1)).toStartWith('to the agent — The mod rewrote the toc')
-  expect(await afterWrite(courier, `${ROOT}/docs/a.md`)).toEqual([])
+  expect(kept.looks.written).toEqual([])
+  await told.delivered()
+  expect(rows.at(-1)).toStartWith('to the agent — The mod wrote the toc')
+  expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
 })
 
 test('a hint goes last in a tool result, in its own tag, and is told to the owner', async () => {

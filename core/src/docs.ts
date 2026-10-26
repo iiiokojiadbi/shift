@@ -85,37 +85,63 @@ export async function brokenLinks(store: Store, root: string, path: string, text
   return missing
 }
 
-// After the agent wrote a file: a document gets its toc rewritten and the map follows it; a document's remarks and any
-// file's broken links come back as lines of one note. None when all is well: a check that speaks on every edit is noise.
-export async function docsAfterWrite(project: Project, file: string): Promise<string[]> {
+// After the agent wrote a file: a document puts the map in step at once; the file itself is settled by `settleDocs`
+// once the run is over. The file's path from the root, or null when the docs do not follow it.
+export async function followWrite(project: Project, file: string): Promise<string | null> {
+  const { root, settings } = project
+  if (!settings.enabled || settings.docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
+  const path = file.slice(root.length + 1)
+  if (path.startsWith(`${DIR}/`)) return null
+  if (isDoc(path, settings.docs.dirs)) await refreshDocs(project, { tocs: false })
+
+  return path
+}
+
+// The files written in a run, once it is over: each document gets its toc written, and the remarks — a document's own,
+// any file's links still not there — come back as lines of one note. Not after each write: a document written before
+// the one it links to has no remark to make, and a toc written mid-run would make the agent read the file again before
+// each next edit. None when all is well: a check that speaks on every run is noise.
+export async function settleDocs(project: Project, paths: readonly string[]): Promise<string[]> {
   const { store, root, settings } = project
   const docs = settings.docs
-  if (!settings.enabled || docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return []
-  const path = file.slice(root.length + 1)
-  if (path.startsWith(`${DIR}/`)) return []
-  let text = await store.read(file)
-  if (text === null) return []
-
-  const lines: string[] = []
-  const doc = isDoc(path, docs.dirs)
-  if (doc && docs.toc) {
-    const next = withToc(text)
-    if (next !== null && next !== text) {
-      await store.write(file, next)
-      text = next
-      lines.push(`The mod rewrote the toc of \`${path}\`: read the file before editing it again.`)
+  if (!settings.enabled || docs.dirs.length === 0) return []
+  const rewritten: string[] = []
+  const remarked: string[] = []
+  let pins = false
+  for (const path of paths) {
+    let text = await store.read(`${root}/${path}`)
+    if (text === null) continue
+    const doc = isDoc(path, docs.dirs)
+    if (doc && docs.toc) {
+      const next = withToc(text)
+      if (next !== null && next !== text) {
+        await store.write(`${root}/${path}`, next)
+        text = next
+        rewritten.push(path)
+      }
     }
+    if (doc && pinned(text).length > 0) pins = true
+    const remarks = [
+      ...(doc ? docRemarks(text, docs) : []),
+      ...(await brokenLinks(store, root, path, text, docs.dirs)).map(link => `a link to \`${link}\` that is not there`),
+    ]
+    if (remarks.length > 0) remarked.push(`\`${path}\`: ${remarks.join('; ')}.`)
   }
-  // Pinned blocks past the limit are told when the document written has some: the write may be what passed it.
-  const over = doc ? pinnedOver(await refreshDocs(project), docs) : null
-  if (over !== null && pinned(text).length > 0) lines.push(over)
-  const remarks = [
-    ...(doc ? docRemarks(text, docs) : []),
-    ...(await brokenLinks(store, root, path, text, docs.dirs)).map(link => `a link to \`${link}\` that is not there`),
-  ]
-  if (remarks.length > 0) lines.push(`\`${path}\`: ${remarks.join('; ')}.`)
+  const named = rewritten.map(path => `\`${path}\``).join(', ')
+  // Pinned blocks past the limit are told when a document written has some: the write may be what passed it.
+  const over = pins ? pinnedOver(await refreshDocs(project, { tocs: false }), docs) : null
 
-  return lines
+  return [
+    ...(rewritten.length === 0
+      ? []
+      : [
+          rewritten.length === 1
+            ? `The mod wrote the toc of ${named}: read the file before editing it again.`
+            : `The mod wrote the tocs of ${named}: read each before editing it again.`,
+        ]),
+    ...(over === null ? [] : [over]),
+    ...remarked,
+  ]
 }
 
 // The documents with remarks and the root's Markdown files with a broken link, short enough to read after a shift:
@@ -333,14 +359,15 @@ export function withMap(shift: string | null, map: string): string {
 }
 
 // Every document read once: its toc rewritten when the settings ask for one, then the map in SHIFT.md written when it
-// changed — nothing when there are no documents and no SHIFT.md yet. At the session's start, a shift and a write.
-export async function refreshDocs(project: Project): Promise<Doc[]> {
+// changed — nothing when there are no documents and no SHIFT.md yet. At the session's start and a shift; after a write
+// mid-run only the map, `tocs: false`: a toc the agent is not told of would fail its next edit.
+export async function refreshDocs(project: Project, { tocs = true }: { tocs?: boolean } = {}): Promise<Doc[]> {
   const { store, root } = project
   const settings = project.settings.docs
   const docs: Doc[] = []
   for (const path of await docPaths(store, root, settings.dirs)) {
     let text = (await store.read(`${root}/${path}`)) ?? ''
-    const next = settings.toc ? withToc(text) : null
+    const next = tocs && settings.toc ? withToc(text) : null
     if (next !== null && next !== text) {
       await store.write(`${root}/${path}`, next)
       text = next

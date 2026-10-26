@@ -336,11 +336,16 @@ test('the history and guide tools answer', async ($, on) => {
   expect(String(history.result)).toContain('ABOUT')
 })
 
-test('after Edit and Write the docs follow: the toc, the map and remarks in the result; the docs tools answer', async ($, on) => {
+test('after Edit and Write the map follows, the toc and remarks come with the next prompt; the docs tools answer', async ($, on) => {
   const files = project()
   files.set('/proj/.shift/settings.toml', '[docs]\ntoc = true')
   files.set('/proj/docs/a.md', '---\ndescription: A\n---\n\n# A\n\n## One\n')
   stubSession(on, files)
+  const contexts: (readonly string[] | undefined)[] = []
+  on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => {
+    contexts.push(e.context)
+    return { text: e.text }
+  })
   on('tool.call', { tool: 'Edit' }, () => ({ result: 'edited' }) as never)
   on('tool.call', { tool: 'Write' }, (_$, e) => {
     files.set(e.file_path, e.content)
@@ -348,14 +353,19 @@ test('after Edit and Write the docs follow: the toc, the map and remarks in the 
   })
 
   const edited = await $.tool.call({ tool: 'Edit', file_path: '/proj/docs/a.md', old_string: 'x', new_string: 'y' } as never)
-  expect(edited.context?.[0]).toContain('rewrote the toc of `docs/a.md`')
-  expect(files.get('/proj/docs/a.md')).toContain('<!-- toc -->\n- One\n<!-- /toc -->')
+  expect(edited.context).toBeUndefined()
+  expect(files.get('/proj/docs/a.md')).not.toContain('<!-- toc -->')
   expect(files.get('/proj/.shift/SHIFT.md')).toContain('`docs/a.md` — A')
-  const quiet = await $.tool.call({ tool: 'Edit', file_path: '/proj/docs/a.md', old_string: 'x', new_string: 'y' } as never)
-  expect(quiet.context).toBeUndefined()
-
   const written = await $.tool.call({ tool: 'Write', file_path: '/proj/src/x.ts', content: '// docs/gone.md' } as never)
-  expect(written.context?.[0]).toContain('`src/x.ts`: a link to `docs/gone.md` that is not there.')
+  expect(written.context).toBeUndefined()
+
+  await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
+  const settled = (contexts[0] ?? []).join('\n')
+  expect(settled).toContain('The mod wrote the toc of `docs/a.md`')
+  expect(settled).toContain('`src/x.ts`: a link to `docs/gone.md` that is not there.')
+  expect(files.get('/proj/docs/a.md')).toContain('<!-- toc -->\n- One\n<!-- /toc -->')
+  await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
+  expect(contexts[1]).toBeUndefined()
 
   const head = await $.tool.call({ tool: 'mcp__shift__doc_outline', path: 'docs/a.md' })
   expect(String(head.result)).toMatch(/\d+ {2}One/)

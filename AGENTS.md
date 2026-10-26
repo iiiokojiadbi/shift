@@ -18,7 +18,7 @@ Harnesses: Claude Code (first, done as a mod), pi (an extension) and opencode (a
 
 ## Documentation
 
-The documents live in `docs/` and this file; the mod keeps them — a toc in each, remarks after a write — and maps them, with their descriptions and sections, into the session block through `.shift/SHIFT.md`, so they are in front of you in every session. Open a document for the details; the map only points.
+The documents live in `docs/` and this file; the mod keeps them — a toc in each, remarks after a run — and maps them, with their descriptions and sections, into the session block through `.shift/SHIFT.md`, so they are in front of you in every session. Open a document for the details; the map only points.
 
 - `docs/concept.md` — the idea, the loop, how the model sees it, open questions;
 - `docs/records.md` — what the agent keeps in `.shift/` and why;

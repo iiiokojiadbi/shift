@@ -179,12 +179,13 @@ export default function shift(pi: ExtensionAPI): void {
     if (!enabled) return
     const path = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined
     const written = typeof path === 'string' ? resolve(ctx.cwd, path) : undefined
-    let added: string[]
-    if (event.parentToolCallId === undefined) {
-      const before = outside.get(event.toolCallId) ?? []
-      outside.delete(event.toolCallId)
-      added = await afterTool(courierOf(ctx), before, { own: OURS.has(event.toolName), readOnly: READING.has(event.toolName), written })
-    } else added = written === undefined ? [] : await afterWrite(courierOf(ctx), written)
+    if (event.parentToolCallId !== undefined) {
+      if (written !== undefined) await afterWrite(courierOf(ctx), written)
+      return
+    }
+    const before = outside.get(event.toolCallId) ?? []
+    outside.delete(event.toolCallId)
+    const added = await afterTool(courierOf(ctx), before, { own: OURS.has(event.toolName), readOnly: READING.has(event.toolName), written })
     if (added.length === 0) return
 
     return {

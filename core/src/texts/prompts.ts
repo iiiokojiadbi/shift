@@ -32,7 +32,7 @@ import type { HandedBack, PendingShift, Recent, SessionFile, ShiftAfter, Stuck, 
 export const NOTE_KINDS = {
   hint: 'a hint from the mod, not part of what it came with',
   records: "the mod's check of the records just changed",
-  docs: "the mod's check of the file just written",
+  docs: "the mod's check of the files written in the last run",
 } as const
 
 export type NoteKind = keyof typeof NOTE_KINDS

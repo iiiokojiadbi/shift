@@ -16,7 +16,7 @@ export type PendingShift = {
   focus?: string[]
 }
 
-export type Looks = { seen: Record<string, string> | null; running: number }
+export type Looks = { seen: Record<string, string> | null; running: number; written?: readonly string[] }
 
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }

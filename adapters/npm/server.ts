@@ -77,7 +77,7 @@ const plugin: Definition = {
     if (!start.enabled) return
 
     const sessions = new Map<string, Session>()
-    const children = new Map<string, boolean>()
+    const parents = new Map<string, string | null>()
     const windows = new Map<string, { window: number; threshold: number | undefined }>()
     const outside = new Map<string, Note[]>()
     let stopped = false
@@ -104,13 +104,24 @@ const plugin: Definition = {
 
     // A subagent runs in a child session: only the main agent shifts and is told.
     async function child(sessionID: string): Promise<boolean> {
-      const known = children.get(sessionID)
+      return (await parentOf(sessionID)) !== null
+    }
+
+    async function parentOf(sessionID: string): Promise<string | null> {
+      const known = parents.get(sessionID)
       if (known !== undefined) return known
       const info = await ctx.session.get({ sessionID }).catch(() => undefined)
-      const parent = info?.parentID !== undefined
-      children.set(sessionID, parent)
+      const parent = info?.parentID ?? null
+      parents.set(sessionID, parent)
 
       return parent
+    }
+
+    // The main session a subagent's session runs under, through any depth.
+    async function mainOf(sessionID: string): Promise<string> {
+      const parent = await parentOf(sessionID)
+
+      return parent === null ? sessionID : mainOf(parent)
     }
 
     // A row for the owner: a synthetic message the owner sees by its description; the agent reads it with the next one.
@@ -255,13 +266,14 @@ const plugin: Definition = {
       const path = done !== null && WRITING.has(event.tool) ? (event.input as { path?: unknown }).path : undefined
       const written = typeof path === 'string' ? resolve(root, path) : undefined
       if (done !== null) await countGrowth(keeperOf(sessionID), event.tool, contentChars(done.content))
-      let added: string[]
-      if (!(await child(sessionID))) {
-        const before = outside.get(event.id) ?? []
-        outside.delete(event.id)
-        const end = done === null ? null : { own: OURS.has(event.tool), readOnly: READING.has(event.tool), written }
-        added = await afterTool(courierOf(sessionID), before, end)
-      } else added = written === undefined ? [] : await afterWrite(courierOf(sessionID), written)
+      if (await child(sessionID)) {
+        if (written !== undefined) await afterWrite(courierOf(await mainOf(sessionID)), written)
+        return
+      }
+      const before = outside.get(event.id) ?? []
+      outside.delete(event.id)
+      const end = done === null ? null : { own: OURS.has(event.tool), readOnly: READING.has(event.tool), written }
+      const added = await afterTool(courierOf(sessionID), before, end)
       if (done === null || added.length === 0) return
       const blocks = added.map(text => ({ type: 'text' as const, text }))
       const content = typeof done.content === 'string' ? [{ type: 'text' as const, text: done.content }] : (done.content ?? [])
