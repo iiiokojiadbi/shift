@@ -1,5 +1,5 @@
 import { DIR, MOD } from './layout'
-import { frontmatter, type Heading, headings, lineCount, type Pin, pinned } from './markdown'
+import { frontmatter, type Heading, headings, lineCount, lineOutside, type Pin, pinned, unfenced } from './markdown'
 import { basename, dirname, fromRoot, normalize } from './paths'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
@@ -18,21 +18,31 @@ export function outline(text: string): Heading[] {
   return headings(text).filter(heading => heading.level === 2 || heading.level === 3)
 }
 
-// The text with its toc block written from its headings: in place of the old block, else right under the `# ` title;
-// null when there is neither.
+// The text with its toc block written from its headings: in place of the old block — its markers on lines of their own,
+// outside code fences — else right under the `# ` title; null when there is neither.
 export function withToc(text: string): string | null {
   const rows = outline(text).map(
     heading => `${'  '.repeat(heading.level - 2)}- ${heading.title}${heading.note === '' ? '' : ` - ${heading.note}`}`,
   )
-  const block = [TOC_START, ...rows, TOC_END].join('\n')
-  const start = text.indexOf(TOC_START)
-  const end = start === -1 ? -1 : text.indexOf(TOC_END, start)
-  if (end !== -1) return `${text.slice(0, start)}${block}${text.slice(end + TOC_END.length)}`
+  const lines = text.split('\n')
+  const start = lineOutside(lines, line => line.trim() === TOC_START)
+  const end = start === -1 ? -1 : lineOutside(lines, line => line.trim() === TOC_END, start + 1)
+  const eol = lines[0]?.endsWith('\r') ? '\r' : ''
+  const block = [TOC_START, ...rows, TOC_END].map(line => `${line}${eol}`)
+  if (end !== -1) return [...lines.slice(0, start), ...block, ...lines.slice(end + 1)].join('\n')
   const title = headings(text).find(heading => heading.level === 1)
   if (title === undefined) return null
-  const lines = text.split('\n')
 
-  return [...lines.slice(0, title.line), '', block, ...lines.slice(title.line)].join('\n')
+  return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join('\n')
+}
+
+// A link's path as the file is named: `my%20guide.md` is `my guide.md`; null when it does not decode.
+function decoded(link: string): string | null {
+  try {
+    return decodeURI(link)
+  } catch {
+    return null
+  }
 }
 
 export function isDoc(path: string, dirs: readonly string[]): boolean {
@@ -62,20 +72,27 @@ export function docRemarks(text: string, docs: DocsSettings): string[] {
   return remarks
 }
 
-// Links to documents that are not there: a `<folder>/….md` path anywhere in the text, from the project's root, and in
-// a Markdown file a `[text](file.md)` from the file's own folder. A path with `<` or `*` is a pattern, not a link.
+// Links to documents that are not there: in a Markdown file, outside code fences, a link — `[text](file.md)` or a
+// reference's `[ref]: file.md` — from the file's own folder (from the root with a leading `/`); then a bare
+// `<folder>/….md` path anywhere else in the text, from the project's root. A path with `<` or `*` is a pattern, a URL
+// is not the project's, and a link's `?query` and `#fragment` are not part of its file.
 export async function brokenLinks(store: Store, root: string, path: string, text: string, dirs: readonly string[]): Promise<string[]> {
   const targets = new Map<string, string | null>()
+  let bare = text
+  if (path.endsWith('.md')) {
+    bare = unfenced(text)
+    const links = [...bare.matchAll(/\]\(<?([^)\s<>]+)>?(?:\s[^)]*)?\)/g), ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<?([^\s<>]+)>?/gm)]
+    for (const found of links) {
+      const link = (found[1] ?? '').replace(/[?#].*$/, '')
+      if (!link.endsWith('.md') || /^[a-z][\w+.-]*:|^\/\//i.test(link) || link.includes('*')) continue
+      const file = decoded(link)
+      targets.set(link, file === null ? null : normalize(file.startsWith('/') ? file.slice(1) : `${dirname(path)}/${file}`))
+    }
+    bare = bare.replace(/\]\([^)]*\)/g, ']()').replace(/^ {0,3}\[[^\]]+\]:.*$/gm, '')
+  }
   for (const dir of dirs.map(trimDir).filter(entry => !isFile(entry))) {
     const pattern = new RegExp(`(?<![\\w./-])${escapeRegExp(dir)}/[^\\s\`'"()\\[\\],:;»<>*]+?\\.md(?![\\w-])`, 'g')
-    for (const found of text.matchAll(pattern)) targets.set(found[0], found[0])
-  }
-  if (path.endsWith('.md')) {
-    for (const found of text.matchAll(/\]\(([^)#\s]+\.md)(?:#[^)]*)?\)/g)) {
-      const link = found[1] ?? ''
-      if (/^[a-z]+:/i.test(link) || link.includes('*') || targets.has(link)) continue
-      targets.set(link, normalize(`${dirname(path)}/${link}`))
-    }
+    for (const found of bare.matchAll(pattern)) if (!targets.has(found[0])) targets.set(found[0], found[0])
   }
   const missing: string[] = []
   for (const [link, target] of targets) {
@@ -105,13 +122,16 @@ export async function followWrite(project: Project, file: string): Promise<strin
 export async function settleDocs(project: Project, paths: readonly string[]): Promise<{ lines: string[]; write(): Promise<string[]> }> {
   const { store, root, settings } = project
   const docs = settings.docs
-  const tocs = new Map<string, { was: string; next: string }>()
-  // A file changed since it was read keeps its change: its toc waits for the next settling. The files skipped come back.
+  const read = new Map<string, string>()
+  const tocs = new Map<string, string>()
+  // A file changed since it was read keeps its change and is settled again with the next prompt: its toc is not written
+  // over it, and its remarks are of the text before. The files skipped come back.
   const write = async () => {
     const skipped: string[] = []
-    for (const [path, { was, next }] of tocs) {
-      if ((await store.read(`${root}/${path}`)) === was) await store.write(`${root}/${path}`, next)
-      else skipped.push(path)
+    for (const [path, was] of read) {
+      const next = tocs.get(path)
+      if ((await store.read(`${root}/${path}`)) !== was) skipped.push(path)
+      else if (next !== undefined) await store.write(`${root}/${path}`, next)
     }
 
     return skipped
@@ -122,11 +142,12 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
   for (const path of paths) {
     let text = await store.read(`${root}/${path}`)
     if (text === null) continue
+    read.set(path, text)
     const doc = isDoc(path, docs.dirs)
     if (doc && docs.toc) {
       const next = withToc(text)
       if (next !== null && next !== text) {
-        tocs.set(path, { was: text, next })
+        tocs.set(path, next)
         text = next
       }
     }
@@ -164,10 +185,11 @@ export async function docsReport(project: Project): Promise<string | null> {
   const docs = settings.docs
   if (!settings.enabled || docs.dirs.length === 0) return null
   const rootFiles = (await store.list(root, 'file')).filter(name => name.endsWith('.md'))
+  const paths = new Set([...(await docPaths(store, root, docs.dirs)), ...rootFiles])
   const undescribed: string[] = []
   const lines: string[] = []
   const kept: Doc[] = []
-  for (const path of [...(await docPaths(store, root, docs.dirs)), ...rootFiles]) {
+  for (const path of paths) {
     const text = (await store.read(`${root}/${path}`)) ?? ''
     if (isDoc(path, docs.dirs)) kept.push(readDoc(path, text))
     const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
@@ -265,8 +287,9 @@ export async function docPaths(store: Store, root: string, dirs: readonly string
   return [...paths].sort((a, b) => a.localeCompare(b))
 }
 
+// An entry of `[docs] dirs` as paths from the root are written: `./docs/` is `docs`.
 export function trimDir(dir: string): string {
-  return dir.replace(/\/+$/, '')
+  return dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
 }
 
 // An entry of `[docs] dirs` that names one document rather than a folder.
@@ -363,11 +386,14 @@ export function withMap(shift: string | null, map: string): string {
   if (shift === null) {
     return `# Shift\n\nHow this project keeps its knowledge. The rules are written on the owner's word; the map below is the mod's.\n\n${map}\n`
   }
-  const start = shift.indexOf(MAP_START.slice(0, MAP_START.indexOf(' — ')))
-  const end = shift.indexOf(MAP_END)
-  if (start === -1 || end === -1) return `${shift.trimEnd()}\n\n${map}\n`
+  // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
+  const lines = shift.split('\n')
+  const opener = MAP_START.slice(0, MAP_START.indexOf(' — '))
+  const start = lineOutside(lines, line => line.trimStart().startsWith(opener))
+  const end = start === -1 ? -1 : lineOutside(lines, line => line.trim() === MAP_END, start + 1)
+  if (end === -1) return `${shift.trimEnd()}\n\n${map}\n`
 
-  return `${shift.slice(0, start)}${map}${shift.slice(end + MAP_END.length)}`
+  return [...lines.slice(0, start), map, ...lines.slice(end + 1)].join('\n')
 }
 
 // Every document read once: its toc rewritten when the settings ask for one, then the map in SHIFT.md written when it

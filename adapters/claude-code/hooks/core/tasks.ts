@@ -140,7 +140,8 @@ function archivedLink(line: string, name: string): string[] {
   if (moved === line || needs === null) return [moved]
   const [, indent = '', rest = ''] = needs
   const cut = rest.indexOf(' — ')
-  const targets = (cut === -1 ? rest : rest.slice(0, cut)).split(/,\s*/)
+  // The links themselves, however the line joins them: a comma, "and", a space.
+  const targets = [...(cut === -1 ? rest : rest.slice(0, cut)).matchAll(/\[[^\]]*\]\([^)]*\)/g)].map(found => found[0])
   const why = cut === -1 ? '' : rest.slice(cut)
   const done = targets.filter(target => target.includes(`](archive/${name}/)`))
   const open = targets.filter(target => !done.includes(target))

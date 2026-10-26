@@ -19,10 +19,13 @@ export function unfenced(text: string): string {
 
 // The lines inside code fences, the fences included: an opener of three or more backticks or tildes, closed by a line
 // of the same character at least as long with nothing else on it. A backtick opener with a backtick after it is
-// inline code, and an opener never closed is no fence, so a stray one never hides the rest of a record.
+// inline code, and an opener never closed is no fence, so a stray one never hides the rest of a record. A leading
+// frontmatter is fenced too: a `# ` comment in it is no title.
 function fenced(lines: readonly string[]): Set<number> {
   const inside = new Set<number>()
-  for (let at = 0; at < lines.length; at++) {
+  const front = lines[0]?.trimEnd() === '---' ? lines.findIndex((line, index) => index > 0 && line.trimEnd() === '---') : -1
+  for (let index = 0; index <= front; index++) inside.add(index)
+  for (let at = front + 1; at < lines.length; at++) {
     const [, mark = '', info = ''] = FENCE.exec(lines[at] ?? '') ?? []
     if (mark === '' || (mark.startsWith('`') && info.includes('`'))) continue
     const closer = new RegExp(`^ {0,3}${mark.startsWith('`') ? '`' : '~'}{${mark.length},}\\s*$`)
@@ -33,6 +36,14 @@ function fenced(lines: readonly string[]): Set<number> {
   }
 
   return inside
+}
+
+// The first line at or after `from` outside code fences that `matches`; -1 when there is none. A marker the mod
+// writes is found only on a line of its own, never in an example or a sentence that names it.
+export function lineOutside(lines: readonly string[], matches: (line: string) => boolean, from = 0): number {
+  const inside = fenced(lines)
+
+  return lines.findIndex((line, index) => index >= from && !inside.has(index) && matches(line))
 }
 
 // Every heading outside code fences: its level, its title, its line from 1, and the `> ` line right under it.
@@ -138,18 +149,25 @@ export function missingSections(text: string, required: readonly string[], where
   return null
 }
 
-// A real month and day, never part of a longer number: a version such as 0.32.2026 is no date.
+// A real day of a real month, in a name or a range too, never part of a version such as 0.32.2026 or v1.2.2026.
 const DATES = [
-  /(?<![\d.-])(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?![\d.-]?\d)/,
-  /(?<![\d.])(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(19|20)\d{2}(?![\d.]?\d)/,
+  { pattern: /(?<![\d.])((?:19|20)\d{2})-(\d{2})-(\d{2})(?!\d|\.\d)/g, year: 1, month: 2, day: 3 },
+  { pattern: /(?<![\w.])(\d{1,2})\.(\d{1,2})\.((?:19|20)\d{2})(?!\d|\.\d)/g, year: 3, month: 2, day: 1 },
 ]
 
 export function findDate(text: string): string | null {
   for (const line of text.split('\n')) {
-    if (DATES.some(re => re.test(line))) return line.trim()
+    if (DATES.some(({ pattern, ...at }) => [...line.matchAll(pattern)].some(found => isDay(found, at)))) return line.trim()
   }
 
   return null
+}
+
+function isDay(found: RegExpMatchArray, at: { year: number; month: number; day: number }): boolean {
+  const [year, month, day] = [at.year, at.month, at.day].map(index => Number(found[index]))
+  const date = new Date(Date.UTC(year ?? 0, (month ?? 0) - 1, day ?? 0))
+
+  return date.getUTCFullYear() === year && date.getUTCMonth() === (month ?? 0) - 1 && date.getUTCDate() === day
 }
 
 // Every `- ` line of a text as an item; a line without a `[status]` has an empty one, a track item without `#<id>`

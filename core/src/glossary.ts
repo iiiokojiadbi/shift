@@ -47,11 +47,13 @@ export function checkGlossary(text: string | null, where: string): string | null
   const seen = new Map<string, string>()
   for (const article of articles) {
     if (!article.fields.Means) return `${where}, "${article.term}" has no "Means:" — what it is, in one or two sentences.`
-    // Spellings of one term that differ only in case are one name: only another article clashes.
+    // Spellings of one term that differ only in case are one name: only another article clashes, even one of the same title.
+    const own = new Set<string>()
     for (const name of [article.term, ...words(article.fields.Variants)]) {
       const key = name.toLowerCase()
+      if (own.has(key)) continue
+      own.add(key)
       const earlier = seen.get(key)
-      if (earlier === article.term) continue
       if (earlier !== undefined) return `${where}: "${name}" is in both "${earlier}" and "${article.term}". One word, one article.`
       seen.set(key, article.term)
     }

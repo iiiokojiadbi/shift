@@ -171,8 +171,9 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     segment: segment({ work, index }, previous),
     focus: focusOf(work),
   }
-  // Written first, it takes the folder before another session's shift can find it free; rewritten with the outcome once
-  // the turn ends, `pending` stays if the session dies first.
+  // Written first, it takes the folder as soon as the store can: no harness's file API creates a file only if it is not
+  // there, so two sessions accepting in the same second may still meet. Rewritten with the outcome once the turn ends;
+  // `pending` stays if the session dies first.
   await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }))
   await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
 

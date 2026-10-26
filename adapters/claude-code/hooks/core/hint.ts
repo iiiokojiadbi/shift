@@ -200,26 +200,26 @@ export async function takeHint(keeper: GaugeKeeper): Promise<string | null> {
 export async function offerHint(keeper: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
   await restore(keeper)
   const reading = await keeper.reading()
-  const offered: { gauge?: Gauge; text?: string } = {}
+  const offered: { gauge?: Gauge; text?: string; seen?: Gauge } = {}
   await keeper.update(current => {
     const now = complete(current)
     const hint = shiftHint(now, reading)
     if (hint.text === null) return hint.gauge
     offered.gauge = hint.gauge
     offered.text = hint.text
+    offered.seen = now
 
     return now
   })
-  const { gauge: given, text } = offered
-  if (given === undefined || text === undefined) return null
-  const base = complete(await keeper.read()).base
+  const { gauge: given, text, seen } = offered
+  if (given === undefined || text === undefined || seen === undefined) return null
 
   return {
     text,
     // Never over a newer count: a tool's hint given meanwhile, or a stretch begun since, stands.
     take: () =>
       keeper.update(current =>
-        current.base !== base
+        !sameStretch(seen, current)
           ? current
           : {
               ...current,
@@ -243,6 +243,16 @@ export async function gaugeStatus(keeper: GaugeKeeper): Promise<string> {
   const reading = await keeper.reading()
 
   return renderStatus(complete(await keeper.read()), reading)
+}
+
+// Whether `later` is still the stretch `earlier` was: a let-go since starts the count anew — its own base, no hint
+// given, the agent told if the harness let go by itself.
+function sameStretch(earlier: Gauge, later: Gauge): boolean {
+  return (
+    later.base === earlier.base &&
+    (later.hinted ?? 0) >= (earlier.hinted ?? 0) &&
+    (later.unassisted === earlier.unassisted || !later.unassisted)
+  )
 }
 
 function complete(current: Gauge | null): Gauge {
