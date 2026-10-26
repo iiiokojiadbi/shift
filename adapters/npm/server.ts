@@ -64,7 +64,7 @@ type Session = {
   letGo: ((end: { text: string } | { error: string }) => void) | undefined
   // The doctrine and the session's files as the session started or last let go: a block read anew every
   // request would show records the history has not reached yet and break the prompt's cache on every write.
-  block: string[] | undefined
+  block: { doctrine: string; files: string | null } | undefined
 }
 
 type Ended = { sessionID: string; text?: string; error?: unknown; tokens?: { input?: number } }
@@ -216,9 +216,10 @@ const plugin: Definition = {
       if (session.block === undefined) {
         const project = await projectAt(root)
         const files = renderSessionFiles(await sessionFiles(project))
-        session.block = [sessionDoctrine(project.settings).doctrine, ...(files === null ? [] : [files])]
+        session.block = { doctrine: sessionDoctrine(project.settings).doctrine, files }
       }
-      for (const text of session.block) event.system.push({ type: 'text', text })
+      event.system.push({ type: 'text', text: session.block.doctrine })
+      if (session.block.files !== null) event.system.push({ type: 'text', text: session.block.files })
     })
 
     // A compaction the agent asked for holds what its letter says; any other gets the summarizer's instructions.
@@ -282,8 +283,8 @@ const plugin: Definition = {
               now: async () => Date.now(),
               subagent: await child(call.sessionID),
               loop: loopOf(call.sessionID),
-              // The session's files are read anew before every request, so this copy is never older than them.
-              loaded: async () => null,
+              // The session's files as this session read them: shift_setup tells which changed since.
+              loaded: async () => (await state(call.sessionID)).block?.files ?? null,
               status: () => gaugeStatus(keeperOf(call.sessionID)),
               cannotLetGo: async () => null,
             })
