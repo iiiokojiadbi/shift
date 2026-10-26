@@ -225,7 +225,7 @@ The mod looks at the records around every tool you run. A record you changed —
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
 - a knowledge file with an unknown \`kind\`, a name not of its kind, no \`about\`, more than ${KNOWLEDGE_MAX_LINES} lines, an entry without its fields, a glossary kept as knowledge;
 - \`${GLOSSARY}\`: an article without \`Means\`, an unknown label, a word in two articles, an avoided word used as a term, more than ${GLOSSARY_MAX_LINES} lines;
-- a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in any record;
+- a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in the board, \`${TASK_LIST}\`, a task, the owner's decisions, the glossary or knowledge;
 - \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
 - \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, tasks needing each other in a circle;
 - a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;

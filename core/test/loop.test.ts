@@ -79,6 +79,16 @@ test('an aborted turn lets nothing go; a failed let-go is told as an error; both
   expect(waiting.kept.state.note).toMatchObject({ files: ['the note that the shift failed'] })
 })
 
+test('a failure note that cannot start the next turn waits for the owner instead', async () => {
+  const { project, loop, kept } = await setUp()
+  const stuck: LetGoHarness = {
+    ...harness(async () => Promise.reject(new Error('busy'))),
+    continueWith: async () => Promise.reject(new Error('dropped')),
+  }
+  await afterTurn(project, loop, stuck, false)
+  expect(kept.state.note).toMatchObject({ files: ['the note that the shift failed'] })
+})
+
 test('a failure whose about.md cannot be written is still told, and says so', async () => {
   const { project, loop, rows } = await setUp()
   project.store.write = async () => {

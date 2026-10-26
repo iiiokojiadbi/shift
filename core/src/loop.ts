@@ -121,7 +121,10 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
 // otherwise with the owner's next message.
 async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift, context: string, goOn: boolean): Promise<void> {
   if (goOn && shift.after === 'continue') {
-    await harness.continueWith(context).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
+    await harness.continueWith(context).catch(async (error: unknown) => {
+      await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
+      loop.tell(NOT_CONTINUED(String(error)), 'error')
+    })
     return
   }
   await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))

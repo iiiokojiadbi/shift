@@ -108,8 +108,11 @@ export async function atPrompt(
       if (outside?.body != null)
         await courier.updateLooks(current => (same(current.seen, seen) ? { ...current, seen: outside.seen } : current))
       if (docs !== null) {
-        await docs.write().catch(() => undefined)
-        await forget(courier, docs.paths)
+        const skipped = await docs.write().catch(() => docs.paths)
+        await forget(
+          courier,
+          docs.paths.filter(path => !skipped.includes(path)),
+        )
       }
       await hint?.take()
       for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
@@ -148,13 +151,16 @@ async function follow(courier: Courier, file: string): Promise<void> {
 
 // The files written since the last settling, settled now and forgotten once told; a settling that fails says nothing.
 // Nothing to tell is settled and forgotten at once: an adapter calls `delivered` only when a note goes.
-async function settle(courier: Courier): Promise<{ body: string; paths: readonly string[]; write(): Promise<void> } | null> {
+async function settle(courier: Courier): Promise<{ body: string; paths: readonly string[]; write(): Promise<readonly string[]> } | null> {
   const written = (await courier.looks()).written ?? []
   if (written.length === 0) return null
   const settled = await settleDocs(await courier.project(), written).catch(() => null)
   if (settled !== null && settled.lines.length > 0) return { body: settled.lines.join('\n'), paths: written, write: settled.write }
-  await settled?.write().catch(() => undefined)
-  await forget(courier, written)
+  const skipped = (await settled?.write().catch(() => written)) ?? []
+  await forget(
+    courier,
+    written.filter(path => !skipped.includes(path)),
+  )
 
   return null
 }

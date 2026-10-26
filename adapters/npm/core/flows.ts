@@ -172,9 +172,10 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     segment: segment({ work, index }, previous),
     focus: focusOf(work),
   }
-  await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
-  // Rewritten with the outcome once the turn ends; `pending` stays if the session dies first.
+  // Written first, it takes the folder before another session's shift can find it free; rewritten with the outcome once
+  // the turn ends, `pending` stays if the session dies first.
   await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }))
+  await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
 
   // Knowledge is rarely written: a stretch that added none is asked once, while its history is still whole.
   const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work)

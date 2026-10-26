@@ -80,6 +80,9 @@ export function checkTaskList(text: string | null, folders: readonly string[], a
   const badName = tasks.filter(t => !NAME.test(t.name))
   if (badName.length > 0) return `Task names are ${NAME_RULE}: ${quote(badName.map(t => t.name))}.`
 
+  const twice = tasks.filter((t, at) => tasks.findIndex(other => other.name === t.name) !== at).map(t => t.name)
+  if (twice.length > 0) return `${TASK_LIST} lists a task twice: ${quote([...new Set(twice)])}. One line each, its links under it.`
+
   const listed = new Set(tasks.map(t => t.name))
   const unlisted = folders.filter(name => !listed.has(name))
   if (unlisted.length > 0)
@@ -129,6 +132,23 @@ function needsCycle(tasks: readonly ListedTask[]): string[] | null {
   return null
 }
 
+// A link line of another task once `name` is archived: its link points into the archive, and a "needs:" on it becomes
+// "after:" — on a line of its own when the same line needs other tasks still open.
+function archivedLink(line: string, name: string): string[] {
+  const moved = line.replaceAll(`](tasks/${name}/)`, `](archive/${name}/)`).replaceAll(`](tasks/${name})`, `](archive/${name}/)`)
+  const needs = /^(\s+)- needs: (.+)$/.exec(moved)
+  if (moved === line || needs === null) return [moved]
+  const [, indent = '', rest = ''] = needs
+  const cut = rest.indexOf(' — ')
+  const targets = (cut === -1 ? rest : rest.slice(0, cut)).split(/,\s*/)
+  const why = cut === -1 ? '' : rest.slice(cut)
+  const done = targets.filter(target => target.includes(`](archive/${name}/)`))
+  const open = targets.filter(target => !done.includes(target))
+  if (open.length === 0) return [`${indent}- after: ${rest}`]
+
+  return [`${indent}- needs: ${open.join(', ')}${why}`, `${indent}- after: ${done.join(', ')}`]
+}
+
 // TASKS.md with a new task's line and its links appended; a link points into the archive when the task is archived.
 // A list that said "none" says it no more.
 export function withTask(text: string | null, input: OpenInput, archived: readonly string[]): string {
@@ -156,11 +176,11 @@ export function archiveInList(text: string, name: string): string {
   let skipping = false
   for (const line of text.split('\n')) {
     const task = taskLine(line)
+    // A blank line between a task and its links does not end them.
     if (task !== null) skipping = task.name === name
-    else if (!LINK_LINE.test(line)) skipping = false
-    if (skipping) continue
-    const moved = line.replaceAll(`](tasks/${name}/)`, `](archive/${name}/)`).replaceAll(`](tasks/${name})`, `](archive/${name}/)`)
-    out.push(moved !== line && /^\s+- needs: /.test(moved) ? moved.replace('- needs: ', '- after: ') : moved)
+    else if (line.trim() !== '' && !LINK_LINE.test(line)) skipping = false
+    if (skipping && line.trim() !== '') continue
+    out.push(...archivedLink(line, name))
   }
   const kept = out.join('\n')
   const left = parseTaskList(kept)

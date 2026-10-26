@@ -212,11 +212,22 @@ export async function offerHint(keeper: GaugeKeeper): Promise<{ text: string; ta
   })
   const { gauge: given, text } = offered
   if (given === undefined || text === undefined) return null
+  const base = complete(await keeper.read()).base
 
   return {
     text,
+    // Never over a newer count: a tool's hint given meanwhile, or a stretch begun since, stands.
     take: () =>
-      keeper.update(current => ({ ...current, base: current.base ?? given.base, hinted: given.hinted, unassisted: given.unassisted })),
+      keeper.update(current =>
+        current.base !== base
+          ? current
+          : {
+              ...current,
+              base: current.base ?? given.base,
+              hinted: current.hinted !== null && current.hinted >= (given.hinted ?? 0) ? current.hinted : given.hinted,
+              unassisted: current.unassisted && given.unassisted,
+            },
+      ),
   }
 }
 

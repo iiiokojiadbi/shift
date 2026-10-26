@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { countGrowth, FRESH_GAUGE, type GaugeKeeper, gaugeStatus, lastStep, letGoGauge, takeHint } from '../src/hint'
+import { countGrowth, FRESH_GAUGE, type GaugeKeeper, gaugeStatus, lastStep, letGoGauge, offerHint, takeHint } from '../src/hint'
 import type { Gauge, Reading } from '../src/types'
 
 // A keeper over a variable, with a history and a base as a fresh process would find them.
@@ -77,4 +77,18 @@ test('the status names no soft hint the rule would hold back', async () => {
   const { port, kept } = keeper({ tokens: 700_000, window: 1_000_000, threshold: undefined })
   kept.gauge = { ...FRESH_GAUGE, base: 20_000, whole: true }
   expect(await gaugeStatus(port)).toContain('Hints: no soft hint before the final; final at 800K.')
+})
+
+test('a hint offered with a prompt never takes the count back below a hint given since', async () => {
+  const at = (tokens: number) => keeper({ tokens, window: 1_000_000, threshold: undefined })
+  const offered = at(850_000)
+  offered.kept.gauge = { ...FRESH_GAUGE, base: 20_000, hinted: 420_000, whole: true }
+  const hint = await offerHint(offered.port)
+  expect(hint?.text).toContain('850K of 1000K')
+  const later = at(900_000)
+  later.kept.gauge = offered.kept.gauge
+  expect(await takeHint(later.port)).toContain('900K of 1000K')
+  offered.kept.gauge = later.kept.gauge
+  await hint?.take()
+  expect(offered.kept.gauge?.hinted).toBe(900_000)
 })

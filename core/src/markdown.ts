@@ -8,6 +8,14 @@ export type Heading = { level: number; title: string; line: number; note: string
 const HEADING = /^ {0,3}(#{1,6}) +(.+?)\s*$/
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 
+// The text with its fenced lines left out: a check over raw text never reads an example as the record.
+export function unfenced(text: string): string {
+  const lines = text.split('\n')
+  const inside = fenced(lines)
+
+  return lines.filter((_, at) => !inside.has(at)).join('\n')
+}
+
 // The lines inside code fences, the fences included: an opener of three or more backticks or tildes, closed by a line
 // of the same character at least as long with nothing else on it. A backtick opener with a backtick after it is
 // inline code, and an opener never closed is no fence, so a stray one never hides the rest of a record.
@@ -129,7 +137,11 @@ export function missingSections(text: string, required: readonly string[], where
   return null
 }
 
-const DATES = [/\b(19|20)\d{2}-\d{2}-\d{2}\b/, /\b\d{1,2}\.\d{1,2}\.(19|20)\d{2}\b/]
+// A real month and day, never part of a longer number: a version such as 0.32.2026 is no date.
+const DATES = [
+  /(?<![\d.-])(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?![\d.-]?\d)/,
+  /(?<![\d.])(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(19|20)\d{2}(?![\d.]?\d)/,
+]
 
 export function findDate(text: string): string | null {
   for (const line of text.split('\n')) {
@@ -154,7 +166,8 @@ export function itemsOf(text: string): Item[] {
     return [
       {
         status: match?.[1] ?? '',
-        id: id === null ? null : Number(id[1]),
+        // An id past the safe integers cannot be counted on: the item is numbered anew.
+        id: id === null || !Number.isSafeInteger(Number(id[1])) ? null : Number(id[1]),
         name: cut === -1 ? named : named.slice(0, cut),
         note: cut === -1 ? null : named.slice(cut + 3),
         rest,
@@ -176,8 +189,8 @@ export function formatK(n: number): string {
 // `key: value` lines between the leading `---` fences.
 export function frontmatter(text: string): Map<string, string> {
   const found = new Map<string, string>()
-  const match = /^---\n([\s\S]*?)\n---/.exec(text)
-  for (const line of (match?.[1] ?? '').split('\n')) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
+  for (const line of (match?.[1] ?? '').split(/\r?\n/)) {
     const colon = line.indexOf(':')
     if (colon > 0) found.set(line.slice(0, colon).trim(), line.slice(colon + 1).trim())
   }

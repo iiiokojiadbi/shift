@@ -102,13 +102,19 @@ export async function followWrite(project: Project, file: string): Promise<strin
 // has no remark to make, and a toc written mid-run would make the agent read the file again before each next edit.
 // The tocs are written by `write`, once the note went: a note that did not go finds them still to write. None when all
 // is well: a check that speaks on every run is noise.
-export async function settleDocs(project: Project, paths: readonly string[]): Promise<{ lines: string[]; write(): Promise<void> }> {
+export async function settleDocs(project: Project, paths: readonly string[]): Promise<{ lines: string[]; write(): Promise<string[]> }> {
   const { store, root, settings } = project
   const docs = settings.docs
   const tocs = new Map<string, { was: string; next: string }>()
-  // A file changed since it was read keeps its change: its toc waits for the next settling.
+  // A file changed since it was read keeps its change: its toc waits for the next settling. The files skipped come back.
   const write = async () => {
-    for (const [path, { was, next }] of tocs) if ((await store.read(`${root}/${path}`)) === was) await store.write(`${root}/${path}`, next)
+    const skipped: string[] = []
+    for (const [path, { was, next }] of tocs) {
+      if ((await store.read(`${root}/${path}`)) === was) await store.write(`${root}/${path}`, next)
+      else skipped.push(path)
+    }
+
+    return skipped
   }
   if (!settings.enabled || docs.dirs.length === 0) return { lines: [], write }
   const remarked: string[] = []

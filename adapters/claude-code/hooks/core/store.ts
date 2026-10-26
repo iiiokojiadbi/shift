@@ -114,9 +114,19 @@ export async function readSnapshot(store: Store, base: string, index: string): P
   return work === null ? null : { work, index: await store.read(index) }
 }
 
-// Shift folder names, oldest first: they are UTC stamps, so they sort by time.
-export function shiftNames({ store, root }: Project): Promise<string[]> {
-  return store.list(`${root}/${SHIFTS}`, 'dir')
+// Shift folder names, oldest first: UTC stamps sort by time, and a second taken twice by its number, -10 after -9.
+export async function shiftNames({ store, root }: Project): Promise<string[]> {
+  const names = await store.list(`${root}/${SHIFTS}`, 'dir')
+  const order = (name: string) => {
+    const [, stamp = name, n = '1'] = /^(\d{8}-\d{6})(?:-(\d+))?$/.exec(name) ?? []
+    return { stamp, n: Number(n) }
+  }
+
+  return names.toSorted((a, b) => {
+    const x = order(a)
+    const y = order(b)
+    return x.stamp === y.stamp ? x.n - y.n : x.stamp < y.stamp ? -1 : 1
+  })
 }
 
 // The newest earlier shift folder, whose snapshots the new state is checked against.

@@ -190,3 +190,14 @@ test('a prompt that did not go keeps its notes — the records, the docs, the hi
   expect(kept.looks.written).toEqual([])
   expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
 })
+
+test('a doc changed between the prompt and its delivery keeps the change and is settled again', async () => {
+  const { courier, project, kept } = await setUp()
+  await afterWrite(courier, `${ROOT}/docs/a.md`)
+  const told = await atPrompt(courier, { runStarts: true, owner: true })
+  expect(told.notes).toHaveLength(1)
+  await project.store.write(`${ROOT}/docs/a.md`, '---\ndescription: what A holds\n---\n\n# A\n\n## One\n\n## Two\n')
+  await told.delivered()
+  expect(project.files.get(`${ROOT}/docs/a.md`)).not.toContain('<!-- toc -->')
+  expect(kept.looks.written).toEqual(['docs/a.md'])
+})

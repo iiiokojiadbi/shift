@@ -23,7 +23,7 @@ import {
   TASK_SECTIONS,
   TASKS,
 } from './layout'
-import { blocks, dated, frontmatter, itemsOf, missingSections, overLimit, quote, sections, title } from './markdown'
+import { blocks, dated, frontmatter, itemsOf, missingSections, overLimit, quote, sections, title, unfenced } from './markdown'
 import type { Project } from './project'
 import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
 import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
@@ -169,7 +169,7 @@ export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): stri
   if (missing !== null) return missing
   const date = dated(where, task, 'Tasks have no dates.') ?? dated(where, track, 'Tasks have no dates.')
   if (date !== null) return date
-  if (/^continues:/m.test(task))
+  if (/^continues:/m.test(unfenced(task)))
     return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
   const rejected = badRejected(task, `${where}task.md`)
   if (rejected !== null) return rejected
@@ -217,7 +217,9 @@ function checkNotes(where: string, task: string, track: string, notes: TaskFiles
     }
   }
   const names = new Set(notes.map(note => note.name))
-  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)#\\s]+)\\)`, 'g'))].map(found => found[1] ?? '')
+  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)#\\s]+)(?:#[^)\\s]*)?\\)`, 'g'))].map(
+    found => found[1] ?? '',
+  )
   const missing = linked.filter(name => !names.has(name))
 
   return missing.length === 0
@@ -228,7 +230,7 @@ function checkNotes(where: string, task: string, track: string, notes: TaskFiles
 export const isKind = (kind: string): kind is Kind => Object.hasOwn(KINDS, kind)
 
 // An entry's command: a fenced block or an indented one.
-const hasCommand = (body: string) => /^```/m.test(body) || /^ {4}\S/m.test(body)
+const hasCommand = (body: string) => /^ {0,3}(```|~~~)/m.test(body) || /^ {4}\S/m.test(body)
 
 export function checkKnowledge({ name, text }: KnowledgeFile): string | null {
   const where = `${KNOWLEDGE}/${name}`
