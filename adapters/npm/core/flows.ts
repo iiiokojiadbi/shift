@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { OUTCOME, renderAbout, shiftFill } from './about'
+import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
 import { docsReport, refreshDocs } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
@@ -150,7 +150,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   await numberTracks(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
-  const previousDir = await previousShift(project)
+  const previousDir = await lastMadeShift(project)
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/${NAMES.index}`)
   const workProblem = checkWork(work, previous?.work ?? null, project)
   if (workProblem !== null) return { deny: workProblem }
@@ -158,7 +158,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if ('deny' in kept) return kept
 
   const index = await store.read(`${root}/${INDEX}`)
-  const dir = shiftDir(root, call.at)
+  const dir = await freeShiftDir(project, shiftDir(root, call.at))
   const shift: PendingShift = {
     after: input.after,
     letter,
@@ -181,6 +181,29 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const accepted = ACCEPTED(dir, learned, input.after)
 
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
+}
+
+// The newest shift that let the history go, or may have: one not shifted left the records as they were, so an unchanged
+// retry is no empty shift.
+async function lastMadeShift(project: Project): Promise<string | null> {
+  const names = await shiftNames(project)
+  for (const name of names.toReversed()) {
+    const dir = `${project.root}/${SHIFTS}/${name}`
+    const about = await project.store.read(`${dir}/${NAMES.about}`)
+    if (!(readAbout(about ?? '').result ?? '').startsWith(OUTCOME.notShifted(''))) return dir
+  }
+
+  return null
+}
+
+// Another session may shift in the same second: its folder is never shared, the next free name is taken.
+async function freeShiftDir(project: Project, dir: string): Promise<string> {
+  const taken = new Set(await shiftNames(project))
+  const name = basename(dir)
+  let free = name
+  for (let n = 2; taken.has(free); n++) free = `${name}-${n}`
+
+  return `${dirname(dir)}/${free}`
 }
 
 // The tasks in progress, each with the names of its items in progress.
@@ -367,18 +390,16 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
   const back = await handBack(project, shift.dir)
   const name = basename(shift.dir)
 
+  const files = deliveredFiles(back.work)
   if (shift.after === 'continue') {
     await outcome(OUTCOME.continuing(shrank))
+    const prompt = continuePrompt(shift.letter, back)
 
-    return {
-      after: 'continue',
-      prompt: continuePrompt(shift.letter, back),
-      row: CONTINUING(name, shrank, shift.dir),
-    }
+    return { after: 'continue', prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) }
   }
 
   await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
-  const note = { context: waitContext(shift.letter, back), dir: shift.dir, files: deliveredFiles(back.work) }
+  const note = { context: waitContext(shift.letter, back), dir: shift.dir, files }
 
   return { after: 'wait', note, row: WAITING(name, shrank) }
 }

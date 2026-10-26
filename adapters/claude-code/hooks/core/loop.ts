@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
-import { type GaugeKeeper, offerHint } from './hint'
+import { type GaugeKeeper, offerHint, takeHint } from './hint'
 import { basename } from './paths'
 import type { Project } from './project'
 import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, UNSETTLED_NOTE } from './texts/prompts'
@@ -48,8 +48,15 @@ export async function holdShift(loop: Loop, shift: PendingShift): Promise<void> 
   await loop.update(state => ({ ...state, pending: shift }))
 }
 
-// A hint for the agent if the fill calls for one, given once taken; none while a shift is pending.
-export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
+// A hint for the agent if the fill calls for one, given at once; none while a shift is pending.
+export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<string | null> {
+  if ((await loop.read()).pending !== null) return null
+
+  return takeHint(gauge)
+}
+
+// The same, offered with the next prompt and given once `take` says it went.
+export async function loopOffer(loop: Loop, gauge: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
   if ((await loop.read()).pending !== null) return null
 
   return offerHint(gauge)
@@ -58,10 +65,15 @@ export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<{ text: 
 // Once the turn has ended: a pending shift lets the history go, unless the turn was aborted. Every outcome is written
 // to the shift's about.md and told to the owner; nothing is lost silently.
 export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarness, aborted: boolean): Promise<void> {
-  const shift = (await loop.read()).pending
-  if (shift === null) return
-  await loop.update(current => ({ ...current, pending: null }))
-  const before = await harness.fill()
+  // Claimed in the change that clears it: two ends of a turn never let go twice.
+  const claim: { shift?: PendingShift | null } = {}
+  await loop.update(current => {
+    claim.shift = current.pending
+    return current.pending === null ? current : { ...current, pending: null }
+  })
+  const { shift } = claim
+  if (shift === undefined || shift === null) return
+  const before = await harness.fill().catch(() => undefined)
   const name = basename(shift.dir)
   if (aborted) {
     const why = 'the turn was aborted'
@@ -98,8 +110,12 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
     return
   }
   loop.tell(settled.row, 'info')
-  // The shift is settled and written; a turn that does not start is told, not recorded against it.
-  await harness.continueWith(settled.prompt).catch((error: unknown) => loop.tell(NOT_CONTINUED(String(error)), 'error'))
+  // The shift is settled and written; a turn that does not start is told, not recorded against it, and its letter
+  // waits for the owner's next message as after a wait.
+  await harness.continueWith(settled.prompt).catch(async (error: unknown) => {
+    await loop.update(current => ({ ...current, note: settled.note }))
+    loop.tell(NOT_CONTINUED(String(error)), 'error')
+  })
 }
 
 // A failed shift is told to the agent, who was told it was accepted: at once when it was to continue and may go on,

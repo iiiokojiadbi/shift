@@ -14,9 +14,11 @@ const at = (store: Store) => loadProject(store, ROOT)
 // A written file followed, then settled as the next prompt settles it: the remarks as one text, null when there are none.
 const afterWrite = async (project: Project, file: string) => {
   const path = await followWrite(project, file)
-  const lines = path === null ? [] : await settleDocs(project, [path])
+  if (path === null) return null
+  const settled = await settleDocs(project, [path])
+  await settled.write()
 
-  return lines.length === 0 ? null : lines.join('\n')
+  return settled.lines.length === 0 ? null : settled.lines.join('\n')
 }
 const SETTINGS = `${R}/settings.toml`
 const DOC = '---\ndescription: what A holds\n---\n\n# A\n\n## One\n> the first\n\n```\n## not a heading\n```\n\n### Deep\n\n## Two\n'
@@ -92,11 +94,13 @@ test('mid-run a write moves only the map; the documents of a run are settled tog
   expect(await followWrite(project, `${ROOT}/docs/two.md`)).toBe('docs/two.md')
   expect(await followWrite(project, `${R}/board.md`)).toBeNull()
 
-  expect(await settleDocs(project, ['docs/one.md', 'docs/two.md'])).toEqual([
-    'The mod wrote the tocs of `docs/one.md`, `docs/two.md`: read each before editing it again.',
-  ])
+  const settled = await settleDocs(project, ['docs/one.md', 'docs/two.md'])
+  expect(settled.lines).toEqual(['The mod wrote the tocs of `docs/one.md`, `docs/two.md`: read each before editing it again.'])
+  // Written only once the note went.
+  expect(store.files.get(`${ROOT}/docs/one.md`)).not.toContain('<!-- toc -->')
+  await settled.write()
   expect(store.files.get(`${ROOT}/docs/one.md`)).toContain('<!-- toc -->\n- Part\n<!-- /toc -->')
-  expect(await settleDocs(project, ['docs/one.md', 'docs/two.md'])).toEqual([])
+  expect((await settleDocs(project, ['docs/one.md', 'docs/two.md'])).lines).toEqual([])
 })
 
 test('the report at a shift, the outline and mentions tools, and [files] always', async () => {

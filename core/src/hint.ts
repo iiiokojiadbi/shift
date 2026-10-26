@@ -178,16 +178,24 @@ export function letGoGauge(unassisted: boolean): Gauge {
   return { ...FRESH_GAUGE, unassisted, whole: true }
 }
 
-// A hint for the agent if the fill since the last shift calls for one, taken at once.
+// A hint for the agent if the fill since the last shift calls for one, given in the same change that finds it: tools
+// ending together never both carry it.
 export async function takeHint(keeper: GaugeKeeper): Promise<string | null> {
-  const hint = await offerHint(keeper)
-  await hint?.take()
+  await restore(keeper)
+  const reading = await keeper.reading()
+  let text: string | null = null
+  await keeper.update(current => {
+    const hint = shiftHint(complete(current), reading)
+    text = hint.text
 
-  return hint?.text ?? null
+    return hint.gauge
+  })
+
+  return text
 }
 
-// A hint offered with a slot that may not go out: the gauge keeps everything else at once and marks the hint given only
-// at `take`, so a hint whose slot failed comes again at the next look.
+// A hint offered with the next prompt, which may not go: the gauge keeps everything else at once and marks the hint
+// given only at `take`, so a hint whose prompt failed comes again with the next one. One prompt at a time asks.
 export async function offerHint(keeper: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
   await restore(keeper)
   const reading = await keeper.reading()

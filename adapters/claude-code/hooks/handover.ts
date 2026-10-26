@@ -20,11 +20,16 @@ export function loopOf($: EngineInterface): Loop {
 
   return {
     read: current,
+    // The pending shift changes in one update of its atom, so a change that claims it is atomic.
     update: async change => {
-      const before = await current()
-      const after = change(before)
-      if (after.pending !== before.pending) await update($, pending, () => after.pending)
-      if (after.note !== before.note) await update($, waitNote, () => after.note)
+      const note: WaitNote | null = await read($, waitNote)
+      const next: { note?: WaitNote | null } = {}
+      await update($, pending, (shift: PendingShift | null) => {
+        const after = change({ pending: shift, note })
+        next.note = after.note
+        return after.pending
+      })
+      if (next.note !== undefined && next.note !== note) await update($, waitNote, () => next.note ?? null)
     },
     tell: row => $.ui.log(row),
   }
@@ -42,10 +47,17 @@ export async function handOver($: EngineInterface, aborted: boolean): Promise<vo
         const done = await $.session.compact({ instructions })
         if (done.messages === undefined) return { skip: done.skip ?? 'the harness did not let the history go' }
 
-        return { messages: done.messages, before: done.tokensBefore, after: (await $.session.usage()).context.tokens ?? done.tokensAfter }
+        // Let go already: a reading that fails after it must not make the shift look not made.
+        const after = await $.session.usage().then(
+          usage => usage.context.tokens,
+          () => undefined,
+        )
+
+        return { messages: done.messages, before: done.tokensBefore, after: after ?? done.tokensAfter }
       },
       continueWith: async prompt => {
-        await $.prompt.submit({ text: prompt })
+        const submitted = await $.prompt.submit({ text: prompt })
+        if ('drop' in submitted) throw new Error(`the message was dropped: ${submitted.drop}`)
       },
       afterLetGo: async () => {
         const loaded = renderSessionFiles(await sessionFiles(project))

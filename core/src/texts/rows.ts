@@ -19,7 +19,8 @@ export const UNSETTLED = (name: string, why: string) =>
 
 export const DELIVERED = (files: readonly string[], dir: string) => `went with your message: ${files.join(', ')} — ${dir}/${NAMES.letter}`
 
-export const NOT_CONTINUED = (why: string) => `the next turn did not start after the shift — ${why}; send any message to go on`
+export const NOT_CONTINUED = (why: string) =>
+  `the next turn did not start after the shift — ${why}; send any message to go on, the letter goes with it`
 
 // What /shift-tasks shows the owner: every open task, and under one in progress its items not closed yet. The harness
 // puts the plugin's name before the first line only, so a heading takes it and every task starts at the same column.

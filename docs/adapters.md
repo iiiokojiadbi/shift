@@ -46,7 +46,7 @@ The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/
 - A headless session (`claude -p`, the SDK) has no `$.session.compact`: it throws "not available in a headless session", so a shift there is told to the owner as not made and nothing is let go. Measure or try the shift in an interactive session.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Rows go to the transcript by `$.ui.log`, which has no levels; the status line under the input is not used — it was noise.
-- The owner is `prompt.submit` with `origin.kind` `composer`, `bridge` or `sdk`. A hook beneath may answer `{ drop }`: the notes are marked told only when the message entered.
+- The owner is `prompt.submit` with `origin.kind` `composer`, `bridge` or `sdk`. A hook beneath may answer `{ drop }`: the notes are marked told only when the message entered, and a continue after a shift that is dropped counts as not started — its letter waits for the owner's next message.
 
 ## pi
 

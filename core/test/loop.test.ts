@@ -132,7 +132,7 @@ test('no hint while a shift is pending', async () => {
   }
   expect(await loopHint(loop, keeper)).toBeNull()
   await loop.update(state => ({ ...state, pending: null }))
-  expect((await loopHint(loop, keeper))?.text).toContain('let the history go by itself')
+  expect(await loopHint(loop, keeper)).toContain('let the history go by itself')
 })
 
 test('a turn that does not start after the shift is told, not recorded against the shift', async () => {
@@ -145,4 +145,22 @@ test('a turn that does not start after the shift is told, not recorded against t
   await afterTurn(project, loop, harness, false)
   expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
   expect(rows.at(-1)).toEqual(['error', expect.stringContaining('the next turn did not start after the shift — Error: busy')])
+  // The letter waits for the owner's next message instead.
+  const note = await waitingNote(loop)
+  expect(note?.context).toContain('fixing tests')
+})
+
+test('two ends of one turn let go once; a fill that cannot be read does not stop the shift', async () => {
+  const { project, loop, dir } = await setUp()
+  let letGoes = 0
+  const counting: LetGoHarness = {
+    ...harness(async () => {
+      letGoes++
+      return { messages: [], after: 20_000 }
+    }),
+    fill: async () => Promise.reject(new Error('no reading')),
+  }
+  await Promise.all([afterTurn(project, loop, counting, false), afterTurn(project, loop, counting, false)])
+  expect(letGoes).toBe(1)
+  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toStartWith('shifted (')
 })

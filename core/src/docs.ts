@@ -97,15 +97,20 @@ export async function followWrite(project: Project, file: string): Promise<strin
   return path
 }
 
-// The files written in a run, once it is over: each document gets its toc written, and the remarks — a document's own,
-// any file's links still not there — come back as lines of one note. Not after each write: a document written before
-// the one it links to has no remark to make, and a toc written mid-run would make the agent read the file again before
-// each next edit. None when all is well: a check that speaks on every run is noise.
-export async function settleDocs(project: Project, paths: readonly string[]): Promise<string[]> {
+// The files written in a run, once it is over: each document's toc, and the remarks — a document's own, any file's
+// links still not there — as lines of one note. Not after each write: a document written before the one it links to
+// has no remark to make, and a toc written mid-run would make the agent read the file again before each next edit.
+// The tocs are written by `write`, once the note went: a note that did not go finds them still to write. None when all
+// is well: a check that speaks on every run is noise.
+export async function settleDocs(project: Project, paths: readonly string[]): Promise<{ lines: string[]; write(): Promise<void> }> {
   const { store, root, settings } = project
   const docs = settings.docs
-  if (!settings.enabled || docs.dirs.length === 0) return []
-  const rewritten: string[] = []
+  const tocs = new Map<string, { was: string; next: string }>()
+  // A file changed since it was read keeps its change: its toc waits for the next settling.
+  const write = async () => {
+    for (const [path, { was, next }] of tocs) if ((await store.read(`${root}/${path}`)) === was) await store.write(`${root}/${path}`, next)
+  }
+  if (!settings.enabled || docs.dirs.length === 0) return { lines: [], write }
   const remarked: string[] = []
   let pins = false
   for (const path of paths) {
@@ -115,9 +120,8 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
     if (doc && docs.toc) {
       const next = withToc(text)
       if (next !== null && next !== text) {
-        await store.write(`${root}/${path}`, next)
+        tocs.set(path, { was: text, next })
         text = next
-        rewritten.push(path)
       }
     }
     if (doc && pinned(text).length > 0) pins = true
@@ -127,11 +131,11 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
     ]
     if (remarks.length > 0) remarked.push(`\`${path}\`: ${remarks.join('; ')}.`)
   }
+  const rewritten = [...tocs.keys()]
   const named = rewritten.map(path => `\`${path}\``).join(', ')
   // Pinned blocks past the limit are told when a document written has some: the write may be what passed it.
   const over = pins ? pinnedOver(await refreshDocs(project, { tocs: false }), docs) : null
-
-  return [
+  const lines = [
     ...(rewritten.length === 0
       ? []
       : [
@@ -142,6 +146,8 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
     ...(over === null ? [] : [over]),
     ...remarked,
   ]
+
+  return { lines, write }
 }
 
 // The documents with remarks and the root's Markdown files with a broken link, short enough to read after a shift:

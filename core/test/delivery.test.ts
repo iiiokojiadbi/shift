@@ -119,9 +119,10 @@ test('a written file is settled with the next prompt, by the main agent or a sub
   expect(told.notes).toEqual([
     expect.stringMatching(/^<shift note="the mod's check of the files written in the last run">\nThe mod wrote the toc of `docs\/a.md`/),
   ])
-  expect(project.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->')
+  expect(project.files.get(`${ROOT}/docs/a.md`)).not.toContain('<!-- toc -->')
   expect(kept.looks.written).toEqual(['docs/a.md'])
   await told.delivered()
+  expect(project.files.get(`${ROOT}/docs/a.md`)).toContain('<!-- toc -->')
   expect(kept.looks.written).toEqual([])
   expect(rows.at(-1)).toStartWith('to the agent — The mod wrote the toc')
   expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
@@ -161,24 +162,20 @@ test("with the prompt: someone else's change and a hint, the waiting letter last
   expect(kept.loop.note).toBeNull()
 })
 
-test('tools started together tell an outside change once; a tool that threw leaves it for the next look', async () => {
+test('tools started together tell an outside change once', async () => {
   const { courier, put } = await setUp()
   await beforeTool(courier)
   await afterTool(courier, [], TOOL)
   await put('OWNER.md', `${OWNER}\n- «a new rule»`)
   const [first, second] = await Promise.all([beforeTool(courier), beforeTool(courier)])
   expect([...(first ?? []), ...(second ?? [])].map(note => note.kind)).toEqual(['records'])
-  await afterTool(courier, [], null)
-  await afterTool(courier, [...(first ?? []), ...(second ?? [])], null)
-
-  const again = await beforeTool(courier)
-  expect(again.map(note => note.kind)).toEqual(['records'])
-  expect(await afterTool(courier, again, TOOL)).toHaveLength(1)
+  await afterTool(courier, [], TOOL)
+  expect(await afterTool(courier, [...(first ?? []), ...(second ?? [])], TOOL)).toHaveLength(1)
   await beforeTool(courier)
   expect(await afterTool(courier, [], TOOL)).toEqual([])
 })
 
-test('a prompt that did not go keeps its notes — the records, the hint, the remarks — for the next one', async () => {
+test('a prompt that did not go keeps its notes — the records, the docs, the hint — for the next one', async () => {
   const { courier, kept, put } = await setUp()
   await atPrompt(courier, { runStarts: true, owner: true })
   await put('OWNER.md', `${OWNER}\n- «a new rule»`)
@@ -187,10 +184,8 @@ test('a prompt that did not go keeps its notes — the records, the hint, the re
 
   const dropped = await atPrompt(courier, { runStarts: true, owner: true })
   expect(dropped.notes).toHaveLength(3)
-  // The toc is written once, by the first settling; only the remarks, here none, would come again.
   const told = await atPrompt(courier, { runStarts: true, owner: true })
-  const kind = (note: string) => note.match(/note="([^"]*)"/)?.[1] ?? ''
-  expect(told.notes.map(kind)).toEqual([0, 2].map(at => kind(dropped.notes[at] ?? '')))
+  expect(told.notes).toEqual(dropped.notes)
   await told.delivered()
   expect(kept.looks.written).toEqual([])
   expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])

@@ -191,8 +191,12 @@ test('a let-go that failed is written down; the base comes back only from this s
   expect(await shiftNotMade(store, shift, 'busy', 100_000)).toBe('shift 20260102-030405 not made — busy')
   expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
   expect(await shiftBase(store, 's1')).toBeNull()
+  // Not shifted, so the same records may shift again, the same second, in a folder of their own.
+  const retry = await accepted(store)
+  expect(retry.dir).toBe(`${DIR}-2`)
+  expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
 
-  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
+  await settleShift(store, { shift: retry, messages: [], before: 300_000, after: 20_000 })
   expect(await shiftBase(store, 's1')).toBe(20_000)
   expect(await shiftBase(store, 's2')).toBeNull()
 })

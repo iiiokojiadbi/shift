@@ -126,4 +126,5 @@ export type PendingShift = {
 export type WaitNote = { context: string; dir: string; files: string[] }
 
 // What follows a let-go: the agent goes on from the prompt, or the note waits for the owner; the row tells the owner.
-export type Settled = { after: 'continue'; prompt: string; row: string } | { after: 'wait'; note: WaitNote; row: string }
+// `note`, for a continue: the same letter as a wait note, kept for the owner's next message when the turn does not start.
+export type Settled = { after: 'continue'; prompt: string; note: WaitNote; row: string } | { after: 'wait'; note: WaitNote; row: string }
