@@ -293,3 +293,18 @@ test('a stretch that wrote no knowledge is asked once, at the accepted shift, wh
   p.files.set(`${R}/knowledge/traps.md`, `${TRAPS}\n\n### Another\n\n**Cause.** c.\n\n**Do.** d.`)
   expect(await result(AT + 2000)).toContain('Shift accepted, the letter and the snapshots: /p/.shift/shifts/20260102-030407/. End the turn')
 })
+
+test('the base passes over a shift not made after one that let go; resume passes over a folder with no letter', async () => {
+  const store = await project()
+  const shift = await accepted(store)
+  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
+  store.files.set(`${R}/tasks/tests/track.md`, '- [done] #1 fix the parser\n- [done] #2 cover the archive')
+  const retry = await accepted(store)
+  await shiftNotMade(store, retry, 'busy', 100_000)
+  expect(await shiftBase(store, 's1')).toBe(20_000)
+
+  store.files.set(`${R}/shifts/20260102-030406/about.md`, 'x')
+  const resumed = await resumeShift(store)
+  expect(resumed.text).toBe('Picking up shift 20260102-030405-2 (not shifted: busy).')
+  expect(resumed.prompt).toContain('That shift did not finish — "not shifted: busy"')
+})

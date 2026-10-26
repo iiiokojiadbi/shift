@@ -3,7 +3,7 @@ import { readAbout } from './about'
 import { CLOSED, SHIFTS } from './layout'
 import { itemsOf } from './markdown'
 import { listedTasks } from './records'
-import type { HistoryEntry, Segment, Snapshot } from './types'
+import type { HistoryEntry, Item, Segment, Snapshot } from './types'
 
 export function stamp(ms: number): string {
   const d = new Date(ms)
@@ -16,6 +16,9 @@ export function shiftDir(root: string, ms: number): string {
   return `${root}/${SHIFTS}/${stamp(ms)}`
 }
 
+// What the stretch closed and archived, against the previous shift's snapshot. An item is the same item by its id, a
+// line of the index the same task by its folder: a closed item renamed, or an archived task's line reworded, is no
+// new work.
 export function segment(now: Snapshot, previous: Snapshot | null): Segment {
   const closedBefore = new Map<string, Set<string>>()
   for (const task of previous?.work.tasks ?? []) {
@@ -24,25 +27,35 @@ export function segment(now: Snapshot, previous: Snapshot | null): Segment {
       new Set(
         itemsOf(task.track ?? '')
           .filter(i => CLOSED.has(i.status))
-          .map(i => i.name),
+          .flatMap(itemKeys),
       ),
     )
   }
   const fresh = now.work.tasks.flatMap(task =>
     itemsOf(task.track ?? '')
-      .filter(item => CLOSED.has(item.status) && !(closedBefore.get(task.name)?.has(item.name) ?? false))
+      .filter(item => CLOSED.has(item.status) && !itemKeys(item).some(key => closedBefore.get(task.name)?.has(key) ?? false))
       .map(item => ({ status: item.status, text: `${task.name}: ${item.rest}` })),
   )
-  const indexed = new Set(itemsOf(previous?.index ?? '').map(i => i.line))
+  const indexed = new Set(itemsOf(previous?.index ?? '').map(archivedKey))
 
   return {
     done: fresh.filter(f => f.status === 'done').map(f => f.text),
     dropped: fresh.filter(f => f.status === 'dropped').map(f => f.text),
     archived: itemsOf(now.index ?? '')
-      .filter(i => !indexed.has(i.line))
+      .filter(i => !indexed.has(archivedKey(i)))
       .map(i => i.line.slice(2)),
     open: listedTasks(now.work).map(t => t.line.slice(2)),
   }
+}
+
+// An item is known by its id, and by its name for a track numbered only since.
+function itemKeys(item: Item): string[] {
+  return item.id === null ? [`name ${item.name}`] : [`#${item.id}`, `name ${item.name}`]
+}
+
+// An index line by its task's folder, `[title](name/)`; the whole line when it links none.
+function archivedKey(item: Item): string {
+  return /\]\(([^)]+?)\/?\)/.exec(item.line)?.[1] ?? item.line
 }
 
 export function renderSummary(messages: readonly { role: string; text: string }[]): string {

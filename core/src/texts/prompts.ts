@@ -211,9 +211,13 @@ export function waitContext(letter: string, back: HandedBack): string {
   return shiftMessage("You shifted and waited for the owner; the owner's message comes with this one.", letter, back, [GUIDE_KNOWN])
 }
 
-export function resumePrompt(letter: string, back: HandedBack): string {
+export function resumePrompt(letter: string, back: HandedBack, outcome: string | null = null): string {
   return shiftMessage(
-    'You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.',
+    `You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${
+      outcome === null
+        ? ''
+        : ` That shift did not finish — "${outcome}": the letter and the records are as they were when it was accepted, the work after it, if any, only on disk.`
+    }`,
     letter,
     back,
     [

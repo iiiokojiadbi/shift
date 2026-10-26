@@ -1,11 +1,13 @@
 import { expect, test } from 'bun:test'
+import { readAbout, renderAbout } from '../src/about'
 import { checkGlossary } from '../src/glossary'
+import { segment } from '../src/history'
 import { findDate, frontmatter, itemsOf } from '../src/markdown'
 import { checkKnowledge, checkTask } from '../src/records'
 import { shiftNames } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { numberItems } from '../src/track'
-import { R, ROOT, taskMd } from './fixtures'
+import { R, ROOT, taskMd, WORK } from './fixtures'
 import { memoryProject } from './memory'
 
 // Cases the review of the records' checks found: each was a false refusal or a check that let a broken record pass.
@@ -80,4 +82,30 @@ test('shift folders sort by time, a second taken twice by its number', async () 
     ROOT,
   )
   expect(await shiftNames(project)).toEqual(['20260102-030405', '20260102-030405-9', '20260102-030405-10', '20260102-030406'])
+})
+
+test('about.md keeps a known fill without the one before, and a reason over lines', () => {
+  const seg = { done: [], dropped: [], archived: [], open: [] }
+  const about = renderAbout({
+    about: 'x',
+    sessionId: 's',
+    at: 0,
+    after: 'wait',
+    segment: seg,
+    result: 'not shifted: failed\n  denied',
+    tokensAfter: 20_000,
+  })
+  expect(readAbout(about)).toMatchObject({ tokensAfter: 20_000, result: 'not shifted: failed denied' })
+})
+
+test('the history knows an item by its id and an archived task by its folder', () => {
+  const work = (track: string) => ({ ...WORK, tasks: [{ name: 't', task: taskMd('T'), track, notes: [] }] })
+  const before = { work: work('- [done] #1 first name'), index: '# Archive\n\n- [done] [Old](old/) — said badly\n' }
+  const now = { work: work('- [done] #1 better name'), index: '# Archive\n\n- [done] [Old](old/) — said well\n' }
+  expect(segment(now, before)).toMatchObject({ done: [], archived: [] })
+})
+
+test("a continues: in a task's frontmatter is still to move", () => {
+  const task = `---\ncontinues: old\n---\n${taskMd('T')}`
+  expect(checkTask({ name: 't', task, track: '- [open] #1 x', notes: [] })).toContain('continues:')
 })

@@ -29,7 +29,7 @@ import { formatItem, formatK, itemsOf, sections } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
-import { lastShifts, previousShift, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
+import { lastShifts, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
 import { archiveInList, checkTaskList, formatTaskLine, parseTaskList, withTask } from './tasks'
 import {
   ACCEPTED,
@@ -291,13 +291,26 @@ export async function shiftHistory(project: Project, count: number): Promise<str
 }
 
 // The last shift picked up in a session that has not seen it: the text for the owner, and the prompt when there is one.
+// The newest shift with a letter, whatever became of it: its letter is the freshest state. A folder whose letter was
+// never written — a session that died while accepting — is passed over. Its outcome goes with it unless it shifted.
 export async function resumeShift(project: Project): Promise<{ text: string; prompt?: string }> {
-  const dir = await previousShift(project)
-  if (dir === null) return { text: `No shifts in this project: ${SHIFTS}/ is empty.` }
-  const letter = await project.store.read(`${dir}/${NAMES.letter}`)
-  if (letter === null) return { text: `No letter.md in ${dir}/ — nothing to pick up.` }
+  const { store, root } = project
+  const names = await shiftNames(project)
+  if (names.length === 0) return { text: `No shifts in this project: ${SHIFTS}/ is empty.` }
+  for (const name of names.toReversed()) {
+    const dir = `${root}/${SHIFTS}/${name}`
+    const letter = await store.read(`${dir}/${NAMES.letter}`)
+    if (letter === null) continue
+    const about = readAbout((await store.read(`${dir}/${NAMES.about}`)) ?? '')
+    const outcome = about.shifted || about.result === null ? null : about.result
 
-  return { text: `Picking up shift ${basename(dir)}.`, prompt: resumePrompt(letter, await handBack(project, dir)) }
+    return {
+      text: `Picking up shift ${name}${outcome === null ? '' : ` (${outcome})`}.`,
+      prompt: resumePrompt(letter, await handBack(project, dir), outcome),
+    }
+  }
+
+  return { text: `No letter.md in any folder of ${SHIFTS}/ — nothing to pick up.` }
 }
 
 // The records, the last shifts and the documents' remarks as they are now, for the message after a shift.
@@ -406,12 +419,19 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
   return { after: 'wait', note, row: WAITING(name, shrank) }
 }
 
-// The fill the stretch started from, if the last shift was this session's: a fresh process counts from there.
+// The fill the stretch started from, if the last shift that let the history go was this session's: a fresh process
+// counts from there. A shift not made, or still pending, left the history as it was and is passed over.
 export async function shiftBase(project: Project, sessionId: string): Promise<number | null> {
-  const dir = await previousShift(project)
-  const about = dir === null ? null : await project.store.read(`${dir}/${NAMES.about}`)
+  for (const name of (await shiftNames(project)).toReversed()) {
+    const about = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.about}`)
+    if (about === null) continue
+    const { result } = readAbout(about)
+    if (result === OUTCOME.pending || (result ?? '').startsWith(OUTCOME.notShifted(''))) continue
 
-  return about === null ? null : shiftFill(about, sessionId)
+    return shiftFill(about, sessionId)
+  }
+
+  return null
 }
 
 // Unless the owner lets the project commit them, the records stay out of its git: when they are not ignored, the mod

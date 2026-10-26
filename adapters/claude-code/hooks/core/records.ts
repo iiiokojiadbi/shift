@@ -170,7 +170,7 @@ export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): stri
   if (missing !== null) return missing
   const date = dated(where, task, 'Tasks have no dates.') ?? dated(where, track, 'Tasks have no dates.')
   if (date !== null) return date
-  if (/^continues:/m.test(unfenced(task)))
+  if (/^continues:/m.test(unfenced(task)) || frontmatter(task).has('continues'))
     return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
   const rejected = badRejected(task, `${where}task.md`)
   if (rejected !== null) return rejected

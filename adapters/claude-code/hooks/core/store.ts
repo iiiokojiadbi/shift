@@ -129,14 +129,6 @@ export async function shiftNames({ store, root }: Project): Promise<string[]> {
   })
 }
 
-// The newest earlier shift folder, whose snapshots the new state is checked against.
-export async function previousShift(project: Project): Promise<string | null> {
-  const { root } = project
-  const last = (await shiftNames(project)).at(-1)
-
-  return last === undefined ? null : `${root}/${SHIFTS}/${last}`
-}
-
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
 export async function lastShifts(project: Project, count: number): Promise<Recent> {
   const { store, root } = project

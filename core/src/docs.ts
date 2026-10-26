@@ -36,10 +36,11 @@ export function withToc(text: string): string | null {
   return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join('\n')
 }
 
-// A link's path as the file is named: `my%20guide.md` is `my guide.md`; null when it does not decode.
+// A link's path as the file is named: `my%20guide.md` is `my guide.md`, `a%23b.md` is `a#b.md`; null when it does
+// not decode.
 function decoded(link: string): string | null {
   try {
-    return decodeURI(link)
+    return decodeURIComponent(link)
   } catch {
     return null
   }
@@ -81,7 +82,11 @@ export async function brokenLinks(store: Store, root: string, path: string, text
   let bare = text
   if (path.endsWith('.md')) {
     bare = unfenced(text)
-    const links = [...bare.matchAll(/\]\(<?([^)\s<>]+)>?(?:\s[^)]*)?\)/g), ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<?([^\s<>]+)>?/gm)]
+    const links = [
+      ...bare.matchAll(/\]\(<([^<>\n]+)>(?:\s[^)]*)?\)/g),
+      ...bare.matchAll(/\]\(([^)\s<>]+)(?:\s[^)]*)?\)/g),
+      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<?([^\s<>]+)>?/gm),
+    ]
     for (const found of links) {
       const link = (found[1] ?? '').replace(/[?#].*$/, '')
       if (!link.endsWith('.md') || /^[a-z][\w+.-]*:|^\/\//i.test(link) || link.includes('*')) continue
@@ -388,8 +393,9 @@ export function withMap(shift: string | null, map: string): string {
   }
   // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
   const lines = shift.split('\n')
-  const opener = MAP_START.slice(0, MAP_START.indexOf(' — '))
-  const start = lineOutside(lines, line => line.trimStart().startsWith(opener))
+  // The opener as any version of the mod wrote it: the same start and a comment closed on its line.
+  const opener = `${MAP_START.slice(0, MAP_START.indexOf(' — '))} — `
+  const start = lineOutside(lines, line => line.trim().startsWith(opener) && line.trim().endsWith('-->'))
   const end = start === -1 ? -1 : lineOutside(lines, line => line.trim() === MAP_END, start + 1)
   if (end === -1) return `${shift.trimEnd()}\n\n${map}\n`
 

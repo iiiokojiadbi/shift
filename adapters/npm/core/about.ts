@@ -33,17 +33,17 @@ export type About = {
 
 export function renderAbout(meta: AboutMeta): string {
   const list = (items: string[]) => (items.length === 0 ? ['none'] : items.map(item => `- ${item}`))
+  const fill = (tokens: number | undefined) => (tokens === undefined ? '?' : formatK(tokens))
   const tokens =
-    meta.tokensBefore === undefined
-      ? 'unknown'
-      : `${formatK(meta.tokensBefore)} → ${meta.tokensAfter === undefined ? '?' : formatK(meta.tokensAfter)}`
+    meta.tokensBefore === undefined && meta.tokensAfter === undefined ? 'unknown' : `${fill(meta.tokensBefore)} → ${fill(meta.tokensAfter)}`
 
   return [
     '---',
     `description: ${meta.about}`,
     `at: ${new Date(meta.at).toISOString()}`,
     `after: ${meta.after}`,
-    `result: ${meta.result}`,
+    // A harness's reason may run over lines; the line keeps all of it.
+    `result: ${meta.result.replace(/\s*\r?\n\s*/g, ' ')}`,
     `tokens: ${tokens}`,
     `summary_chars: ${meta.summaryChars ?? 'unknown'}`,
     `session: ${meta.sessionId}`,

@@ -202,6 +202,10 @@ export async function offerHint(keeper: GaugeKeeper): Promise<{ text: string; ta
   const reading = await keeper.reading()
   const offered: { gauge?: Gauge; text?: string; seen?: Gauge } = {}
   await keeper.update(current => {
+    // A harness may run the change again on a newer gauge: only the last run's hint is offered.
+    delete offered.gauge
+    delete offered.text
+    delete offered.seen
     const now = complete(current)
     const hint = shiftHint(now, reading)
     if (hint.text === null) return hint.gauge

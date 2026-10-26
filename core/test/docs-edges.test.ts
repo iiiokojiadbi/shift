@@ -146,3 +146,31 @@ test('two articles of one title clash; a needs joined by "and" keeps the task st
   expect(left).toContain('  - needs: [c](tasks/c/)\n  - after: [b](archive/b/)')
   expect(checkTaskList(left, ['a', 'c'], ['b'])).toBeNull()
 })
+
+test("the map's opener is the mod's whole comment; a link decodes every escape and may sit in angle brackets", async () => {
+  const shift = `# Shift\n<!-- shift:docs --> marks the start of the map.\n\nOWNER RULE\n\n${MAP_START}\nold\n${MAP_END}\n`
+  expect(withMap(shift, `${MAP_START}\nnew\n${MAP_END}`)).toContain('marks the start of the map.\n\nOWNER RULE\n\n')
+  const store = memoryStore({ [`${ROOT}/docs/a#b.md`]: '# a' })
+  expect(await brokenLinks(store, ROOT, 'docs/readme.md', '[ok](a%23b.md) [gone](<my guide.md>)', ['docs'])).toEqual(['my guide.md'])
+})
+
+test("a hint found by a change the harness ran again on a newer gauge is the last run's, or none", async () => {
+  let gauge: Gauge = { ...FRESH_GAUGE, base: 20_000, hinted: 800_000, whole: true }
+  let first = true
+  const keeper: GaugeKeeper = {
+    read: async () => gauge,
+    // A compare-and-set that loses its first write: a tool's hint went meanwhile, and the change runs again.
+    update: async change => {
+      if (first) {
+        first = false
+        change(gauge)
+        gauge = { ...gauge, hinted: 850_000 }
+      }
+      gauge = change(gauge)
+    },
+    history: async () => ({}),
+    base: async () => 20_000,
+    reading: async () => ({ tokens: 850_000, window: 1_000_000, threshold: undefined }),
+  }
+  expect(await offerHint(keeper)).toBeNull()
+})
