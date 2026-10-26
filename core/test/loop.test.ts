@@ -132,7 +132,7 @@ test('no hint while a shift is pending', async () => {
   }
   expect(await loopHint(loop, keeper)).toBeNull()
   await loop.update(state => ({ ...state, pending: null }))
-  expect(await loopHint(loop, keeper)).toContain('let the history go by itself')
+  expect((await loopHint(loop, keeper))?.text).toContain('let the history go by itself')
 })
 
 test('a turn that does not start after the shift is told, not recorded against the shift', async () => {

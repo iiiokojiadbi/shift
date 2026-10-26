@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
-import { type GaugeKeeper, takeHint } from './hint'
+import { type GaugeKeeper, offerHint } from './hint'
 import { basename } from './paths'
 import type { Project } from './project'
 import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, UNSETTLED_NOTE } from './texts/prompts'
@@ -48,11 +48,11 @@ export async function holdShift(loop: Loop, shift: PendingShift): Promise<void> 
   await loop.update(state => ({ ...state, pending: shift }))
 }
 
-// A hint for the agent if the fill calls for one; none while a shift is pending.
-export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<string | null> {
+// A hint for the agent if the fill calls for one, given once taken; none while a shift is pending.
+export async function loopHint(loop: Loop, gauge: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
   if ((await loop.read()).pending !== null) return null
 
-  return takeHint(gauge)
+  return offerHint(gauge)
 }
 
 // Once the turn has ended: a pending shift lets the history go, unless the turn was aborted. Every outcome is written

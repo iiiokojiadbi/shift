@@ -43,7 +43,7 @@ test('a restart does not repeat a hint already given; the next step still hints'
   const final = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
   final.kept.gauge = FRESH_GAUGE
   expect(await takeHint(final.port)).toBeNull()
-  expect(final.kept.gauge?.hinted).toBe(800_000)
+  expect(final.kept.gauge?.hinted).toBe(830_000)
 })
 
 test('a restart before the first step leaves no hint behind it', () => {
@@ -60,4 +60,21 @@ test('after a let-go the count is whole from its start; one the agent did not as
   expect(kept.gauge).toMatchObject({ base: 20_000, unassisted: false })
   expect(await takeHint(port)).toBeNull()
   expect(kept.restores).toBe(0)
+})
+
+test('a fresh process restores only once a reading is there; the hint given before is not repeated then', async () => {
+  const blind = keeper({ tokens: undefined, window: 1_000_000, threshold: undefined }, {}, 20_000)
+  blind.kept.gauge = FRESH_GAUGE
+  await countGrowth(blind.port, 'Bash', 50)
+  expect(blind.kept.gauge?.whole).toBe(false)
+  const seen = keeper({ tokens: 820_000, window: 1_000_000, threshold: undefined }, {}, 20_000)
+  seen.kept.gauge = blind.kept.gauge
+  expect(await takeHint(seen.port)).toBeNull()
+  expect(seen.kept.gauge).toMatchObject({ base: 20_000, hinted: 820_000, whole: true })
+})
+
+test('the status names no soft hint the rule would hold back', async () => {
+  const { port, kept } = keeper({ tokens: 700_000, window: 1_000_000, threshold: undefined })
+  kept.gauge = { ...FRESH_GAUGE, base: 20_000, whole: true }
+  expect(await gaugeStatus(port)).toContain('Hints: no soft hint before the final; final at 800K.')
 })

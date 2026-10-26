@@ -145,8 +145,9 @@ export function renderStatus(current: Gauge, { tokens, window, threshold }: Read
   if (gauge.base !== null) lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`)
   if (tokens >= final) lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`)
   else {
-    const soft = (gauge.hinted ?? gauge.base ?? tokens) + softStep(limit)
-    const next = soft + softStep(limit) / 2 <= final ? `next soft hint at ${formatK(soft)}` : 'no soft hint before the final'
+    const step = softStep(limit)
+    const soft = Math.max(tokens, (gauge.hinted ?? gauge.base ?? tokens) + step)
+    const next = soft + step / 2 <= final ? `next soft hint at ${formatK(soft)}` : 'no soft hint before the final'
     lines.push(`Hints: ${next}; final at ${formatK(final)}.`)
   }
   const shares = growthShares(gauge.growth)
@@ -178,19 +179,37 @@ export function letGoGauge(unassisted: boolean): Gauge {
   return { ...FRESH_GAUGE, unassisted, whole: true }
 }
 
-// A hint for the agent if the fill since the last shift calls for one.
+// A hint for the agent if the fill since the last shift calls for one, taken at once.
 export async function takeHint(keeper: GaugeKeeper): Promise<string | null> {
+  const hint = await offerHint(keeper)
+  await hint?.take()
+
+  return hint?.text ?? null
+}
+
+// A hint offered with a slot that may not go out: the gauge keeps everything else at once and marks the hint given only
+// at `take`, so a hint whose slot failed comes again at the next look.
+export async function offerHint(keeper: GaugeKeeper): Promise<{ text: string; take(): Promise<void> } | null> {
   await restore(keeper)
   const reading = await keeper.reading()
-  let text: string | null = null
+  const offered: { gauge?: Gauge; text?: string } = {}
   await keeper.update(current => {
-    const hint = shiftHint(complete(current), reading)
-    text = hint.text
+    const now = complete(current)
+    const hint = shiftHint(now, reading)
+    if (hint.text === null) return hint.gauge
+    offered.gauge = hint.gauge
+    offered.text = hint.text
 
-    return hint.gauge
+    return now
   })
+  const { gauge: given, text } = offered
+  if (given === undefined || text === undefined) return null
 
-  return text
+  return {
+    text,
+    take: () =>
+      keeper.update(current => ({ ...current, base: current.base ?? given.base, hinted: given.hinted, unassisted: given.unassisted })),
+  }
 }
 
 // What a row added to the stretch's history, by where it came from.
@@ -213,11 +232,13 @@ function complete(current: Gauge | null): Gauge {
 
 // The base from the last shift of this session, the growth from the history plus whatever this process counted before
 // the restore finished, and the last hint as given before. Once; a let-go marks the count whole itself.
+// Not before the first reading: the last hint is placed by the fill, and one placed at none would come again.
 async function restore(keeper: GaugeKeeper): Promise<void> {
   if (complete(await keeper.read()).whole) return
+  const reading = await keeper.reading()
+  if (reading.tokens === undefined) return
   const base = await keeper.base()
   const growth = await keeper.history()
-  const reading = await keeper.reading()
   await keeper.update(current => {
     const now = complete(current)
     if (now.whole) return now
@@ -229,12 +250,13 @@ async function restore(keeper: GaugeKeeper): Promise<void> {
 }
 
 // The last step the history has passed since the base: its hint was given before the restart, so it is not repeated,
-// and the next step still hints.
+// and the next step still hints. Past the final the hint is taken as given now: the final repeats every 5%, and a step
+// placed below the real one would repeat it at once.
 export function lastStep(base: number | null, { tokens, window, threshold }: Reading): number | null {
   if (base === null || tokens === undefined || tokens < base) return null
   const limit = threshold ?? window
   const final = finalAt(limit)
-  if (tokens >= final) return final + Math.floor((tokens - final) / finalStep(limit)) * finalStep(limit)
+  if (tokens >= final) return tokens
   const step = softStep(limit)
   const passed = Math.floor((tokens - base) / step)
 

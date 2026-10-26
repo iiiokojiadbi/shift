@@ -27,8 +27,9 @@ export type Courier = {
   updateLooks(change: (current: Looks) => Looks): Promise<void>
 }
 
-// A note before it goes: its kind and what it says.
-export type Note = { kind: NoteKind; body: string }
+// A note before it goes: its kind and what it says; `seen`, the records as the look that found it saw them, kept only
+// once the note goes, so a note whose slot failed is found again at the next look.
+export type Note = { kind: NoteKind; body: string; seen?: Seen }
 
 // How a tool of the main agent ended; null when it threw.
 export type ToolEnd = {
@@ -42,25 +43,41 @@ export type ToolEnd = {
 
 // Before a tool of the main agent: what changed since the last look is someone else's — the owner's hand, another
 // session — unless another tool runs now, whose own change it may be. The notes go with this tool's result.
+// Of tools started together only the first looks: the count is claimed in one change, so two never tell the same change.
 export async function beforeTool(courier: Courier): Promise<Note[]> {
-  const { running } = await courier.looks()
-  const outside = running === 0 ? await look(courier, 'other') : null
-  await courier.updateLooks(current => ({ ...current, running: current.running + 1 }))
+  let first = false
+  await courier.updateLooks(current => {
+    first = current.running === 0
+    return { ...current, running: current.running + 1 }
+  })
+  if (!first) return []
+  const outside = await look(courier, 'other')
+  if (outside === null) return []
+  if (outside.body === null) {
+    await remember(courier, outside.seen)
+    return []
+  }
 
-  return outside === null ? [] : [{ kind: 'records', body: outside }]
+  return [{ kind: 'records', body: outside.body, seen: outside.seen }]
 }
 
 // After a tool of the main agent: the notes from before it, what it changed in the records, and a hint if the fill
 // calls for one — wrapped, each told to the owner as it goes into the result. A file it wrote is only followed.
 export async function afterTool(courier: Courier, before: readonly Note[], done: ToolEnd | null): Promise<string[]> {
   await courier.updateLooks(current => ({ ...current, running: Math.max(0, current.running - 1) }))
+  // A tool that threw has no result to carry the notes: what was seen before it is not kept, and is told again.
   if (done === null) return []
+  for (const note of before) if (note.seen !== undefined) await remember(courier, note.seen)
   const notes = [...before]
   const own = done.readOnly ? null : await look(courier, 'agent')
-  if (own !== null && !done.own) notes.push({ kind: 'records', body: own })
+  if (own !== null) await remember(courier, own.seen)
+  if (own?.body != null && !done.own) notes.push({ kind: 'records', body: own.body })
   if (done.written !== undefined) await follow(courier, done.written)
   const hint = await loopHint(courier.loop, courier.gauge).catch(() => null)
-  if (hint !== null) notes.push({ kind: 'hint', body: hint })
+  if (hint !== null) {
+    await hint.take()
+    notes.push({ kind: 'hint', body: hint.text })
+  }
 
   return deliver(courier.loop, notes)
 }
@@ -72,7 +89,8 @@ export async function afterWrite(courier: Courier, file: string): Promise<void> 
 
 // With the next prompt: what changed between turns, the docs written in the run settled, a hint, and after a wait the
 // letter, last, when the owner speaks. With a tool running — a message queued mid-run — the docs wait: it may be an edit.
-// The notes are told to the owner and the letter cleared only once `delivered` says the prompt went with them.
+// Nothing is marked told — the records seen, the docs settled, the hint, the letter — until `delivered` says the prompt
+// went with them: a prompt that failed or was dropped leaves every note for the next one.
 export async function atPrompt(
   courier: Courier,
   { runStarts, owner }: { runStarts: boolean; owner: boolean },
@@ -81,16 +99,20 @@ export async function atPrompt(
   const notes: Note[] = []
   const { running } = await courier.looks()
   const outside = running === 0 ? await look(courier, 'other') : null
-  if (outside !== null) notes.push({ kind: 'records', body: outside })
+  if (outside?.body === null) await remember(courier, outside.seen)
+  if (outside?.body != null) notes.push({ kind: 'records', body: outside.body })
   const docs = running === 0 ? await settle(courier) : null
-  if (docs !== null) notes.push({ kind: 'docs', body: docs })
+  if (docs !== null) notes.push({ kind: 'docs', body: docs.body })
   const hint = await loopHint(courier.loop, courier.gauge).catch(() => null)
-  if (hint !== null) notes.push({ kind: 'hint', body: hint })
+  if (hint !== null) notes.push({ kind: 'hint', body: hint.text })
   const letter = owner ? await waitingNote(courier.loop) : null
 
   return {
     notes: [...notes.map(wrap), ...(letter === null ? [] : [letter.context])],
     delivered: async () => {
+      if (outside?.body != null) await remember(courier, outside.seen)
+      if (docs !== null) await forget(courier, docs.paths)
+      await hint?.take()
       for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
       await letter?.delivered()
     },
@@ -102,17 +124,18 @@ export async function runEnded(courier: Courier): Promise<void> {
   await courier.updateLooks(current => (current.running === 0 ? current : { ...current, running: 0 }))
 }
 
-// The records changed since the last look; the first look only remembers them. A look that fails says nothing: it
-// must never stand between the agent and its tool.
-async function look(courier: Courier, by: ChangedBy): Promise<string | null> {
+// The records changed since the last look and what they are now, kept by `remember`; the first look finds nothing to
+// tell. A look that fails says nothing: it must never stand between the agent and its tool.
+async function look(courier: Courier, by: ChangedBy): Promise<{ body: string | null; seen: Seen } | null> {
   try {
-    const changed = await changedRecords(await courier.project(), (await courier.looks()).seen, by)
-    await courier.updateLooks(current => ({ ...current, seen: changed.seen }))
-
-    return changed.body
+    return await changedRecords(await courier.project(), (await courier.looks()).seen, by)
   } catch {
     return null
   }
+}
+
+async function remember(courier: Courier, seen: Seen): Promise<void> {
+  await courier.updateLooks(current => ({ ...current, seen }))
 }
 
 // A written file the docs follow is remembered for the next prompt; the map follows a document at once.
@@ -124,14 +147,20 @@ async function follow(courier: Courier, file: string): Promise<void> {
   )
 }
 
-// The files written since the last settling, settled now and forgotten; a settling that fails says nothing.
-async function settle(courier: Courier): Promise<string | null> {
+// The files written since the last settling, settled now and forgotten once told; a settling that fails says nothing.
+// Nothing to tell is forgotten at once: an adapter calls `delivered` only when a note goes.
+async function settle(courier: Courier): Promise<{ body: string; paths: readonly string[] } | null> {
   const written = (await courier.looks()).written ?? []
   if (written.length === 0) return null
-  await courier.updateLooks(current => ({ ...current, written: (current.written ?? []).filter(path => !written.includes(path)) }))
   const lines = await settleDocs(await courier.project(), written).catch(() => [])
+  if (lines.length > 0) return { body: lines.join('\n'), paths: written }
+  await forget(courier, written)
 
-  return lines.length === 0 ? null : lines.join('\n')
+  return null
+}
+
+async function forget(courier: Courier, paths: readonly string[]): Promise<void> {
+  await courier.updateLooks(current => ({ ...current, written: (current.written ?? []).filter(path => !paths.includes(path)) }))
 }
 
 function deliver(loop: Loop, notes: readonly Note[]): string[] {

@@ -46,7 +46,7 @@ The adapter is a mod: a hooks module in TypeScript, `adapters/claude-code/hooks/
 - A headless session (`claude -p`, the SDK) has no `$.session.compact`: it throws "not available in a headless session", so a shift there is told to the owner as not made and nothing is let go. Measure or try the shift in an interactive session.
 - The `shift` tool argument is `after`, not `then`: an object with a `then` key looks like a promise.
 - Rows go to the transcript by `$.ui.log`, which has no levels; the status line under the input is not used — it was noise.
-- The owner is `prompt.submit` with `origin.kind` `composer`, `bridge` or `sdk`.
+- The owner is `prompt.submit` with `origin.kind` `composer`, `bridge` or `sdk`. A hook beneath may answer `{ drop }`: the notes are marked told only when the message entered.
 
 ## pi
 
@@ -55,6 +55,7 @@ The adapter is `index.ts` of the npm package `adapters/npm/`, over pi 1.4.0's `E
 - pi refuses to let go of a history smaller than `keepRecentTokens` (20K by default) — "Nothing to compact (session too small)" — and keeps that much of the latest history beside the digest; a test project can lower it in `.pi/settings.json`. The adapter's `cannotLetGo` finds the same cut with pi's own `findCutPoint` over the branch since the last let-go — the fill counts the system prompt too and passes a history pi still refuses — so the `shift` tool refuses before anything is written instead of a shift accepted and then not made.
 - `agent_settled` is awaited; a `sendMessage` with `triggerTurn` from it is deferred until the handler returns, so the continue still starts.
 - The owner's input comes by the `input` event, idle or mid-run (`streamingBehavior`); only an idle one starts a run that takes the waiting letter.
+- The waiting letter lives on the branch: each change of it is a custom entry, and both `session_start` and `session_tree` (a move in the session's tree) take the note from the last entry on the branch the session stands on, so a letter of a branch left behind never goes with another.
 - pi reads the session's files anew before every run, so its block is never stale, and the prompt's cache holds: pi diffs the prompt's sections against the last system message and appends only a changed section as a system message after the history. A run after any record changed carries the whole `project_context` section again — `AGENTS.md` and the session's files together.
 - The notes: `tool_call` → `beforeTool`, kept by `toolCallId`; `tool_result` → `afterTool` (`read`, `grep`, `find`, `ls` are read-only); a nested call (`parentToolCallId`) only has its written file remembered for the docs. `before_agent_start` → `atPrompt` with `runStarts`, which resets the count of tools running, in case a blocked call never got its result.
 - `--mode rpc` keeps the process alive for the let-go and the continue; print mode exits first. A headless `pi -p` in a fresh project waits silently unless run with `-a` and stdin closed.

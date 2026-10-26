@@ -126,11 +126,12 @@ export default function shift(pi: ExtensionAPI): void {
     const shown = start.tools.map(tool => tool.name)
     pi.setActiveTools([...pi.getActiveTools().filter(name => !OURS.has(name)), ...shown])
     if (!enabled) return
-    const last = ctx.sessionManager
-      .getBranch()
-      .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
-      .at(-1)
-    loop = { ...loop, note: last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null }
+    loop = { ...loop, note: branchNote(ctx) }
+  })
+
+  // Another branch has its own wait note, or none: a letter of the branch left behind never goes with this one.
+  pi.on('session_tree', async (_event, ctx) => {
+    if (enabled) loop = { ...loop, note: branchNote(ctx) }
   })
 
   // The owner's own input: only a message that starts a run takes the waiting letter with it.
@@ -287,6 +288,16 @@ export default function shift(pi: ExtensionAPI): void {
 // there — a history no bigger, the cut on its first message — it refuses as "session too small". The same cut is
 // found here, before the shift is accepted.
 // What a let-go summarizes: the conversation, not the system prompt pi records as a message of its own.
+// The wait note of the branch the session stands on: its last wait entry, written whenever the note changes.
+function branchNote(ctx: ExtensionContext): WaitNote | null {
+  const last = ctx.sessionManager
+    .getBranch()
+    .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
+    .at(-1)
+
+  return last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null
+}
+
 function summarized(entry: SessionEntry): boolean {
   return entry.type === 'message' ? entry.message.role !== 'system' : entry.type === 'custom_message' || entry.type === 'branch_summary'
 }

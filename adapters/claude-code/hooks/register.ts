@@ -180,9 +180,10 @@ export const register: Register = on => {
     // A message queued while a tool runs does not start a run: what changed meanwhile may be that tool's.
     const told = await atPrompt(courierOf($), { runStarts: false, owner })
     if (told.notes.length === 0) return next(e)
-    // Told and cleared only once the message has entered with them, and the row stands under it: a failed hook keeps the letter.
+    // Told and cleared only once the message has entered with them, and the row stands under it: a failed hook or a
+    // message dropped beneath keeps every note for the next one.
     const entered = await next({ ...e, context: [...(e.context ?? []), ...told.notes] })
-    await told.delivered()
+    if (!('drop' in entered)) await told.delivered()
 
     return entered
   }).catch(($, e, next) => {
