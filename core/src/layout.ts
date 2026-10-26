@@ -168,4 +168,4 @@ export const STUCK_SHIFTS = 5
 export const STUCK_LOOKBACK = 30
 
 export const NAME = /^[a-z0-9][a-z0-9-]*$/
-export const NAME_RULE = 'lowercase latin, digits and dashes'
+export const NAME_RULE = 'lowercase latin, digits and dashes, starting with a letter or a digit'

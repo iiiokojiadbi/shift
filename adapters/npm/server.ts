@@ -366,7 +366,7 @@ const plugin: Definition = {
           session.letGo?.({ text: data.text ?? '' })
           return
         case 'session.compaction.failed':
-          session.letGo?.({ error: `the compaction failed: ${errorText(data.error)}` })
+          session.letGo?.({ error: `the harness did not let the history go: ${errorText(data.error)}` })
           return
         // A run is over, whichever way it ended: a shift held in it lets go now, unless the owner interrupted it.
         case 'session.execution.succeeded':

@@ -123,7 +123,7 @@ async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift,
   if (goOn && shift.after === 'continue') {
     await harness.continueWith(context).catch(async (error: unknown) => {
       await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
-      loop.tell(NOT_CONTINUED(String(error)), 'error')
+      loop.tell(NOT_CONTINUED(String(error), FAILURE_NOTE), 'error')
     })
     return
   }

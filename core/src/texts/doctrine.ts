@@ -41,6 +41,7 @@ import {
   TASK_LIST,
   TASK_SECTIONS,
   TASKS,
+  TASKS_MAX_LINES,
   TOOL,
   TRACK_TOOL,
 } from '../layout'
@@ -74,7 +75,7 @@ const LIST_RULES = `\`${TASK_LIST}\` lists every open task, one line each, and u
   - continues: [old-adapters](archive/old-adapters/)
 \`\`\`
 
-Status: ${FOCUS.join(', ')}; deferred and waiting — with the reason in the line. Links: \`needs\` — an open task this one cannot finish without; \`after\` — a done task it stands on; \`continues\` — an archived task it picks up. No task yet — "none".`
+Status: ${FOCUS.join(', ')}; deferred and waiting — with the reason in the line. Links: \`needs\` — an open task this one cannot finish without; \`after\` — an archived task it stands on; \`continues\` — an archived task it picks up. No task yet — "none". At most ${TASKS_MAX_LINES} lines.`
 
 const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes to that task's "${OWNER_SECTION}".`
 
@@ -126,7 +127,7 @@ Where: the owner says «отрезок».
 Unconfirmed: is a stretch ever longer than a session?
 \`\`\`
 
-\`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` — words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` — ask, then drop the line. Only this project's words; no general programming terms.`
+Each field is one line. \`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` — words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` — ask, then drop the line. Only this project's words; no general programming terms.`
 
 const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document the settings name — a folder of them, or one such as \`AGENTS.md\` — with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder or a document of the settings with nothing to list is named in the map as \`no such folder\`, \`no documents\` or \`no such file\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
 
@@ -203,7 +204,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;
    - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
-4. End the turn, no further actions: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
+4. End the turn, nothing more but what the call's result asks: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
 After the shift, the first message is "Shift done": the board and the tasks in progress, whole, with their notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
 
@@ -227,7 +228,7 @@ The mod looks at the records around every tool you run. A record you changed —
 - \`${GLOSSARY}\`: an article without \`Means\`, an unknown label, a word in two articles, an avoided word used as a term, more than ${GLOSSARY_MAX_LINES} lines;
 - a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in the board, \`${TASK_LIST}\`, a task, the owner's decisions, the glossary or knowledge;
 - \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
-- \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, tasks needing each other in a circle;
+- \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, \`after\` on an open one, tasks needing each other in a circle;
 - a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
 - nothing changed in the records since the last shift;
 - \`about\` empty, multi-line or longer than ${ABOUT_MAX} characters.
@@ -302,7 +303,7 @@ ${KNOWLEDGE_RULES}
 
 ## No dates
 
-No record carries a date: a model writes them everywhere, and records turn into a diary. Which of two rules is newer is never a question — a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
+No record carries a date — the board, \`${TASK_LIST}\`, the tasks, \`${OWNER}\`, the glossary, the knowledge; the mod refuses a shift on one. A model writes dates everywhere, and records turn into a diary. The letter is not checked: keep a date there only where it is part of what must stay exact, such as an error's text. Which of two rules is newer is never a question — a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
 
 ## Archive — \`${ARCHIVE}/\`
 

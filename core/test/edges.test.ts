@@ -4,6 +4,7 @@ import { checkGlossary } from '../src/glossary'
 import { segment } from '../src/history'
 import { findDate, frontmatter, itemsOf } from '../src/markdown'
 import { checkKnowledge, checkTask } from '../src/records'
+import { parseSettings } from '../src/settings'
 import { shiftNames } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { numberItems } from '../src/track'
@@ -108,4 +109,12 @@ test('the history knows an item by its id and an archived task by its folder', (
 test("a continues: in a task's frontmatter is still to move", () => {
   const task = `---\ncontinues: old\n---\n${taskMd('T')}`
   expect(checkTask({ name: 't', task, track: '- [open] #1 x', notes: [] })).toContain('continues:')
+})
+
+test('after names an archived task only; a note may have # in its name; a table is opened once', () => {
+  const list = '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n  - after: [b](tasks/b/)\n- [in progress] [b](tasks/b/) — b\n'
+  expect(checkTaskList(list, ['a', 'b'], [])).toContain('write "needs:"')
+  const note = { name: 'proof#1.md', text: '---\ndescription: proof\n---\nx' }
+  expect(checkTask({ name: 't', task: taskMd('T'), track: '- [open] #1 x — [it](notes/proof#1.md)', notes: [note] })).toBeNull()
+  expect(parseSettings('[docs]\ntoc = true\n[docs]\nmax_lines = 9')).toContain('opened twice')
 })

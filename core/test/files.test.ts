@@ -153,7 +153,9 @@ test('a shift refuses the old owner.md, a board with Tasks, continues in task.md
   expect(await deny({})).toBeNull()
   expect(await deny({ [`${R}/owner.md`]: 'x' })).toContain('owner.md is the old name')
   expect(await deny({ [`${R}/board.md`]: `${BOARD}\n## Tasks\n- [in progress] t — t` })).toContain('live in .shift/TASKS.md now')
-  expect(await deny({ [`${R}/tasks/t/task.md`]: TASK.replace('# T', '# T\ncontinues: .shift/archive/x/') })).toContain('Move it there')
+  expect(await deny({ [`${R}/tasks/t/task.md`]: TASK.replace('# T', '# T\ncontinues: .shift/archive/x/') })).toContain(
+    'continues: [<name>](archive/<name>/)',
+  )
   expect(await deny({ [`${R}/board.md`]: BOARD.replace('## Decisions\nnone', '## Decisions\n- A — b; rejected: C') })).toContain(
     'needs its reason',
   )

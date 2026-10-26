@@ -13,6 +13,7 @@ import {
   LETTER,
   MENTIONS_TOOL,
   NAME_RULE,
+  NAMES,
   OPEN_TOOL,
   OUTCOMES,
   OUTLINE_TOOL,
@@ -26,7 +27,7 @@ import {
 } from '../layout'
 import { quote } from '../markdown'
 
-export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read.`
+export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read. Only the main agent shifts: a subagent's call is refused.`
 
 export const GUIDE_DESCRIPTION =
   'How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it once, before your first shift in a project; after that only when a refusal sends you to it — the steps do not change between shifts.'
@@ -44,7 +45,7 @@ export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
-export const OPEN_DESCRIPTION = `Open a task instead of creating its files by hand: writes ${TASKS}/<name>/task.md with its sections, track.md with the first items, and the task's line with its links in ${TASK_LIST}, all checked first — a refusal writes nothing. Decisions, dead ends and owner decisions start as "none".`
+export const OPEN_DESCRIPTION = `Open a task instead of creating its files by hand: writes ${TASKS}/<name>/${NAMES.task} with its sections, ${NAMES.track} with the first items, and the task's line with its links in ${TASK_LIST}, all checked first — a refusal writes nothing. Decisions, dead ends and owner decisions start as "none".`
 
 const LINK_LINES = (what: string) => ({
   type: 'array',
@@ -70,7 +71,7 @@ export const OPEN_SCHEMA = {
       description: 'The first track items, each "item — what matters" or just "item"; all open.',
     },
     needs: LINK_LINES('open tasks this one cannot finish without'),
-    after: LINK_LINES('archived tasks it stands on'),
+    after: LINK_LINES('archived tasks it stands on; an open one is "needs"'),
     continues: LINK_LINES('archived tasks it picks up'),
   },
   required: ['name', 'title', 'goal', 'done_when', 'about'],
@@ -78,7 +79,7 @@ export const OPEN_SCHEMA = {
 
 export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
 
-export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With id: the track item with that id, the number in its "#<id>". With item: a new item with that text, given the next id. Without either: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). Several items at once — when a stage closes one item and opens the next: items, a list of {id or item, status, note}, applied together or not at all; status beside items is then the task's own.`
+export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With id: the track item with that id, the number in its "#<id>". With item: a new item with that text, given the next id; its text differs from every item's in the track, case aside. Without either: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). Several items at once — when a stage closes one item and opens the next: items, a list of {id or item, status, note}, applied together or not at all; status beside items is then the task's own.`
 
 export const TRACK_SCHEMA = {
   type: 'object',

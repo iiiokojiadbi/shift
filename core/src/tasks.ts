@@ -97,6 +97,8 @@ export function checkTaskList(text: string | null, folders: readonly string[], a
       if (link.kind === 'needs' && link.place !== 'tasks') {
         return `${TASK_LIST}: ${task.name} needs ${link.name}, which is archived: what it gave is done — write "after:".`
       }
+      if (link.kind === 'after' && link.place !== 'archive')
+        return `${TASK_LIST}: ${task.name} is after ${link.name}, which is still open: write "needs:" until it is archived.`
       if (link.kind === 'continues' && link.place !== 'archive')
         return `${TASK_LIST}: ${task.name} continues ${link.name}, which is not archived: only an archived task is continued.`
       if (link.place === 'tasks' && link.name === task.name) return `${TASK_LIST}: ${task.name} links itself.`

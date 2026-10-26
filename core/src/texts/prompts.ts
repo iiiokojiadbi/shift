@@ -38,7 +38,7 @@ export const NOTE_KINDS = {
 export type NoteKind = keyof typeof NOTE_KINDS
 
 export const OPENED = (name: string, line: string, track: string) =>
-  `Opened ${TASKS}/${name}/ with task.md and track.md, and its line in ${TASK_LIST}:\n${line}\n${track === '' ? '' : `Its items, each changed with ${TRACK_TOOL} by its id:\n${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
+  `Opened ${TASKS}/${name}/ with ${NAMES.task} and ${NAMES.track}, and its line in ${TASK_LIST}:\n${line}\n${track === '' ? '' : `Its items, each changed with ${TRACK_TOOL} by its id:\n${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
 
 export const ARCHIVED = (name: string) =>
   `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
@@ -263,7 +263,7 @@ Shift ${name} was not made — ${why}. Nothing was let go: your history is whole
 // A shift let go and its message not built: the agent has lost its history and got nothing back.
 export const UNSETTLED_NOTE = (name: string, why: string, dir: string) =>
   `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read ${LETTER} (a copy is in ${dir}/${NAMES.letter}), then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read the letter of this shift, ${dir}/${NAMES.letter} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
 </${MOD}>`
 
 // What the owner's row names when a failure's note went with their message.

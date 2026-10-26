@@ -158,7 +158,7 @@ test('the setup report: every key with its value here and its version, and which
   store.files.set(`${R}/board.md`, '## Goal\n\nthe mod\n\n## Decisions\n\nnone\n\n## Dead ends\n\nnone')
   store.files.set(`${R}/TASKS.md`, '# Tasks\n\nnone')
   expect(await setupReport(await at(store), null)).toContain(
-    '## Records\n\nThey pass every check a shift makes of the records; the letter is checked by the shift itself.',
+    '## Records\n\nThey pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself.',
   )
   store.files.set(SETTINGS, 'enabled = maybe')
   expect(await setupReport(await at(store), null)).toContain('It does not parse')

@@ -164,6 +164,7 @@ export function parseSettings(text: string): ParsedSettings | string {
   const settings: Settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files }, docs: { ...DEFAULT_SETTINGS.docs } }
   const set = new Set<string>()
   let table = ''
+  const tables = new Set<string>()
   for (const [index, raw] of text.split('\n').entries()) {
     const line = withoutComment(raw).trim()
     if (line === '') continue
@@ -171,6 +172,8 @@ export function parseSettings(text: string): ParsedSettings | string {
     if (header !== null) {
       if (!TABLES.has(header[1] ?? ''))
         return `${SETTINGS}, line ${index + 1}: unknown table \`[${header[1]}]\`; the tables are ${[...TABLES].map(each => `\`[${each}]\``).join(', ')}.`
+      if (tables.has(header[1] ?? '')) return `${SETTINGS}, line ${index + 1}: \`[${header[1]}]\` is opened twice; keep its keys under one.`
+      tables.add(header[1] ?? '')
       table = `${header[1]}.`
       continue
     }

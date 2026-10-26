@@ -171,7 +171,7 @@ export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): stri
   const date = dated(where, task, 'Tasks have no dates.') ?? dated(where, track, 'Tasks have no dates.')
   if (date !== null) return date
   if (/^continues:/m.test(unfenced(task)) || frontmatter(task).has('continues'))
-    return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now, under the task's line. Move it there.`
+    return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now. Remove it, and under the task's line there write it as "  - continues: [<name>](archive/<name>/)".`
   const rejected = badRejected(task, `${where}task.md`)
   if (rejected !== null) return rejected
   const notes = checkNotes(where, task, track, notes_)
@@ -194,7 +194,7 @@ function badRejected(text: string, where: string): string | null {
 }
 
 function checkOwner(owner: string | null): string | null {
-  if (owner === null) return `No ${OWNER}: create it beside ${BOARD} with the owner's decisions in force for the whole project, or "none".`
+  if (owner === null) return `No ${OWNER}: create it with the owner's decisions in force for the whole project, or "none".`
   if (owner.trim() === '') return `${OWNER} is empty. No decisions yet — write "none".`
   return (
     overLimit(
@@ -218,9 +218,11 @@ function checkNotes(where: string, task: string, track: string, notes: TaskFiles
     }
   }
   const names = new Set(notes.map(note => note.name))
-  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)#\\s]+)(?:#[^)\\s]*)?\\)`, 'g'))].map(
-    found => found[1] ?? '',
-  )
+  // A link's `#fragment` is not part of the note's name, unless a note is named so.
+  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)\\s]+)\\)`, 'g'))].map(found => {
+    const target = found[1] ?? ''
+    return names.has(target) ? target : target.replace(/#.*$/, '')
+  })
   const missing = linked.filter(name => !names.has(name))
 
   return missing.length === 0

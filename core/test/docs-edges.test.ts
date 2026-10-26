@@ -219,3 +219,15 @@ test('shift_setup writes nothing, names what is missing, and moves its paths whe
   expect(report).toContain('None yet: none of')
   expect(report).toContain('→ `OWNER.md`, renamed as it is')
 })
+
+test('shift_setup: a file tag inside a record is no file; a moved record is named under the tree', async () => {
+  const owner = '# Owner decisions\n\n```\n<file path="example.md">\n```\n'
+  const project = await memoryProject(
+    { [`${R}/settings.toml`]: '[files]\nowner = "rules/OWNER.md"', [`${ROOT}/rules/OWNER.md`]: owner, [`${R}/TASKS.md`]: 'none' },
+    ROOT,
+  )
+  const loaded = `<file path="rules/OWNER.md">\n${owner.trim()}\n</file>\n\n<file path=".shift/TASKS.md">\nnone\n</file>`
+  const report = await setupReport(project, loaded)
+  expect(report).toContain("This session's block matches them.")
+  expect(report).toContain('Moved by the settings: `.shift/OWNER.md` is at `rules/OWNER.md` here.')
+})
