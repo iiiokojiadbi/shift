@@ -3,9 +3,10 @@ import { formatK } from './markdown'
 import type { Gauge, Reading } from './types'
 
 // Every step is a share of the limit — the harness's own threshold, or the window when it is unknown — so the rhythm is the same on any window.
-// Soft hints come every max(100K, 25%) of growth: a shorter stretch does not pay for its own letter and records.
+// Soft hints come every max(150K, 40%) of growth: a shorter stretch does not pay for its letter, its records and the cache
+// built anew after it. On a small window the step does not fit before the final hint, so the final one is the only one.
 export function softStep(limit: number): number {
-  return Math.max(100_000, Math.round(limit / 4))
+  return Math.max(150_000, Math.round(limit * 0.4))
 }
 
 // The final hint comes at 80% of the limit, with room left to finish a stage, and again every 5% after it.

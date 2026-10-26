@@ -248,7 +248,7 @@ export const EXCLUDED = (file: string) =>
 
 // The shift refused before anything is written: the harness would not let this history go.
 export const SHIFT_TOO_EARLY = (why: string) =>
-  `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown — after the first soft hint.`
+  `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown — after the first hint.`
 
 // A shift accepted and then not made: the agent was told it was accepted, so it is told it was not.
 export const NOT_MADE_NOTE = (name: string, why: string) =>

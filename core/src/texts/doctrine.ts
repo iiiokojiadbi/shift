@@ -171,11 +171,11 @@ ${PLACES}
 
 ## When to shift
 
-Not before the first soft hint. A finished task is not a reason by itself: a short stretch does not pay for its letter and records, and its history still holds what the next step may need. Until the soft hint, go on working; earlier only on the owner's word. \`${STATUS_TOOL}\` says when the next hint comes.
+Never before the first hint, never on a small history. A shift costs the owner's limits: the harness builds its cache of the history anew, and the files of the work are read again. A short stretch does not pay for that, nor for its letter and records, and its history still holds what the next step may need. A finished task is not a reason by itself. Until the first hint, go on working; earlier only on the owner's word. \`${STATUS_TOOL}\` says when the next hint comes.
 
-After the soft hint — at a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step — and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
+After a hint — at a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step — and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
 
-The mod hints with a "Shift hint" line at the end of a tool result or next to a message: the soft hint when the history has grown noticeably since the last shift, the final one when room is running out. A hint names what the history grew from most. A soft hint is not an order: you decide.
+The mod hints with a "Shift hint" line at the end of a tool result or next to a message: the soft hint when the history has grown by a large share of the room since the last shift, the final one when room is running out. On a small window the final hint is the only one. A hint names what the history grew from most. A soft hint is not an order: you decide.
 
 ## Tools
 

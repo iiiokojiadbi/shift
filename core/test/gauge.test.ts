@@ -35,7 +35,7 @@ test('a restart does not repeat a hint already given; the next step still hints'
   const soft = keeper({ tokens: 640_000, ...limits }, {}, 20_000)
   soft.kept.gauge = FRESH_GAUGE
   expect(await takeHint(soft.port)).toBeNull()
-  expect(soft.kept.gauge?.hinted).toBe(520_000)
+  expect(soft.kept.gauge?.hinted).toBe(420_000)
   const later = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
   later.kept.gauge = await soft.port.read()
   expect(await takeHint(later.port)).toContain('830K of 1000K used')

@@ -9,7 +9,7 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 ## How it works
 
 1. **Records as you go.** The agent keeps `.shift/` in the project: a board (the goal, decisions with their reasons, dead ends), one folder per task with its description and tracker, finished tasks in an archive with an index, the owner's decisions, a glossary, and knowledge by kind.
-2. **A hint, not a trigger.** As the history grows, the mod adds a short hint to a tool result: a soft one at intervals, a final one when room runs out. The agent picks the moment itself, at a stage boundary, not in the middle of a thought.
+2. **A hint, not a trigger.** As the history grows, the mod adds a short hint to a tool result: a soft one after large growth (none on a small window), a final one when room runs out. The agent picks the moment itself, at a stage boundary, not in the middle of a thought.
 3. **The letter.** Before a shift the agent writes `letter.md`: where it is, what is next, what is unverified, and what the harness must hold.
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, tasks out of step or nothing changed. Then it snapshots everything into `.shift/shifts/<time>/` and has the harness let the history go, steered by the letter's Hold.
 5. **Back to work.** The next message carries the records, the last shifts in brief and the letter, last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.

@@ -17,7 +17,7 @@ A model rarely shifts by itself: without a hint it does not, and a frequent hint
 
 The stretch starts at the first fill after any let-go — the agent's shift or the harness's own. Every threshold is a share of the limit L: the harness's own let-go threshold, or the window when it is unknown. Windows differ several times over (1M, 272K, 128K), and fixed steps made hints frequent on small windows and rare on large ones; shares keep the rhythm the same.
 
-- **Soft** — every `max(100K, 25% of L)` of growth since the start of the stretch or the last hint. A shorter stretch does not pay for its letter and records. No soft hint when the final one is less than half a step away. It says it is not an alarm.
+- **Soft** — every `max(150K, 40% of L)` of growth since the start of the stretch or the last hint. A shorter stretch does not pay for its letter, its records and the harness's cache built anew after it: every shift writes the history's cache from scratch and the agent reads its files again, so frequent early shifts spend the owner's limits. No soft hint when the final one is less than half a step away, so a small window gets the final hint alone. It says it is not an alarm.
 - **Final** — at 80% of L, with room left to finish a stage, then every 5% of L.
 - **Nothing** before the stretch has grown by 5% of L, so a shift that leaves the window full does not loop.
 - **Unassisted** — after the harness let the history go by itself, the agent is told at its next look that there is no letter and it must read the board.
@@ -25,12 +25,13 @@ The stretch starts at the first fill after any let-go — the agent's shift or t
 
 | window | soft | final |
 |---|---|---|
-| 1M | ~250K, ~500K | ~800K |
-| 272K | ~100K | ~218K |
+| 1M | ~400K | ~800K |
+| 500K | ~200K | ~400K |
+| 272K | — | ~218K |
 | 200K | — | ~160K |
 | 128K | — | ~102K |
 
-`shiftHint` in `core/src/hint.ts` is a pure function of the gauge and a reading; the numbers are `softStep`, `finalAt` and `finalStep` there. The doctrine says not to shift before the first soft hint unless the owner asks: agents shifted at 120K right after finishing a task.
+`shiftHint` in `core/src/hint.ts` is a pure function of the gauge and a reading; the numbers are `softStep`, `finalAt` and `finalStep` there. The doctrine says never to shift before the first hint, soft or final, unless the owner asks, and gives the cost as the reason: agents shifted at 120K right after finishing a task.
 
 ## The gauge
 

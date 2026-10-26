@@ -130,7 +130,7 @@ test('a hint goes last in a tool result, in its own tag, and is told to the owne
   const { courier, kept, rows } = await setUp()
   await beforeTool(courier)
   await afterTool(courier, [], TOOL)
-  kept.reading = { tokens: 300_000, window: 1_000_000, threshold: undefined }
+  kept.reading = { tokens: 450_000, window: 1_000_000, threshold: undefined }
   kept.gauge = { base: 20_000, hinted: null, unassisted: false, growth: {}, whole: true }
   await beforeTool(courier)
   const notes = await afterTool(courier, [], TOOL)
