@@ -36,7 +36,7 @@ function branch(chars: number) {
   ]
 }
 
-function load(root: string, chars = 200_000) {
+function load(root: string, chars = 200_000, entries?: () => unknown[]) {
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
   const notes: string[] = []
@@ -62,7 +62,11 @@ function load(root: string, chars = 200_000) {
     cwd: root,
     hasUI: false,
     ui: { notify: (text: string) => notes.push(text) },
-    sessionManager: { getBranch: () => branch(chars), getSessionId: () => 's1', buildSessionProjection: () => ({ messages: [] }) },
+    sessionManager: {
+      getBranch: () => entries?.() ?? branch(chars),
+      getSessionId: () => 's1',
+      buildSessionProjection: () => ({ messages: [] }),
+    },
     getContextUsage: () => ({ tokens: chars / 4, contextWindow: 200_000 }),
     compact: (options: { onComplete: (result: unknown) => void }) =>
       options.onComplete({ summary: 'DIGEST', tokensBefore: 300_000, estimatedTokensAfter: 20_000 }),
@@ -165,4 +169,55 @@ test("records are looked at around every tool: the agent's own change told only 
   const outside = await bash()
   expect(outside).toContain('`.shift/TASKS.md` changed outside your tools')
   expect(outside).not.toContain('board.md')
+})
+
+test('a call blocked before it ran ends at its execution end; the run after it still tells a change outside', async () => {
+  const root = await project({ '.shift/TASKS.md': 'none\n' })
+  const pi = load(root)
+  await pi.on('session_start')
+  await pi.on('tool_call', { toolCallId: '1', toolName: 'bash', input: {} })
+  await pi.on('tool_execution_end', { toolCallId: '1', toolName: 'bash', isError: true })
+  await writeFile(join(root, '.shift/TASKS.md'), '# Tasks\n\nnone\n')
+  await pi.on('tool_call', { toolCallId: '2', toolName: 'bash', input: {} })
+  const done = (await pi.on('tool_result', { toolCallId: '2', toolName: 'bash', input: {}, content: [], isError: false })) as
+    | { content: { text: string }[] }
+    | undefined
+  expect(done?.content.map(each => each.text).join('')).toContain('changed outside your tools')
+})
+
+test("a waiting letter: pi's own let-go waits for the shift, an extension's message never takes it, a rewind keeps it", async () => {
+  const records = {
+    '.shift/letter.md': ['## Where I am', 'here', '## Next', 'go', '## Unverified', 'none', '## Hold', 'HOLD'].join('\n'),
+    '.shift/board.md': ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n'),
+    '.shift/OWNER.md': 'none\n',
+    '.shift/TASKS.md': 'none\n',
+    '.shift/settings.toml': 'commit = true\n',
+  }
+  const pi = load(await project(records))
+  await pi.on('session_start')
+  await pi.call('shift', { letter: '.shift/letter.md', after: 'wait', about: 'a' })
+  expect(await pi.on('session_before_compact', { reason: 'threshold' })).toEqual({ cancel: true })
+  expect(await pi.on('session_before_compact', { reason: 'manual' })).toBeUndefined()
+  await pi.on('agent_settled', { aborted: false })
+  const run = () => ({ systemPromptOptions: { sections: {}, contextFiles: [] }, messageType: 'user' })
+  const letter = async () =>
+    ((await pi.on('before_agent_start', run())) as { message?: { content: string } } | undefined)?.message?.content ?? ''
+  // The owner's input taken by another extension without a run, then an extension's own message: no letter.
+  await pi.on('input', { source: 'interactive' })
+  await pi.on('input', { source: 'extension' })
+  expect(await letter()).not.toContain('<letter path=')
+  await pi.on('input', { source: 'interactive' })
+  expect(await letter()).toContain('<letter path=')
+
+  // The message that took the letter rewound away: the clearing entry stays on the branch, the letter waits again.
+  const wait = (note: unknown) => ({ type: 'custom', customType: 'shift:wait', data: { note } })
+  const note = { context: 'THE LETTER', dir: 'x', files: [] }
+  const rewound = load(await project(records), 200_000, () => [wait(note), wait(null)])
+  await rewound.on('session_start')
+  await rewound.on('input', { source: 'interactive' })
+  expect(((await rewound.on('before_agent_start', run())) as { message: { content: string } }).message.content).toContain('THE LETTER')
+  const told = load(await project(records), 200_000, () => [wait(note), wait(null), { type: 'custom_message', customType: 'shift' }])
+  await told.on('session_start')
+  await told.on('input', { source: 'interactive' })
+  expect(await told.on('before_agent_start', run())).toBeUndefined()
 })

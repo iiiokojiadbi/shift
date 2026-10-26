@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { DIR, MOD } from './layout'
-import { frontmatter, type Heading, headings, lineCount, lineOutside, type Pin, pinned, unfenced } from './markdown'
+import { frontmatter, type Heading, headings, lineCount, lineOutside, linkTargets, type Pin, pinned, unfenced } from './markdown'
 import { basename, dirname, fromRoot, normalize, resolvePath } from './paths'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
@@ -35,16 +35,6 @@ export function withToc(text: string): string | null {
   if (title === undefined) return null
 
   return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join('\n')
-}
-
-// A link's path as the file is named: `my%20guide.md` is `my guide.md`, `a%23b.md` is `a#b.md`; null when it does
-// not decode.
-function decoded(link: string): string | null {
-  try {
-    return decodeURIComponent(link)
-  } catch {
-    return null
-  }
 }
 
 export function isDoc(path: string, dirs: readonly string[]): boolean {
@@ -83,16 +73,8 @@ export async function brokenLinks(store: Store, root: string, path: string, text
   let bare = text
   if (path.endsWith('.md')) {
     bare = unfenced(text)
-    const links = [
-      ...bare.matchAll(/\]\(<([^<>\n]+)>(?:\s[^)]*)?\)/g),
-      ...bare.matchAll(/\]\(([^)\s<>]+)(?:\s[^)]*)?\)/g),
-      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<([^<>\n]+)>/gm),
-      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*([^\s<>]+)/gm),
-    ]
-    for (const found of links) {
-      const link = (found[1] ?? '').replace(/[?#].*$/, '')
+    for (const { link, file } of linkTargets(text)) {
       if (!link.endsWith('.md') || /^[a-z][\w+.-]*:|^\/\//i.test(link) || link.includes('*')) continue
-      const file = decoded(link)
       targets.set(link, file === null ? null : normalize(file.startsWith('/') ? file.slice(1) : `${dirname(path)}/${file}`))
     }
     bare = bare.replace(/\]\([^)]*\)/g, ']()').replace(/^ {0,3}\[[^\]]+\]:.*$/gm, '')
@@ -294,16 +276,15 @@ export async function docPaths(store: Store, root: string, dirs: readonly string
   return [...paths].sort((a, b) => a.localeCompare(b))
 }
 
-// An entry of `[docs] dirs` as paths from the root are written: `./docs/` is `docs`.
 // Every document the settings name with its stamp, from one listing per folder and no reads: what the next prompt
-// compares to find the documents a script changed, which no Edit or Write told the mod of.
+// compares to find the documents a script changed, which no Edit or Write told the mod of. The map is the mod's own.
 export async function docStamps(project: Project): Promise<Record<string, string>> {
   const { store, root, settings } = project
   const found: Record<string, string> = {}
   if (!settings.enabled) return found
   const walk = async (dir: string): Promise<void> => {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
-      if (name.endsWith('.md')) found[`${dir}/${name}`] = stamp
+      if (name.endsWith('.md') && `${dir}/${name}` !== settings.files.shift) found[`${dir}/${name}`] = stamp
     for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`)
   }
   for (const entry of settings.docs.dirs.map(trimDir)) {
@@ -311,13 +292,14 @@ export async function docStamps(project: Project): Promise<Record<string, string
     else {
       const folder = dirname(entry)
       const stamp = (await store.stamps(folder === '.' ? root : `${root}/${folder}`))[basename(entry)]
-      if (stamp !== undefined) found[entry] = stamp
+      if (stamp !== undefined && entry !== settings.files.shift) found[entry] = stamp
     }
   }
 
   return found
 }
 
+// An entry of `[docs] dirs` as paths from the root are written: `./docs/` is `docs`.
 export function trimDir(dir: string): string {
   return dir.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
 }
@@ -452,7 +434,8 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   }
   const shift = `${root}/${project.settings.files.shift}`
   const current = await store.read(shift)
-  if (docs.length === 0 && current === null) return docs
+  // A file there that cannot be read is not written over: the owner's text in it would be lost.
+  if ((docs.length === 0 || (await store.exists(shift))) && current === null) return docs
   const map = withMap(current, renderMap(docs, settings, missing))
   if (map !== current) await store.write(shift, map)
 

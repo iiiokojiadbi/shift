@@ -46,6 +46,28 @@ export function lineOutside(lines: readonly string[], matches: (line: string) =>
   return lines.findIndex((line, index) => index >= from && !inside.has(index) && matches(line))
 }
 
+// The targets of a text's Markdown links outside code fences — inline, in `<…>` or bare, with or without a title, and
+// reference definitions — each as written, without its `?query` and `#fragment`, and as the file is named:
+// `my%20guide.md` is `my guide.md`, `a%23b.md` is `a#b.md`; null when it does not decode.
+export function linkTargets(text: string): { link: string; file: string | null }[] {
+  const bare = unfenced(text)
+  const found = [
+    ...bare.matchAll(/\]\(<([^<>\n]+)>(?:\s[^)]*)?\)/g),
+    ...bare.matchAll(/\]\(([^)\s<>]+)(?:\s[^)]*)?\)/g),
+    ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<([^<>\n]+)>/gm),
+    ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*([^\s<>]+)/gm),
+  ]
+
+  return found.map(match => {
+    const link = (match[1] ?? '').replace(/[?#].*$/, '')
+    try {
+      return { link, file: decodeURIComponent(link) }
+    } catch {
+      return { link, file: null }
+    }
+  })
+}
+
 // Every heading outside code fences: its level, its title, its line from 1, and the `> ` line right under it.
 export function headings(text: string): Heading[] {
   const lines = text.split('\n')

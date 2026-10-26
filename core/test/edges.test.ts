@@ -126,3 +126,11 @@ test('a note is linked only by a link to it, not by a longer name that starts wi
     'notes/a.md is linked from nowhere',
   )
 })
+
+test('a note is linked by any Markdown link outside code fences', () => {
+  const note = { name: 'a.md', text: '---\ndescription: d\n---\nx' }
+  const check = (task: string) => checkTask({ name: 't', task: `${taskMd('T')}\n${task}`, track: '- [open] #1 x', notes: [note] })
+  expect(check('See [it][n].\n\n[n]: notes/a.md')).toBeNull()
+  expect(check('See [it](notes/a.md "the proof").')).toBeNull()
+  expect(check('```\n[it](notes/a.md)\n```')).toContain('notes/a.md is linked from nowhere')
+})

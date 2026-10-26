@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { afterWrite, atPrompt, type Courier, FRESH_LOOKS, type Looks } from '../src/delivery'
-import { brokenLinks, docOutline, docsReport, MAP_END, MAP_START, settleDocs, withMap, withToc } from '../src/docs'
+import { brokenLinks, docOutline, docStamps, docsReport, MAP_END, MAP_START, refreshDocs, settleDocs, withMap, withToc } from '../src/docs'
 import { checkGlossary } from '../src/glossary'
 import { FRESH_GAUGE, type GaugeKeeper, letGoGauge, offerHint } from '../src/hint'
 import { segment } from '../src/history'
@@ -282,4 +282,23 @@ test('shift_setup names a file the block held that the settings no longer load, 
   ].join('\n\n')
   const report = await setupReport(project, loaded)
   expect(report).toContain("Changed or removed since this session's block was read: `extra.md`.")
+})
+
+test("the map is the mod's own, not a script's change; a map that cannot be read is not written over", async () => {
+  const project = await memoryProject(
+    { [`${R}/settings.toml`]: '[docs]\ndirs = ["docs"]\n[files]\nshift = "docs/map.md"', [`${ROOT}/docs/d.md`]: '# D\n' },
+    ROOT,
+  )
+  await refreshDocs(project)
+  expect(await project.store.read(`${ROOT}/docs/map.md`)).toContain(MAP_START)
+  expect(Object.keys(await docStamps(project))).toEqual(['docs/d.md'])
+
+  const owned = await memoryProject({ [`${R}/settings.toml`]: '[docs]\ndirs = ["docs"]', [`${ROOT}/docs/d.md`]: '# D\n' }, ROOT)
+  await owned.store.write(`${R}/SHIFT.md`, 'OWNER TEXT')
+  const unreadable = {
+    ...owned,
+    store: { ...owned.store, read: async (path: string) => (path.endsWith('SHIFT.md') ? null : owned.store.read(path)) },
+  }
+  await refreshDocs(unreadable)
+  expect(owned.files.get(`${R}/SHIFT.md`)).toBe('OWNER TEXT')
 })

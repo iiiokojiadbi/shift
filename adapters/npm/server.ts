@@ -10,6 +10,7 @@ import {
   beforeTool,
   contentChars,
   countGrowth,
+  dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
@@ -330,6 +331,8 @@ const plugin: Definition = {
           const resumed = await resumeShift(await projectAt(root))
           const words = prompt.text.trim()
           if (resumed.prompt === undefined) return tell(sessionID, resumed.text, 'info')
+          // The newest letter goes now: one waiting for the owner's message is not told again.
+          await dropWaiting(loopOf(sessionID))
           await ctx.session.synthetic({ sessionID, text: resumed.prompt, description: resumed.text, resume: words === '' })
           if (words !== '') await ctx.session.prompt({ sessionID, text: words })
         },

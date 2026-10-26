@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import type { CompactionEntry, CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent'
 import { estimateTokens, findCutPoint, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
-import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, WaitNote } from './core/index'
+import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, Project, WaitNote } from './core/index'
 import {
   addGrowth,
   afterTool,
@@ -12,6 +12,7 @@ import {
   beforeTool,
   contentChars,
   countGrowth,
+  dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
@@ -52,8 +53,8 @@ export default function shift(pi: ExtensionAPI): void {
   let ownerTyped = false
   // false when the project's settings turn the mod off; read at each session start.
   let enabled = true
-  // The doctrine with the tools this project shows; read at each session start, built at the first run without one.
-  let doctrine: string | null = null
+  // The documents' tocs and the map are refreshed at the first run of a session, before anything looks at them.
+  let refreshed = false
   // The records as last seen and the agent's tools running now; what changed before each tool began, by its call.
   let looks: Looks = FRESH_LOOKS
   const outside = new Map<string, Note[]>()
@@ -78,7 +79,7 @@ export default function shift(pi: ExtensionAPI): void {
           loop: loopOf(ctx),
           // pi reads the session's files anew before every run, so its copy is never older than them.
           loaded: async () => null,
-          status: () => gaugeStatus(keeperOf(ctx)),
+          status: () => gaugeStatus(keeperOf(ctx, () => projectAt(ctx.cwd))),
           cannotLetGo: async () => cannotLetGo(ctx),
         })
         if ('deny' in done) throw new Error(done.deny)
@@ -110,9 +111,13 @@ export default function shift(pi: ExtensionAPI): void {
       const resumed = await resumeShift(await projectAt(ctx.cwd))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
+      // The newest letter goes now: one waiting for the owner's message is not told again.
+      await dropWaiting(loopOf(ctx))
       const words = args.trim()
-      pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '' })
-      if (words !== '') pi.sendUserMessage(words)
+      // Typed mid-run, both wait for the run to end.
+      const busy = ctx.isIdle() ? {} : { deliverAs: 'followUp' as const }
+      pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '', ...busy })
+      if (words !== '') pi.sendUserMessage(words, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
     },
   })
 
@@ -121,7 +126,7 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('session_start', async (_event, ctx) => {
     const start = await startSession(await projectAt(ctx.cwd))
     enabled = start.enabled
-    doctrine = start.doctrineBody
+    refreshed = false
     for (const row of start.rows) tell(ctx, row.text, row.level)
     const shown = start.tools.map(tool => tool.name)
     pi.setActiveTools([...pi.getActiveTools().filter(name => !OURS.has(name)), ...shown])
@@ -130,34 +135,45 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // Another branch has its own wait note, or none: a letter of the branch left behind never goes with this one.
+  // Its history too: the gauge is counted anew from the branch.
   pi.on('session_tree', async (_event, ctx) => {
-    if (enabled) loop = { ...loop, note: branchNote(ctx) }
+    if (!enabled) return
+    loop = { ...loop, note: branchNote(ctx) }
+    gauge = FRESH_GAUGE
   })
 
-  // The owner's own input: only a message that starts a run takes the waiting letter with it.
+  // The owner's own input: only a message that starts a run takes the waiting letter with it. An extension's message
+  // comes after any owner input another extension took without a run, so it clears what that left.
   pi.on('input', async (event, _ctx) => {
-    if (!enabled || event.source === 'extension') return
-    if (event.streamingBehavior === undefined) ownerTyped = true
+    if (!enabled) return
+    if (event.source === 'extension') ownerTyped = false
+    else if (event.streamingBehavior === undefined) ownerTyped = true
   })
 
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
-    doctrine ??= sessionDoctrine((await projectAt(ctx.cwd)).settings).doctrineBody
-    event.systemPromptOptions.sections[MOD] = doctrine
-    // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added twice.
-    const loaded = await sessionFiles(await projectAt(ctx.cwd))
+    const loading = projectAt(ctx.cwd)
+    const project = () => loading
+    // The doctrine at the settings' places: a shift may have moved a record.
+    event.systemPromptOptions.sections[MOD] = sessionDoctrine((await loading).settings).doctrineBody
+    // A session's first run refreshes the tocs and the map before the documents' stamps are first looked at.
+    if (!refreshed) await sessionFiles(await loading)
+    refreshed = true
+    // Records changed between runs — by the owner's hand or another session — a hint, and after a wait the letter.
+    const owner = event.messageType === 'user' && ownerTyped
+    if (owner) ownerTyped = false
+    const told = await atPrompt(courierOf(ctx, project), { runStarts: true, owner })
+    if (told.notes.length > 0) await told.delivered()
+    // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added
+    // twice. Read after the notes: a toc a script left stale is written with its note, never silently before it.
+    const loaded = await sessionFiles(await loading, { refresh: false })
     const ours = new Set(loaded.map(file => file.path))
     event.systemPromptOptions.contextFiles = [
       ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
       ...loaded.map(file => ({ path: file.path, content: file.text })),
     ]
-    // Records changed between runs — by the owner's hand or another session — a hint, and after a wait the letter.
-    const owner = event.messageType === 'user' && ownerTyped
-    if (owner) ownerTyped = false
-    const told = await atPrompt(courierOf(ctx), { runStarts: true, owner })
     if (told.notes.length === 0) return
-    await told.delivered()
 
     return { message: { customType: MOD, content: told.notes.join('\n\n'), display: true } }
   })
@@ -166,7 +182,12 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('message_end', async (event, ctx) => {
     if (!enabled) return
     const source = growthSource(event.message)
-    if (source !== null) await countGrowth(keeperOf(ctx), source, messageChars(event.message))
+    if (source !== null)
+      await countGrowth(
+        keeperOf(ctx, () => projectAt(ctx.cwd)),
+        source,
+        messageChars(event.message),
+      )
   })
 
   // Every note to the agent mid-run goes with a tool's result: what changed in the records around a tool of the agent,
@@ -195,6 +216,18 @@ export default function shift(pi: ExtensionAPI): void {
     }
   })
 
+  // A call blocked before it ran has no result: it ends here, so the tools after it still know what runs.
+  pi.on('tool_execution_end', async (event, ctx) => {
+    if (!enabled || !outside.has(event.toolCallId)) return
+    outside.delete(event.toolCallId)
+    await afterTool(courierOf(ctx), [], null)
+  })
+
+  // pi's own let-go at its threshold would go without the letter's Hold: an accepted shift lets go once the run settles.
+  pi.on('session_before_compact', async event => {
+    if (enabled && loop.pending !== null && event.reason === 'threshold') return { cancel: true }
+  })
+
   // The shift lets go once the run has settled: compacting aborts whatever runs, so never from inside the turn.
   pi.on('agent_settled', async (event, ctx) => {
     if (loop.pending === null) return
@@ -207,11 +240,11 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // The notes to the agent over the extension's runtime: the looks at the records, the loop and the gauge.
-  function courierOf(ctx: ExtensionContext): Courier {
+  function courierOf(ctx: ExtensionContext, project: () => Promise<Project> = () => projectAt(ctx.cwd)): Courier {
     return {
       loop: loopOf(ctx),
-      gauge: keeperOf(ctx),
-      project: () => projectAt(ctx.cwd),
+      gauge: keeperOf(ctx, project),
+      project,
       looks: async () => looks,
       updateLooks: async change => {
         looks = change(looks)
@@ -257,7 +290,7 @@ export default function shift(pi: ExtensionAPI): void {
 
   // The gauge in the extension's runtime; the history and the base read from the session. pi compacts by itself once
   // the free room falls under `reserveTokens`.
-  function keeperOf(ctx: ExtensionContext): GaugeKeeper {
+  function keeperOf(ctx: ExtensionContext, project: () => Promise<Project>): GaugeKeeper {
     return {
       read: async () => gauge,
       update: async change => {
@@ -272,7 +305,7 @@ export default function shift(pi: ExtensionAPI): void {
 
         return counted.growth
       },
-      base: async () => shiftBase(await projectAt(ctx.cwd), ctx.sessionManager.getSessionId()),
+      base: async () => shiftBase(await project(), ctx.sessionManager.getSessionId()),
       reading: async () => {
         const usage = ctx.getContextUsage()
         const window = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0
@@ -284,24 +317,28 @@ export default function shift(pi: ExtensionAPI): void {
   }
 }
 
-// pi lets go only of the messages before the cut it finds by keepRecentTokens, counted from the last let-go; with none
-// there — a history no bigger, the cut on its first message — it refuses as "session too small". The same cut is
-// found here, before the shift is accepted.
-// What a let-go summarizes: the conversation, not the system prompt pi records as a message of its own.
-// The wait note of the branch the session stands on: its last wait entry, written whenever the note changes.
+// The wait note of the branch the session stands on: its last wait entry, written whenever the note changes. A note
+// cleared by a message rewound off this branch still waits on it: every clearing is followed by the mod's message.
 function branchNote(ctx: ExtensionContext): WaitNote | null {
-  const last = ctx.sessionManager
-    .getBranch()
-    .filter(entry => entry.type === 'custom' && entry.customType === WAIT_ENTRY)
-    .at(-1)
+  let followed = false
+  for (const entry of ctx.sessionManager.getBranch().toReversed()) {
+    if (entry.type === 'custom_message' && entry.customType === MOD) followed = true
+    if (entry.type !== 'custom' || entry.customType !== WAIT_ENTRY) continue
+    const note = (entry.data as { note: WaitNote | null } | undefined)?.note ?? null
+    if (note !== null || followed) return note
+  }
 
-  return last?.type === 'custom' ? ((last.data as { note: WaitNote | null } | undefined)?.note ?? null) : null
+  return null
 }
 
+// What a let-go summarizes: the conversation, not the system prompt pi records as a message of its own.
 function summarized(entry: SessionEntry): boolean {
   return entry.type === 'message' ? entry.message.role !== 'system' : entry.type === 'custom_message' || entry.type === 'branch_summary'
 }
 
+// pi lets go only of the messages before the cut it finds by keepRecentTokens, counted from the last let-go; with none
+// there — a history no bigger, the cut on its first message — it refuses as "session too small". The same cut is
+// found here, before the shift is accepted.
 function cannotLetGo(ctx: ExtensionContext): string | null {
   const keep = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model).keepRecentTokens
   const branch = ctx.sessionManager.getBranch()
@@ -324,8 +361,10 @@ function tell(ctx: ExtensionContext, row: string, kind: 'info' | 'warning' | 'er
   }
 }
 
-// Who a message came from, as the hint names it; digests of earlier history are not counted.
-function growthSource(message: { role: string; toolName?: string }): string | null {
+// Who a message came from, as the hint names it; digests of earlier history and a shell output the owner kept out of
+// the context are not counted.
+function growthSource(message: { role: string; toolName?: string; excludeFromContext?: boolean }): string | null {
+  if (message.excludeFromContext === true) return null
   if (message.role === 'assistant') return SOURCES.responses
   if (message.role === 'user' || message.role === 'bashExecution') return SOURCES.owner
   if (message.role === 'toolResult') return message.toolName ?? SOURCES.tools
@@ -334,10 +373,15 @@ function growthSource(message: { role: string; toolName?: string }): string | nu
   return SOURCES.attachments
 }
 
-// A shell command the owner ran has its command and output instead of content.
+// A shell command the owner ran has its command and output instead of content; a change of the system prompt carries
+// its text in sections.
 function messageChars(message: object): number {
-  if ('content' in message) return contentChars(message.content)
+  const sections =
+    'sections' in message && typeof message.sections === 'object' && message.sections !== null
+      ? Object.values(message.sections).reduce((sum: number, text) => sum + (typeof text === 'string' ? text.length : 0), 0)
+      : 0
+  if ('content' in message) return contentChars(message.content) + sections
   if ('output' in message && typeof message.output === 'string') return message.output.length
 
-  return 0
+  return sections
 }

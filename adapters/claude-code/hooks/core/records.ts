@@ -24,7 +24,7 @@ import {
   TASK_SECTIONS,
   TASKS,
 } from './layout'
-import { blocks, dated, frontmatter, itemsOf, missingSections, overLimit, quote, sections, title, unfenced } from './markdown'
+import { blocks, dated, frontmatter, itemsOf, linkTargets, missingSections, overLimit, quote, sections, title, unfenced } from './markdown'
 import type { Project } from './project'
 import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
 import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
@@ -209,15 +209,11 @@ function checkOwner(owner: string | null): string | null {
 // A task's notes: each with its description, each linked from track.md or task.md, every link reaching a note. Beside
 // the description a note is free: research, a decision worked out, evidence.
 function checkNotes(where: string, task: string, track: string, notes: TaskFiles['notes']): string | null {
-  // The notes the links reach, as Markdown reads a link: its `#fragment` and `?query` are not the file's, and `%23`
-  // is a `#` in its name.
-  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(<?${NAMES.notes}/([^)\\s<>]+)>?\\)`, 'g'))].map(found => {
-    const target = (found[1] ?? '').replace(/[?#].*$/, '')
-    try {
-      return decodeURIComponent(target)
-    } catch {
-      return target
-    }
+  // The notes the links reach, as Markdown reads a link outside code fences: its `#fragment` and `?query` are not the
+  // file's, and `%23` is a `#` in its name.
+  const linked = linkTargets(`${task}\n${track}`).flatMap(({ file }) => {
+    const path = file?.replace(/^\.\//, '') ?? ''
+    return path.startsWith(`${NAMES.notes}/`) ? [path.slice(NAMES.notes.length + 1)] : []
   })
   for (const note of notes) {
     if ((frontmatter(note.text).get('description') ?? '') === '') {

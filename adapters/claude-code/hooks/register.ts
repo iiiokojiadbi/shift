@@ -6,6 +6,7 @@ import {
   atPrompt,
   beforeTool,
   type Courier,
+  dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
   letGoGauge,
@@ -25,6 +26,7 @@ import {
   startSession,
   TASKS_COMMAND,
   TASKS_DESCRIPTION,
+  TOOL,
   TOOLS,
   tasksView,
   unassistedInstructions,
@@ -132,8 +134,9 @@ export const register: Register = on => {
           cannotLetGo: async () => null,
         })
         .catch((error: unknown) => ({ deny: `${PLUGIN}: ${tool.name} broke (${String(error)}); nothing was let go.` }))
-      // Interrupted while it ran, its turn may have ended already: a shift it held is not made, never one of a later turn.
-      if (next.signal.aborted) $.clock.after(300, () => void handOver($, true))
+      // A shift interrupted while it was accepted: its turn may have ended already, so it is not made, never one of a
+      // later turn.
+      if (tool.name === TOOL && next.signal.aborted && !('deny' in done)) $.clock.after(300, () => void handOver($, true))
 
       return 'deny' in done ? { deny: done.deny } : { result: done.result }
     }).catch((_$, e, next) =>
@@ -147,6 +150,8 @@ export const register: Register = on => {
     const resumed = await resumeShift(await projectOf($))
     const { prompt } = resumed
     if (prompt === undefined) return { text: resumed.text }
+    // The newest letter goes now: one waiting for the owner's message is not told again.
+    await dropWaiting(loopOf($))
     const words = e.args.trim()
     if (words !== '') $.clock.after(100, () => void $.prompt.submit({ text: words, asUser: true }))
     else {

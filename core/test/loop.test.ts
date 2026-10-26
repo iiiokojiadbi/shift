@@ -1,8 +1,19 @@
 import { expect, test } from 'bun:test'
 import { acceptShift } from '../src/flows'
 import { letGoGauge } from '../src/hint'
-import { afterTurn, FRESH_LOOP, holdShift, type LetGoHarness, type Loop, type LoopState, loopHint, waitingNote } from '../src/loop'
+import {
+  afterTurn,
+  dropWaiting,
+  FRESH_LOOP,
+  holdShift,
+  type LetGoHarness,
+  type Loop,
+  type LoopState,
+  loopHint,
+  waitingNote,
+} from '../src/loop'
 import { frontmatter } from '../src/markdown'
+import { NOT_MADE_NOTE } from '../src/texts/prompts'
 import type { Gauge } from '../src/types'
 import { BOARD, LETTER, listWith, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
@@ -192,4 +203,38 @@ test('the owner speaking while a wait shift lets go gets the letter right after 
   await afterTurn(quiet.project, quiet.loop, harness(digest, []), false)
   expect(quiet.kept.state.note?.context).toContain('<letter path=')
   expect(quiet.kept.state.letting).toBeNull()
+})
+
+test('the owner speaking after the turn ends and before the let-go is heard too', async () => {
+  const { project, loop, kept } = await setUp('wait')
+  // The shift is accepted and its turn over, not yet claimed: the owner's message finds no letter.
+  expect(await waitingNote(loop)).toBeNull()
+  expect(kept.state.letting).toEqual({ heard: true })
+  const prompts: string[] = []
+  await afterTurn(project, loop, harness(digest, prompts), false)
+  expect(prompts[0]).toContain('<letter path=')
+  expect(kept.state).toMatchObject({ note: null, letting: null })
+})
+
+test('a delivered letter clears only itself; a newer shift or /unshift drops an older one', async () => {
+  const waiting = await setUp('wait')
+  await afterTurn(waiting.project, waiting.loop, harness(digest), false)
+  const offered = await waitingNote(waiting.loop)
+  // A newer note parked before the older offer is told as delivered stays.
+  const newer = { context: 'NEWER', dir: 'x', files: [] }
+  waiting.kept.state = { ...waiting.kept.state, note: newer }
+  await offered?.delivered()
+  expect(waiting.kept.state.note).toEqual(newer)
+  await dropWaiting(waiting.loop)
+  expect(waiting.kept.state.note).toBeNull()
+
+  // A letter left waiting is older than the next shift's, which continues.
+  const going = await setUp()
+  going.kept.state = { ...going.kept.state, note: { context: 'OLD', dir: 'y', files: [] } }
+  await afterTurn(going.project, going.loop, harness(digest, []), false)
+  expect(going.kept.state.note).toBeNull()
+})
+
+test("a harness's reason reaches the agent in the mod's words", () => {
+  expect(NOT_MADE_NOTE('s', 'Compaction cancelled: nothing to summarize')).toContain('— let-go cancelled: nothing to let go.')
 })

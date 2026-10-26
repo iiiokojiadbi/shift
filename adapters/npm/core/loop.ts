@@ -72,7 +72,7 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   const claim: { shift?: PendingShift | null } = {}
   await loop.update(current => {
     claim.shift = current.pending
-    return current.pending === null ? current : { ...current, pending: null, letting: { heard: false } }
+    return current.pending === null ? current : { ...current, pending: null, letting: { heard: current.letting?.heard === true } }
   })
   const { shift } = claim
   if (shift === undefined || shift === null) return
@@ -121,7 +121,8 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   }
   loop.tell(settled.row, 'info')
   // The shift is settled and written; a turn that does not start is told, not recorded against it, and its letter
-  // waits for the owner's next message as after a wait.
+  // waits for the owner's next message as after a wait. A letter an earlier shift left waiting is older than this one.
+  await dropWaiting(loop)
   await harness.continueWith(settled.prompt).catch(async (error: unknown) => {
     await loop.update(current => ({ ...current, note: settled.note }))
     loop.tell(NOT_CONTINUED(String(error)), 'error')
@@ -159,18 +160,33 @@ async function leave(loop: Loop, harness: LetGoHarness, note: WaitNote): Promise
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed
 // delivery keeps it for the next one.
 export async function waitingNote(loop: Loop): Promise<{ context: string; delivered: () => Promise<void> } | null> {
-  const { note, letting } = await loop.read()
+  const { note, pending, letting } = await loop.read()
   if (note === null) {
-    // The owner spoke while a shift lets the history go: what it leaves for them follows their message.
-    if (letting != null) await loop.update(current => (current.letting == null ? current : { ...current, letting: { heard: true } }))
+    // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
+    // message.
+    if (pending !== null || letting != null)
+      await loop.update(current =>
+        current.pending === null && current.letting == null ? current : { ...current, letting: { heard: true } },
+      )
     return null
   }
 
   return {
     context: note.context,
     delivered: async () => {
-      await loop.update(state => ({ ...state, note: null }))
+      // Only this note: one parked since is newer, and waits for the next message.
+      await loop.update(state => (sameNote(state.note, note) ? { ...state, note: null } : state))
       loop.tell(DELIVERED(note.files, note.dir), 'info')
     },
   }
+}
+
+// A waiting letter delivered another way — by /unshift, or by a newer shift's — is not delivered again.
+export async function dropWaiting(loop: Loop): Promise<void> {
+  await loop.update(current => (current.note === null ? current : { ...current, note: null }))
+}
+
+// Notes compared by value: a harness may keep them serialized.
+function sameNote(a: WaitNote | null, b: WaitNote): boolean {
+  return a !== null && a.dir === b.dir && a.context === b.context
 }

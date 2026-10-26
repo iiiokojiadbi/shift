@@ -172,16 +172,17 @@ async function scripted(courier: Courier): Promise<void> {
     const project = await courier.project()
     const now = await docStamps(project)
     const before = (await courier.looks()).docs
+    const changed = Object.keys(now).filter(path => before?.[path] !== now[path])
+    const removed = Object.keys(before ?? {}).some(path => now[path] === undefined)
+    if (before !== undefined && (changed.length > 0 || removed)) {
+      await courier.updateLooks(current => ({
+        ...current,
+        written: [...(current.written ?? []), ...changed.filter(path => !(current.written ?? []).includes(path))],
+      }))
+      await refreshDocs(project, { tocs: false })
+    }
+    // Remembered once the map follows: a refresh that failed finds the same change at the next look.
     await courier.updateLooks(current => ({ ...current, docs: now }))
-    if (before === undefined) return
-    const changed = Object.keys(now).filter(path => before[path] !== now[path])
-    const removed = Object.keys(before).some(path => now[path] === undefined)
-    if (changed.length === 0 && !removed) return
-    await courier.updateLooks(current => ({
-      ...current,
-      written: [...(current.written ?? []), ...changed.filter(path => !(current.written ?? []).includes(path))],
-    }))
-    await refreshDocs(project, { tocs: false })
   } catch {
     // A look that fails says nothing: the documents are settled at the next one, or at a shift.
   }
