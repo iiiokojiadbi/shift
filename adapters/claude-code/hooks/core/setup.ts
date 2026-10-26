@@ -1,11 +1,11 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { docsReport } from './docs'
 import { sessionFiles, staleLayout } from './flows'
-import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS } from './layout'
+import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS, TASK_LIST } from './layout'
 import { formatK } from './markdown'
 import type { Project } from './project'
 import { checkWork } from './records'
-import { SETTING_KEYS, settingValue } from './settings'
+import { DEFAULT_SETTINGS, SETTING_KEYS, settingValue } from './settings'
 import { readRecords } from './store'
 import { doctrine, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
 import { fileBlock } from './texts/prompts'
@@ -24,17 +24,29 @@ export async function setupReport(project: Project, loaded: string | null): Prom
         : 'It parses.'
   const keys = SETTING_KEYS.map(({ key, since, about }) => {
     const value = settingValue(settings, key)
-    const where = project.set.has(key) ? 'set here' : 'default'
+    const where = project.set.has(key) ? `set here, default ${settingValue(DEFAULT_SETTINGS, key) ?? 'unset'}` : 'default'
 
     return `- \`${tomlKey(key)}\` = ${value ?? 'unset'} — ${where}, since ${since}: ${about}`
   })
 
-  const files = await sessionFiles(project)
+  // Read as they are: a report writes nothing, not even the docs' tocs and map.
+  const files = await sessionFiles(project, { refresh: false })
   const doctrineChars = atPlaces(doctrine(shownTools(settings).map(tool => tool.name)), settings.files).length
-  const stale = loaded === null ? [] : files.filter(file => !loaded.includes(fileBlock(file.path, file.text))).map(file => file.path)
+  const gone = [...(loaded ?? '').matchAll(/^<file path="([^"]+)">$/gm)]
+    .map(found => found[1] ?? '')
+    .filter(path => !files.some(file => file.path === path))
+  const stale = [
+    ...(loaded === null ? [] : files.filter(file => !loaded.includes(fileBlock(file.path, file.text))).map(file => file.path)),
+    ...gone,
+  ]
+  const none = !settings.enabled
+    ? 'None: the mod is off here, `enabled = false`.'
+    : (await staleLayout(project)) !== null
+      ? 'None: the records are in an older layout; the Records section says what to move.'
+      : `None yet: none of ${[settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST].map(path => `\`${path}\``).join(', ')} is here.`
   const block =
     files.length === 0
-      ? 'None: the mod is off here, or the records are in an older layout.'
+      ? none
       : [
           ...files.map(file => `- \`${file.path}\` — ${weight(fileBlock(file.path, file.text).length)}`),
           `- the doctrine, the system prompt's "Shift" section — ${weight(doctrineChars)}`,
@@ -42,7 +54,7 @@ export async function setupReport(project: Project, loaded: string | null): Prom
           '',
           stale.length === 0
             ? "This session's block matches them."
-            : `Changed since this session's block was read: ${stale.map(path => `\`${path}\``).join(', ')}. The block is read at a session's start and after each shift, so the changes reach it after the next shift or in a new session; read the files themselves meanwhile.`,
+            : `Changed or removed since this session's block was read: ${stale.map(path => `\`${path}\``).join(', ')}. The block is read at a session's start and after each shift, so the changes reach it after the next shift or in a new session; read the files themselves meanwhile.`,
         ].join('\n')
 
   return [
@@ -72,9 +84,9 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     `## Files`,
     '',
-    SETUP_LAYOUT,
+    atPlaces(SETUP_LAYOUT, settings.files),
     '',
-    SETUP_MIGRATION,
+    atPlaces(SETUP_MIGRATION, settings.files),
   ].join('\n')
 }
 
@@ -88,7 +100,9 @@ async function recordsState(project: Project): Promise<string> {
   if (work === null) return `No board yet: create ${BOARD} by the sections in ${GUIDE_TOOL} before the first shift.`
   const problem = checkWork(work, null, project)
 
-  return problem === null ? 'They pass every check a shift makes.' : `A shift would refuse them now: ${problem}`
+  return problem === null
+    ? 'They pass every check a shift makes of the records; the letter is checked by the shift itself.'
+    : `A shift would refuse them now: ${problem}`
 }
 
 // What a text costs in the context: its characters and the tokens they come to, roughly.

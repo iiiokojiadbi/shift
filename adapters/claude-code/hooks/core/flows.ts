@@ -454,11 +454,11 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
 }
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md and TASKS.md, with
-// paths from the project's root; none when the mod is off here.
-export async function sessionFiles(project: Project): Promise<SessionFile[]> {
+// paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
+export async function sessionFiles(project: Project, { refresh = true }: { refresh?: boolean } = {}): Promise<SessionFile[]> {
   const { store, root, settings } = project
   if (!settings.enabled || (await staleLayout(project)) !== null) return []
-  await refreshDocs(project)
+  if (refresh) await refreshDocs(project)
   const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 

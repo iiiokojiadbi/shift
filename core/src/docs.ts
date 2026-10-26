@@ -1,6 +1,6 @@
 import { DIR, MOD } from './layout'
 import { frontmatter, type Heading, headings, lineCount, lineOutside, type Pin, pinned, unfenced } from './markdown'
-import { basename, dirname, fromRoot, normalize } from './paths'
+import { basename, dirname, fromRoot, normalize, resolvePath } from './paths'
 import type { Project } from './project'
 import type { DocsSettings } from './settings'
 import type { Store } from './store'
@@ -85,7 +85,8 @@ export async function brokenLinks(store: Store, root: string, path: string, text
     const links = [
       ...bare.matchAll(/\]\(<([^<>\n]+)>(?:\s[^)]*)?\)/g),
       ...bare.matchAll(/\]\(([^)\s<>]+)(?:\s[^)]*)?\)/g),
-      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<?([^\s<>]+)>?/gm),
+      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*<([^<>\n]+)>/gm),
+      ...bare.matchAll(/^ {0,3}\[[^\]]+\]:[ \t]*([^\s<>]+)/gm),
     ]
     for (const found of links) {
       const link = (found[1] ?? '').replace(/[?#].*$/, '')
@@ -234,7 +235,7 @@ const REPORT_DOCS = 10
 // A document's description and its `##` and `###` with line numbers, so the agent reads only the section it needs.
 export async function docOutline({ store, root }: Project, file: string): Promise<string> {
   const path = fromRoot(root, file)
-  const text = await store.read(`${root}/${path}`)
+  const text = await store.read(resolvePath(root, path))
   if (text === null) return `No file at ${path}.`
   const rows = outline(text).map(
     heading =>
@@ -393,9 +394,12 @@ export function withMap(shift: string | null, map: string): string {
   }
   // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
   const lines = shift.split('\n')
-  // The opener as any version of the mod wrote it: the same start and a comment closed on its line.
+  // The opener as any version of the mod wrote it: one comment, the whole line, that starts as the mod's does.
   const opener = `${MAP_START.slice(0, MAP_START.indexOf(' — '))} — `
-  const start = lineOutside(lines, line => line.trim().startsWith(opener) && line.trim().endsWith('-->'))
+  const start = lineOutside(lines, line => {
+    const trimmed = line.trim()
+    return trimmed.startsWith(opener) && trimmed.indexOf('-->') === trimmed.length - 3
+  })
   const end = start === -1 ? -1 : lineOutside(lines, line => line.trim() === MAP_END, start + 1)
   if (end === -1) return `${shift.trimEnd()}\n\n${map}\n`
 

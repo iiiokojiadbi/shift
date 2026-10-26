@@ -116,7 +116,8 @@ export async function readSnapshot(store: Store, base: string, index: string): P
 
 // Shift folder names, oldest first: UTC stamps sort by time, and a second taken twice by its number, -10 after -9.
 export async function shiftNames({ store, root }: Project): Promise<string[]> {
-  const names = await store.list(`${root}/${SHIFTS}`, 'dir')
+  // Only the mod's own folders: one the owner keeps there, a backup, is no shift.
+  const names = (await store.list(`${root}/${SHIFTS}`, 'dir')).filter(name => /^\d{8}-\d{6}(?:-\d+)?$/.test(name))
   const order = (name: string) => {
     const [, stamp = name, n = '1'] = /^(\d{8}-\d{6})(?:-(\d+))?$/.exec(name) ?? []
     return { stamp, n: Number(n) }

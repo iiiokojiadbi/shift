@@ -1,13 +1,17 @@
 import { expect, test } from 'bun:test'
 import { afterWrite, atPrompt, type Courier, FRESH_LOOKS, type Looks } from '../src/delivery'
-import { brokenLinks, docsReport, MAP_END, MAP_START, settleDocs, withMap, withToc } from '../src/docs'
+import { brokenLinks, docOutline, docsReport, MAP_END, MAP_START, settleDocs, withMap, withToc } from '../src/docs'
 import { checkGlossary } from '../src/glossary'
 import { FRESH_GAUGE, type GaugeKeeper, letGoGauge, offerHint } from '../src/hint'
+import { segment } from '../src/history'
 import { FRESH_LOOP, type LoopState } from '../src/loop'
 import { findDate } from '../src/markdown'
+import { parseSettings } from '../src/settings'
+import { setupReport } from '../src/setup'
+import { shiftNames } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import type { Gauge } from '../src/types'
-import { R, ROOT } from './fixtures'
+import { R, ROOT, taskMd, WORK } from './fixtures'
 import { memoryProject, memoryStore } from './memory'
 
 // Cases the review of the documents found: owner text lost to a marker, links checked wrongly, a write left unchecked.
@@ -173,4 +177,45 @@ test("a hint found by a change the harness ran again on a newer gauge is the las
     reading: async () => ({ tokens: 850_000, window: 1_000_000, threshold: undefined }),
   }
   expect(await offerHint(keeper)).toBeNull()
+})
+
+// Cases the review of the plumbing found.
+
+test('settings: a key set twice, an unknown table, an empty item are refused; quoted commas and ./ are paths', () => {
+  expect(parseSettings('enabled = false\nenabled = true')).toContain('set twice')
+  expect(parseSettings('enabled = false\n[enabled]')).toContain('unknown table `[enabled]`')
+  expect(parseSettings('[docs]\ndirs = [,]')).toContain('line 2')
+  expect(parseSettings('[docs]\ndirs = ["docs,old", "x",]')).toMatchObject({ settings: { docs: { dirs: ['docs,old', 'x'] } } })
+  expect(parseSettings('[files]\nowner = "./OWNER.md"')).toMatchObject({ settings: { files: { owner: 'OWNER.md' } } })
+  expect(parseSettings('[docs]\ndirs = ["."]')).toContain('inside the project')
+})
+
+test("shift folders are the mod's names only; a closed item is known by its id when both have one", async () => {
+  const project = await memoryProject({ [`${R}/shifts/20260102-030405/about.md`]: 'x', [`${R}/shifts/backup/letter.md`]: 'old' }, ROOT)
+  expect(await shiftNames(project)).toEqual(['20260102-030405'])
+  const work = (track: string) => ({ ...WORK, tasks: [{ name: 't', task: taskMd('T'), track, notes: [] }] })
+  expect(segment({ work: work('- [done] #3 deploy'), index: null }, { work: work('- [done] #1 deploy'), index: null }).done).toEqual([
+    't: #3 deploy',
+  ])
+})
+
+test("the map's opener is one comment; a reference may sit in angle brackets; an outline reads an absolute path", async () => {
+  const shift = `# Shift\n${MAP_START} explained <!-- note -->\n\nOWNER RULE\n\n${MAP_START}\nold\n${MAP_END}\n`
+  expect(withMap(shift, `${MAP_START}\nnew\n${MAP_END}`)).toContain('OWNER RULE')
+  const store = memoryStore({})
+  expect(await brokenLinks(store, ROOT, 'docs/a.md', '[x][r]\n\n[r]: <my guide.md>', ['docs'])).toEqual(['my guide.md'])
+  const project = await memoryProject({ '/elsewhere/guide.md': '# G\n\n## One\n' }, ROOT)
+  expect(await docOutline(project, '/elsewhere/guide.md')).toContain('One')
+})
+
+test('shift_setup writes nothing, names what is missing, and moves its paths where the settings put them', async () => {
+  const doc = '---\ndescription: d\n---\n# D\n\n## One\n'
+  const project = await memoryProject(
+    { [`${R}/settings.toml`]: '[docs]\ntoc = true\n[files]\nowner = "OWNER.md"', [`${ROOT}/docs/d.md`]: doc },
+    ROOT,
+  )
+  const report = await setupReport(project, null)
+  expect(await project.store.read(`${ROOT}/docs/d.md`)).toBe(doc)
+  expect(report).toContain('None yet: none of')
+  expect(report).toContain('→ `OWNER.md`, renamed as it is')
 })

@@ -66,7 +66,7 @@ Whether knowledge goes into the project's own docs or stays local is the owner's
 
 ## Settings
 
-`settings.toml` is the owner's, optional, a flat subset of TOML. A missing file or key is the default; an unknown key or a bad value is named, leaves the mod on and refuses a shift until fixed — a typo must not switch the mod off silently. `shift_setup` lists every key with its value here, its default and the version it came in; the keys themselves are rows of `SETTING_KEYS`.
+`settings.toml` is the owner's, optional, a flat subset of TOML. A missing file or key is the default; an unknown key or table, a key set twice or a bad value is named, leaves the mod on and refuses a shift until fixed — a typo must not switch the mod off silently. Paths are from the project's root: `./OWNER.md` is `OWNER.md`, and the root itself is no docs folder. `shift_setup` lists every key with its value here, its default and the version it came in, and writes nothing — not even the docs' tocs and map; the keys themselves are rows of `SETTING_KEYS`.
 
 `.shift/` is the agent's own, with no git of its own. Whether the project's git takes it in is the owner's choice (`commit`); by default the mod adds it to the repository's local exclude file.
 

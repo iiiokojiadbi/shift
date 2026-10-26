@@ -1,6 +1,6 @@
 import { DOCS_MAP_MAX_CHARS, DOCS_PINNED_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
 import { quote } from './markdown'
-import { isInside } from './paths'
+import { isInside, normalize } from './paths'
 
 // The owner's settings for one project; the agent does not edit them.
 export type Settings = {
@@ -168,6 +168,8 @@ export function parseSettings(text: string): ParsedSettings | string {
     if (line === '') continue
     const header = /^\[([A-Za-z0-9_.-]+)\]$/.exec(line)
     if (header !== null) {
+      if (!TABLES.has(header[1] ?? ''))
+        return `${SETTINGS}, line ${index + 1}: unknown table \`[${header[1]}]\`; the tables are ${[...TABLES].map(each => `\`[${each}]\``).join(', ')}.`
       table = `${header[1]}.`
       continue
     }
@@ -179,10 +181,12 @@ export function parseSettings(text: string): ParsedSettings | string {
     const key = SETTING_KEYS.find(each => each.key === name)
     if (key === undefined)
       return `${SETTINGS}: unknown key \`${name}\`; the keys are ${SETTING_KEYS.map(each => `\`${each.key}\``).join(', ')}.`
-    const wanted = KINDS[key.kind](value)
+    if (set.has(name)) return `${SETTINGS}, line ${index + 1}: \`${name}\` is set twice; keep one.`
+    const given = PATH_KINDS.has(key.kind) ? asPaths(value) : value
+    const wanted = KINDS[key.kind](given)
     if (wanted !== null) return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(value)}.`
     const [holder, field] = slot(settings, key)
-    holder[field] = value
+    holder[field] = given
     set.add(name)
   }
 
@@ -197,6 +201,19 @@ export function settingValue(settings: Settings, key: string): string | null {
   const value = holder[field]
 
   return value === null || value === undefined ? null : JSON.stringify(value).replace(/","/g, '", "')
+}
+
+// The tables the keys live in: a header naming anything else is a mistake.
+const TABLES = new Set(SETTING_KEYS.flatMap(({ key }) => (key.includes('.') ? [key.slice(0, key.indexOf('.'))] : [])))
+
+// Paths as the mod writes them, from the root: `./OWNER.md` is `OWNER.md`, `.` the root itself (no file or folder),
+// a path that climbs out left as given for the check to refuse.
+const PATH_KINDS = new Set<string>(['path', 'files', 'docs'])
+
+function asPaths(value: Value): Value {
+  const one = (path: string) => (path.startsWith('/') ? path : (normalize(path) ?? path))
+
+  return typeof value === 'string' ? one(value) : Array.isArray(value) ? value.map(one) : value
 }
 
 function withoutComment(line: string): string {
@@ -218,17 +235,29 @@ function tomlValue(raw: string): Value | undefined {
   if (value === 'false') return false
   if (/^[+-]?\d+(\.\d+)?$/.test(value)) return Number(value)
   const list = /^\[(.*)\]$/.exec(value)
-  if (list !== null) {
-    const items = (list[1] ?? '')
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => item !== '')
-      .map(quoted)
-
-    return items.every(item => item !== undefined) ? (items as string[]) : undefined
-  }
+  if (list !== null) return strings(list[1] ?? '')
 
   return quoted(value)
+}
+
+// The strings of a one-line array, each quoted, commas between them and one allowed after the last; undefined for
+// anything else, such as `[,]`. A comma inside quotes is part of its string.
+function strings(inside: string): string[] | undefined {
+  const items: string[] = []
+  const item = /\s*("[^"\\]*"|'[^']*')\s*(,|$)/y
+  let at = 0
+  while (at < inside.length && inside.slice(at).trim() !== '') {
+    item.lastIndex = at
+    const found = item.exec(inside)
+    if (found === null) return undefined
+    const value = quoted(found[1] ?? '')
+    if (value === undefined) return undefined
+    items.push(value)
+    at = item.lastIndex
+    if (found[2] === '' && at < inside.length) return undefined
+  }
+
+  return items
 }
 
 function quoted(value: string): string | undefined {

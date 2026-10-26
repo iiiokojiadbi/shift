@@ -19,20 +19,16 @@ export function shiftDir(root: string, ms: number): string {
 // line of the index the same task by its folder: a closed item renamed, or an archived task's line reworded, is no
 // new work.
 export function segment(now: Snapshot, previous: Snapshot | null): Segment {
-  const closedBefore = new Map<string, Set<string>>()
+  const closedBefore = new Map<string, Item[]>()
   for (const task of previous?.work.tasks ?? []) {
     closedBefore.set(
       task.name,
-      new Set(
-        itemsOf(task.track ?? '')
-          .filter(i => CLOSED.has(i.status))
-          .flatMap(itemKeys),
-      ),
+      itemsOf(task.track ?? '').filter(i => CLOSED.has(i.status)),
     )
   }
   const fresh = now.work.tasks.flatMap(task =>
     itemsOf(task.track ?? '')
-      .filter(item => CLOSED.has(item.status) && !itemKeys(item).some(key => closedBefore.get(task.name)?.has(key) ?? false))
+      .filter(item => CLOSED.has(item.status) && !(closedBefore.get(task.name) ?? []).some(before => sameItem(before, item)))
       .map(item => ({ status: item.status, text: `${task.name}: ${item.rest}` })),
   )
   const indexed = new Set(itemsOf(previous?.index ?? '').map(archivedKey))
@@ -47,9 +43,9 @@ export function segment(now: Snapshot, previous: Snapshot | null): Segment {
   }
 }
 
-// An item is known by its id, and by its name for a track numbered only since.
-function itemKeys(item: Item): string[] {
-  return item.id === null ? [`name ${item.name}`] : [`#${item.id}`, `name ${item.name}`]
+// An item is known by its id; by its name only where one of the two has none — a track numbered since.
+function sameItem(before: Item, now: Item): boolean {
+  return before.id !== null && now.id !== null ? before.id === now.id : before.name === now.name
 }
 
 // An index line by its task's folder, `[title](name/)`; the whole line when it links none.

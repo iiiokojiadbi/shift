@@ -135,7 +135,7 @@ test('the setup report: every key with its value here and its version, and which
     [`${R}/TASKS.md`]: 'none',
   })
   const fresh = await setupReport(await at(store), null)
-  expect(fresh).toContain('- `[docs] toc` = true — set here, since 0.5.0:')
+  expect(fresh).toContain('- `[docs] toc` = true — set here, default false, since 0.5.0:')
   expect(fresh).toContain('- `[docs] max_lines` = unset — default, since 0.5.0:')
   expect(fresh).toContain('- `enabled` = true — default, since 0.2.9:')
   // OWNER.md's block: its tag and its text.
@@ -149,12 +149,17 @@ test('the setup report: every key with its value here and its version, and which
 
   const loaded = renderSessionFiles(await sessionFiles(await at(store)))
   store.files.set(`${R}/OWNER.md`, '# Owner decisions\n\n## Scope\n\n- new')
-  expect(await setupReport(await at(store), loaded)).toContain("Changed since this session's block was read: `.shift/OWNER.md`.")
+  expect(await setupReport(await at(store), loaded)).toContain("Changed or removed since this session's block was read: `.shift/OWNER.md`.")
+  store.files.delete(`${R}/OWNER.md`)
+  expect(await setupReport(await at(store), loaded)).toContain("Changed or removed since this session's block was read: `.shift/OWNER.md`.")
+  store.files.set(`${R}/OWNER.md`, '# Owner decisions\n\n## Scope\n\n- new')
   store.files.set(`${R}/board.md`, '## Goal\n\nthe mod')
   expect(await setupReport(await at(store), null)).toContain('## Records\n\nA shift would refuse them now: The board lacks sections')
   store.files.set(`${R}/board.md`, '## Goal\n\nthe mod\n\n## Decisions\n\nnone\n\n## Dead ends\n\nnone')
   store.files.set(`${R}/TASKS.md`, '# Tasks\n\nnone')
-  expect(await setupReport(await at(store), null)).toContain('## Records\n\nThey pass every check a shift makes.')
+  expect(await setupReport(await at(store), null)).toContain(
+    '## Records\n\nThey pass every check a shift makes of the records; the letter is checked by the shift itself.',
+  )
   store.files.set(SETTINGS, 'enabled = maybe')
   expect(await setupReport(await at(store), null)).toContain('It does not parse')
 })

@@ -217,7 +217,7 @@ export function resumePrompt(letter: string, back: HandedBack, outcome: string |
     `You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${
       outcome === null
         ? ''
-        : ` That shift did not finish — "${outcome}": the letter and the records are as they were when it was accepted, the work after it, if any, only on disk.`
+        : ` That shift did not finish — "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`
     }`,
     letter,
     back,

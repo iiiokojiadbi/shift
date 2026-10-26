@@ -521,7 +521,7 @@ test("a resumed or cleared session reads the session's files again; shift_setup 
   files.set('/proj/.shift/OWNER.md', '# Owner decisions\n\n## Scope\n\n- NEW RULE')
   expect(await compose()).not.toContain('NEW RULE')
   expect(String((await $.tool.call({ tool: 'mcp__shift__shift_setup' })).result)).toContain(
-    "Changed since this session's block was read: `.shift/OWNER.md`.",
+    "Changed or removed since this session's block was read: `.shift/OWNER.md`.",
   )
 
   session = 'two'
