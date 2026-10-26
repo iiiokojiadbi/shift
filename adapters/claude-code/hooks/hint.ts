@@ -6,19 +6,20 @@ import { projectOf } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
-const threshold = atom({ plugin: 'shift', key: 'threshold' } as const, null)
+const limit = atom({ plugin: 'shift', key: 'limit' } as const, null)
 
-// The harness's own threshold, read once per process at the first reading: the breakdown that names it is an estimate
+// The harness's own threshold, read once per window at the first reading: the breakdown that names it is an estimate
 // over everything, so not every time. Read only sometimes — once the window was half full, or when asked — it left a
 // restarted process stepping by the window where the hint before it had stepped by the threshold, and the hint came twice.
-async function compactLimit($: EngineInterface, window: number): Promise<number> {
-  const known: number | null = await read($, threshold)
-  if (known !== null) return known
+// A model of another window is read anew; with the harness's own let-go off there is none, and the window stands for it.
+async function compactLimit($: EngineInterface, window: number): Promise<number | undefined> {
+  const known: { window: number; limit: number | null } | null = await read($, limit)
+  if (known !== null && known.window === window) return known.limit ?? undefined
   const { breakdown } = (await $.session.usage({ breakdown: 'summary' })).context
-  const limit = breakdown?.autoCompactThreshold ?? window
-  await update($, threshold, () => limit)
+  const found = breakdown === undefined ? window : breakdown.isAutoCompactEnabled ? (breakdown.autoCompactThreshold ?? window) : null
+  await update($, limit, () => ({ window, limit: found }))
 
-  return limit
+  return found ?? undefined
 }
 
 // What a row added to the stretch's history, by where it came from.

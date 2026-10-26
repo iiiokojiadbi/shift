@@ -174,3 +174,22 @@ test('two ends of one turn let go once; a fill that cannot be read does not stop
   expect(letGoes).toBe(1)
   expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toStartWith('shifted (')
 })
+
+test('the owner speaking while a wait shift lets go gets the letter right after their message', async () => {
+  const { project, loop, kept } = await setUp('wait')
+  const prompts: string[] = []
+  const during: LetGoHarness['letGo'] = async instructions => {
+    // The owner's message comes in while the history is let go: no letter yet.
+    expect(await waitingNote(loop)).toBeNull()
+    return digest(instructions)
+  }
+  await afterTurn(project, loop, harness(during, prompts), false)
+  expect(prompts).toHaveLength(1)
+  expect(prompts[0]).toContain('<letter path=')
+  expect(kept.state).toMatchObject({ note: null, letting: null })
+
+  const quiet = await setUp('wait')
+  await afterTurn(quiet.project, quiet.loop, harness(digest, []), false)
+  expect(quiet.kept.state.note?.context).toContain('<letter path=')
+  expect(quiet.kept.state.letting).toBeNull()
+})

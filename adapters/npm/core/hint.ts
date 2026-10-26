@@ -140,7 +140,7 @@ export function renderStatus(current: Gauge, { tokens, window, threshold }: Read
   const limit = threshold ?? window
   const final = finalAt(limit)
   const lines = [
-    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? 'the harness threshold is not read yet, the window stands for it' : `the harness lets the history go by itself at ${formatK(threshold)}`}.`,
+    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? 'the harness lets nothing go by itself, or its threshold is not read yet: the window stands for it' : `the harness lets the history go by itself at ${formatK(threshold)}`}.`,
   ]
   if (gauge.base !== null) lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`)
   if (tokens >= final) lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`)

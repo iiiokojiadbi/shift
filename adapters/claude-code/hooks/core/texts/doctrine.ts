@@ -317,35 +317,42 @@ The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<t
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
 
+// The tree's rows: the prefix, the name, padded to its level's column, and what it is.
+const row = (prefix: string, name: string, width: number, what: string) => `${prefix}${name.padEnd(width)}${what}`
+
+const LAYOUT_TREE = [
+  `${DIR}/`,
+  row('├── ', NAMES.board, 18, 'the board — the goal, project-wide decisions and dead ends'),
+  row('├── ', NAMES.taskList, 18, 'the open tasks, what you do now, their links — every session'),
+  row('├── ', NAMES.owner, 18, "the owner's decisions in force for the whole project — every session"),
+  row('├── ', NAMES.glossary, 18, "the project's own words — every session"),
+  row('├── ', NAMES.shift, 18, 'how the project keeps its knowledge, and the map of its docs — every session'),
+  row('├── ', NAMES.settings, 18, "the owner's settings, optional — above"),
+  row('├── ', NAMES.letter, 18, 'the letter to yourself — written anew before every shift'),
+  row('├── ', `${NAMES.knowledge}/`, 18, 'traps, lessons, commands, facts — read on demand'),
+  '│   └── <kind>[-<topic>].md',
+  `├── ${NAMES.tasks}/`,
+  '│   └── <name>/',
+  row('│       ├── ', NAMES.task, 10, 'what the task is, its decisions and dead ends'),
+  row('│       ├── ', NAMES.track, 10, "the task's tracker"),
+  row('│       └── ', `${NAMES.notes}/`, 10, `notes on its items, each linked from ${NAMES.track} or ${NAMES.task}`),
+  row('├── ', `${NAMES.archive}/`, 18, `written by ${ARCHIVE_TOOL}; do not edit`),
+  row('│   ├── ', NAMES.index, 14, 'one line per archived task'),
+  row('│   └── ', '<name>/', 14, "the task's folder as it was"),
+  row('└── ', `${NAMES.shifts}/`, 18, 'history, written by the mod; do not edit'),
+  '    └── <YYYYMMDD-hhmmss UTC>/',
+  row('        ├── ', NAMES.about, 14, `the shift in brief — its structure is in ${GUIDE_TOOL}`),
+  row('        ├── ', NAMES.letter, 14, 'a copy of the letter'),
+  row('        ├── ', NAMES.board, 14, 'a snapshot of the board'),
+  row('        ├── ', `${[NAMES.taskList, NAMES.owner, NAMES.glossary, NAMES.shift, NAMES.settings].join(', ')}`, 0, '   snapshots'),
+  row('        ├── ', NAMES.index, 14, 'a snapshot of the archive index'),
+  row('        ├── ', `${NAMES.tasks}/`, 14, 'snapshots of the open tasks'),
+  row('        ├── ', `${NAMES.knowledge}/`, 14, 'a snapshot of the knowledge'),
+  row('        └── ', NAMES.summary, 14, 'what stayed in memory after the shift'),
+].join('\n')
+
 export const SETUP_LAYOUT = `\`\`\`
-${DIR}/
-├── board.md          the board — the goal, project-wide decisions and dead ends
-├── TASKS.md          the open tasks, what you do now, their links — every session
-├── OWNER.md          the owner's decisions in force for the whole project — every session
-├── GLOSSARY.md       the project's own words — every session
-├── SHIFT.md          how the project keeps its knowledge, and the map of its docs — every session
-├── settings.toml     the owner's settings, optional — above
-├── letter.md         the letter to yourself — written anew before every shift
-├── knowledge/        traps, lessons, commands, facts — read on demand
-│   └── <kind>[-<topic>].md
-├── tasks/
-│   └── <name>/
-│       ├── task.md   what the task is, its decisions and dead ends
-│       ├── track.md  the task's tracker
-│       └── ${NAMES.notes}/    notes on its items, each linked from track.md or task.md
-├── archive/          written by ${ARCHIVE_TOOL}; do not edit
-│   ├── index.md      one line per archived task
-│   └── <name>/       the task's folder as it was
-└── shifts/           history, written by the mod; do not edit
-    └── <YYYYMMDD-hhmmss UTC>/
-        ├── about.md      the shift in brief — its structure is in ${GUIDE_TOOL}
-        ├── letter.md     a copy of the letter
-        ├── board.md      a snapshot of the board
-        ├── TASKS.md, OWNER.md, GLOSSARY.md, SHIFT.md, settings.toml   snapshots
-        ├── index.md      a snapshot of the archive index
-        ├── tasks/        snapshots of the open tasks
-        ├── knowledge/    a snapshot of the knowledge
-        └── summary.md    what stayed in memory after the shift
+${LAYOUT_TREE}
 \`\`\`
 
 \`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` above); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`

@@ -18,6 +18,9 @@ export type PendingShift = {
 
 export type Looks = { seen: Record<string, string> | null; running: number; written?: readonly string[]; docs?: Record<string, string> }
 
+// A let-go in flight, and whether the owner spoke during it.
+export type LetGo = { heard: boolean }
+
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }
 
@@ -42,7 +45,14 @@ declare module 'claude-code' {
       continues?: string[]
     }
     mcp__shift__task_archive: { name: string; outcome: 'done' | 'dropped'; about: string }
-    mcp__shift__task_track: { task: string; id?: number; item?: string; status: string; note?: string }
+    mcp__shift__task_track: {
+      task: string
+      id?: number
+      item?: string
+      status?: string
+      note?: string
+      items?: { id?: number; item?: string; status: string; note?: string }[]
+    }
     mcp__shift__doc_outline: { path: string }
     mcp__shift__docs_mentioning: { file: string }
   }
@@ -51,10 +61,13 @@ declare module 'claude-code' {
     shift: {
       pending: PendingShift | null
       waitNote: WaitNote | null
+      // A let-go in flight: the owner's message during it finds no letter yet, so the letter follows it.
+      letting: LetGo | null
       // true from a bare /unshift until its own prompt goes, or the owner's message comes first and makes it needless.
       resumeKick: boolean
       gauge: Gauge
-      threshold: number | null
+      // The harness's own let-go threshold and the window it was read for; a null limit when it lets nothing go by itself.
+      limit: { window: number; limit: number | null } | null
       // false when the project's settings turn the mod off.
       enabled: boolean
       // The doctrine for the system prompt with the tools this project shows, set at the session's start.

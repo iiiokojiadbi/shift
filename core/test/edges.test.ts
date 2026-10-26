@@ -115,6 +115,14 @@ test('after names an archived task only; a note may have # in its name; a table 
   const list = '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n  - after: [b](tasks/b/)\n- [in progress] [b](tasks/b/) — b\n'
   expect(checkTaskList(list, ['a', 'b'], [])).toContain('write "needs:"')
   const note = { name: 'proof#1.md', text: '---\ndescription: proof\n---\nx' }
-  expect(checkTask({ name: 't', task: taskMd('T'), track: '- [open] #1 x — [it](notes/proof#1.md)', notes: [note] })).toBeNull()
+  expect(checkTask({ name: 't', task: taskMd('T'), track: '- [open] #1 x — [it](notes/proof%231.md)', notes: [note] })).toBeNull()
   expect(parseSettings('[docs]\ntoc = true\n[docs]\nmax_lines = 9')).toContain('opened twice')
+})
+
+test('a note is linked only by a link to it, not by a longer name that starts with it', () => {
+  const note = (name: string) => ({ name, text: '---\ndescription: d\n---\nx' })
+  const track = '- [open] #1 x — [more](notes/a.md.more.md)'
+  expect(checkTask({ name: 't', task: taskMd('T'), track, notes: [note('a.md'), note('a.md.more.md')] })).toContain(
+    'notes/a.md is linked from nowhere',
+  )
 })

@@ -16,6 +16,9 @@ export type LoopState = {
   pending: PendingShift | null
   // The letter and the records waiting for the owner's next message.
   note: WaitNote | null
+  // A let-go in flight, and whether the owner spoke during it: their message found no letter yet, so the one the
+  // shift then leaves for them is sent after it rather than kept for a message they already sent.
+  letting?: { heard: boolean } | null
 }
 
 export type Level = 'info' | 'warning' | 'error'
@@ -69,10 +72,18 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
   const claim: { shift?: PendingShift | null } = {}
   await loop.update(current => {
     claim.shift = current.pending
-    return current.pending === null ? current : { ...current, pending: null }
+    return current.pending === null ? current : { ...current, pending: null, letting: { heard: false } }
   })
   const { shift } = claim
   if (shift === undefined || shift === null) return
+  try {
+    await letGoShift(project, loop, harness, shift, aborted)
+  } finally {
+    await loop.update(current => (current.letting == null ? current : { ...current, letting: null }))
+  }
+}
+
+async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, shift: PendingShift, aborted: boolean): Promise<void> {
   const before = await harness.fill().catch(() => undefined)
   const name = basename(shift.dir)
   if (aborted) {
@@ -104,9 +115,8 @@ export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarn
     return
   }
   if (settled.after === 'wait') {
-    const { note } = settled
-    await loop.update(current => ({ ...current, note }))
     loop.tell(settled.row, 'info')
+    await leave(loop, harness, settled.note)
     return
   }
   loop.tell(settled.row, 'info')
@@ -128,14 +138,33 @@ async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift,
     })
     return
   }
-  await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
+  await leave(loop, harness, { context, dir: shift.dir, files: [FAILURE_NOTE] })
+}
+
+// A note for the owner's next message — or, when the owner already spoke while the history was let go, sent after
+// that message at once; kept for the next one if it does not go.
+async function leave(loop: Loop, harness: LetGoHarness, note: WaitNote): Promise<void> {
+  const heard: { now?: boolean } = {}
+  await loop.update(current => {
+    heard.now = current.letting?.heard === true
+    return heard.now ? { ...current, letting: null } : { ...current, note, letting: null }
+  })
+  if (heard.now !== true) return
+  await harness.continueWith(note.context).catch(async (error: unknown) => {
+    await loop.update(current => ({ ...current, note }))
+    loop.tell(NOT_CONTINUED(String(error), note.files.includes(FAILURE_NOTE) ? FAILURE_NOTE : undefined), 'error')
+  })
 }
 
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed
 // delivery keeps it for the next one.
 export async function waitingNote(loop: Loop): Promise<{ context: string; delivered: () => Promise<void> } | null> {
-  const { note } = await loop.read()
-  if (note === null) return null
+  const { note, letting } = await loop.read()
+  if (note === null) {
+    // The owner spoke while a shift lets the history go: what it leaves for them follows their message.
+    if (letting != null) await loop.update(current => (current.letting == null ? current : { ...current, letting: { heard: true } }))
+    return null
+  }
 
   return {
     context: note.context,

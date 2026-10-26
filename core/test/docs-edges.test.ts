@@ -269,3 +269,17 @@ test('a document a script changed gets its toc with the next prompt, once', asyn
   expect(await project.store.read(`${ROOT}/docs/d.md`)).toContain('<!-- toc -->\n- One\n- Two\n<!-- /toc -->')
   expect((await atPrompt(courier, { runStarts: true, owner: true })).notes).toEqual([])
 })
+
+test('shift_setup names a file the block held that the settings no longer load, and no example inside a record', async () => {
+  const owner = '# Owner decisions\n\n```\n<file path=".shift/GLOSSARY.md">\n```\n'
+  const project = await memoryProject({ [`${R}/OWNER.md`]: owner, [`${R}/TASKS.md`]: 'none', [`${ROOT}/extra.md`]: 'x' }, ROOT)
+  const loaded = [
+    '<shift note="loaded">',
+    `<file path=".shift/OWNER.md">\n${owner.trim()}\n</file>`,
+    '<file path=".shift/TASKS.md">\nnone\n</file>',
+    '<file path="extra.md">\nx\n</file>',
+    '</shift>',
+  ].join('\n\n')
+  const report = await setupReport(project, loaded)
+  expect(report).toContain("Changed or removed since this session's block was read: `extra.md`.")
+})

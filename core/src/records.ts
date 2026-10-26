@@ -208,20 +208,25 @@ function checkOwner(owner: string | null): string | null {
 // A task's notes: each with its description, each linked from track.md or task.md, every link reaching a note. Beside
 // the description a note is free: research, a decision worked out, evidence.
 function checkNotes(where: string, task: string, track: string, notes: TaskFiles['notes']): string | null {
+  // The notes the links reach, as Markdown reads a link: its `#fragment` and `?query` are not the file's, and `%23`
+  // is a `#` in its name.
+  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(<?${NAMES.notes}/([^)\\s<>]+)>?\\)`, 'g'))].map(found => {
+    const target = (found[1] ?? '').replace(/[?#].*$/, '')
+    try {
+      return decodeURIComponent(target)
+    } catch {
+      return target
+    }
+  })
   for (const note of notes) {
     if ((frontmatter(note.text).get('description') ?? '') === '') {
       return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`
     }
-    if (!`${task}\n${track}`.includes(`${NAMES.notes}/${note.name}`)) {
-      return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in track.md, or from task.md, as [what it holds](${NAMES.notes}/${note.name}).`
+    if (!linked.includes(note.name)) {
+      return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in ${NAMES.track}, or from ${NAMES.task}, as [what it holds](${NAMES.notes}/${encodeURIComponent(note.name)}).`
     }
   }
   const names = new Set(notes.map(note => note.name))
-  // A link's `#fragment` is not part of the note's name, unless a note is named so.
-  const linked = [...`${task}\n${track}`.matchAll(new RegExp(`\\]\\(${NAMES.notes}/([^)\\s]+)\\)`, 'g'))].map(found => {
-    const target = found[1] ?? ''
-    return names.has(target) ? target : target.replace(/#.*$/, '')
-  })
   const missing = linked.filter(name => !names.has(name))
 
   return missing.length === 0

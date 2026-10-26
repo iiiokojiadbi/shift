@@ -65,8 +65,15 @@ export const register: Register = on => {
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
+    // A resume, a /clear or a branch resets the state without a session start, and a new root is another project:
+    // the switch, the doctrine and the files are read again for what runs now.
+    if ((await read($, filesSession)) !== (await sessionKey($))) {
+      const project = await projectOf($)
+      await update($, enabled, () => project.settings.enabled)
+      await update($, doctrineText, () => sessionDoctrine(project.settings).doctrine)
+      await loadFiles($, project)
+    }
     if (!(await read($, enabled))) return composed
-    if ((await read($, filesSession)) !== (await $.session.id())) await loadFiles($, await projectOf($))
     const loaded: string | null = await read($, files)
     // A state kept by an older version of the mod has no doctrine yet.
     const text: string = (await read($, doctrineText)) ?? sessionDoctrine((await projectOf($)).settings).doctrine
@@ -96,7 +103,12 @@ export const register: Register = on => {
     const written = (e.tool === 'Edit' || e.tool === 'Write') && done.deny === undefined && done.isError !== true ? path : undefined
     if (!main && written !== undefined) await afterWrite(courier, written)
     const notes = main
-      ? await afterTool(courier, before, { own: e.tool.startsWith(`mcp__${PLUGIN}__`), readOnly: done.isReadOnly === true, written })
+      ? await afterTool(courier, before, {
+          own: e.tool.startsWith(`mcp__${PLUGIN}__`),
+          // A subagent's tool writes as the agent's own: the call that ran it is never read-only.
+          readOnly: done.isReadOnly === true && !SPAWNS.has(e.tool),
+          written,
+        })
       : []
     if (notes.length === 0) return done
     if (done.deny !== undefined) return { ...done, deny: [done.deny, ...notes].join('\n\n') }
@@ -106,17 +118,22 @@ export const register: Register = on => {
 
   // Every tool of the table; a tool the project does not show is never registered, so never called.
   for (const tool of TOOLS) {
-    on('tool.call', { tool: `mcp__${PLUGIN}__${tool.name}` as 'mcp__shift__shift' }, async ($, e) => {
-      const done = await tool.run(e as unknown as Record<string, unknown>, {
-        project: () => projectOf($),
-        sessionId: () => $.session.id(),
-        now: () => $.clock.now(),
-        subagent: e.agentId !== undefined,
-        loop: loopOf($),
-        loaded: () => read($, files),
-        status: () => statusText($),
-        cannotLetGo: async () => null,
-      })
+    on('tool.call', { tool: `mcp__${PLUGIN}__${tool.name}` as 'mcp__shift__shift' }, async ($, e, next) => {
+      // A tool that throws is refused here: the mod's catch of this event answers for every hook of it, and passes on.
+      const done = await tool
+        .run(e as unknown as Record<string, unknown>, {
+          project: () => projectOf($),
+          sessionId: () => $.session.id(),
+          now: () => $.clock.now(),
+          subagent: e.agentId !== undefined,
+          loop: loopOf($),
+          loaded: () => read($, files),
+          status: () => statusText($),
+          cannotLetGo: async () => null,
+        })
+        .catch((error: unknown) => ({ deny: `${PLUGIN}: ${tool.name} broke (${String(error)}); nothing was let go.` }))
+      // Interrupted while it ran, its turn may have ended already: a shift it held is not made, never one of a later turn.
+      if (next.signal.aborted) $.clock.after(300, () => void handOver($, true))
 
       return 'deny' in done ? { deny: done.deny } : { result: done.result }
     }).catch((_$, e, next) =>
@@ -137,7 +154,7 @@ export const register: Register = on => {
       $.clock.after(100, () => void kick($))
     }
 
-    return { text: resumed.text, context: [prompt] }
+    return { text: resumed.text, context: pieces(prompt) }
   })
 
   // The owner's word to shift, without writing it: after the turn in flight, a turn of its own.
@@ -182,8 +199,12 @@ export const register: Register = on => {
     if (told.notes.length === 0) return next(e)
     // Told and cleared only once the message has entered with them, and the row stands under it: a failed hook or a
     // message dropped beneath keeps every note for the next one.
-    const entered = await next({ ...e, context: [...(e.context ?? []), ...told.notes] })
-    if (!('drop' in entered)) await told.delivered()
+    const entries = told.notes.flatMap(pieces)
+    const entered = await next({ ...e, context: [...(e.context ?? []), ...entries] })
+    // Went only if every entry entered: a hook beneath may drop the prompt or strip what it carries. A result that names
+    // no context at all says nothing of it, and is taken as gone.
+    const context = 'drop' in entered ? undefined : entered.context
+    if (!('drop' in entered) && (context === undefined || entries.every(entry => context.includes(entry)))) await told.delivered()
 
     return entered
   }).catch(($, e, next) => {
@@ -221,6 +242,31 @@ function growthSource(door: string, origin: { kind: string; tool?: string } | un
   return SOURCES.attachments
 }
 
+// The tools that run a subagent: what it writes comes back as this call's own.
+const SPAWNS: ReadonlySet<string> = new Set(['Agent', 'Task'])
+
+// A context entry past 100,000 characters reaches the model as a head and a path: a long note goes as several entries,
+// cut between lines, in order, so the letter at its end is read whole.
+const PIECE = 90_000
+
+function pieces(text: string): string[] {
+  const out: string[] = []
+  let rest = text
+  while (rest.length > PIECE) {
+    const cut = rest.lastIndexOf('\n', PIECE)
+    const at = cut <= 0 ? PIECE : cut
+    out.push(rest.slice(0, at))
+    rest = rest.slice(at).replace(/^\n/, '')
+  }
+
+  return [...out, rest]
+}
+
+// The session and the project it runs in: the block is read again when either changes.
+async function sessionKey($: EngineInterface): Promise<string> {
+  return `${await $.session.id()} ${await $.session.root()}`
+}
+
 // The turn after a bare /unshift, unless the owner's own message already started one.
 async function kick($: EngineInterface): Promise<void> {
   if (!(await read($, resumeKick))) return
@@ -244,7 +290,7 @@ function courierOf($: EngineInterface): Courier {
 // SHIFT.md, OWNER.md, GLOSSARY.md, TASKS.md and the owner's own files, read for the session that runs now.
 async function loadFiles($: EngineInterface, project: Project): Promise<void> {
   const loaded = renderSessionFiles(await sessionFiles(project))
-  const session = await $.session.id()
+  const session = await sessionKey($)
   await update($, files, () => loaded)
   await update($, filesSession, () => session)
 }

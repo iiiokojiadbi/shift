@@ -32,9 +32,10 @@ export async function setupReport(project: Project, loaded: string | null): Prom
   // Read as they are: a report writes nothing, not even the docs' tocs and map.
   const files = await sessionFiles(project, { refresh: false })
   const doctrineChars = atPlaces(doctrine(shownTools(settings).map(tool => tool.name)), settings.files).length
-  // Only the files a block can hold: a record's own example of a file tag is no file.
-  const loadable = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
-  const gone = loadable.filter(path => loaded?.includes(`<file path="${path}">\n`) && !files.some(file => file.path === path))
+  // The files the block held, each tag where a block starts — after the block's opening or a file's end — so a
+  // record's own example of a tag is no file.
+  const held = [...(loaded ?? '').matchAll(/(?:^<[^\n]*>|<\/file>)\n+<file path="([^"]+)">\n/g)].map(found => found[1] ?? '')
+  const gone = held.filter(path => !files.some(file => file.path === path))
   const stale = [
     ...(loaded === null ? [] : files.filter(file => !loaded.includes(fileBlock(file.path, file.text))).map(file => file.path)),
     ...gone,
