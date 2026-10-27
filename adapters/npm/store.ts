@@ -74,12 +74,14 @@ export function projectAt(root: string): Promise<Project> {
 }
 
 // The file a write goes to: a link's target, through a chain of links, even one not there yet; a cycle of links is
-// refused, never written over.
+// refused, never written over. As many links as the system follows: 40, and the file they end at.
+const MAX_LINKS = 40
+
 async function through(path: string): Promise<string> {
   const real = await realpath(path).catch(() => null)
   if (real !== null) return real
   let at = path
-  for (let hop = 0; hop < 40; hop++) {
+  for (let hop = 0; hop <= MAX_LINKS; hop++) {
     const link = await readlink(at).catch(() => null)
     if (link === null) return at
     at = resolve(dirname(at), link)
