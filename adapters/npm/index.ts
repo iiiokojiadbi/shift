@@ -324,11 +324,12 @@ export default function shift(pi: ExtensionAPI): void {
 
 // The wait note of the branch the session stands on: its last wait entry, written whenever the note changes. A note
 // cleared by a message rewound off this branch still waits on it: every clearing is followed by the message that
-// carries the letter — the mod's, or the owner's /shift.
+// carries the letter — the mod's, or the owner's /shift. The system prompt pi records as a message carries none.
 function branchNote(ctx: ExtensionContext): WaitNote | null {
   let followed = false
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
-    if ((entry.type === 'custom_message' && entry.customType === MOD) || entry.type === 'message') followed = true
+    if ((entry.type === 'custom_message' && entry.customType === MOD) || (entry.type === 'message' && entry.message.role !== 'system'))
+      followed = true
     if (entry.type !== 'custom' || entry.customType !== WAIT_ENTRY) continue
     const note = (entry.data as { note: WaitNote | null } | undefined)?.note ?? null
     if (note !== null || followed) return note

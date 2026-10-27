@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { DOCS_MAP_MAX_CHARS, DOCS_PINNED_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
+import { DOCS_MAP_MAX_CHARS, DOCS_MAX_DEPTH, DOCS_PINNED_MAX_CHARS, GLOSSARY, OWNER, SETTINGS, SHIFT_FILE } from './layout'
 import { quote } from './markdown'
 import { isInside, normalize } from './paths'
 
@@ -107,8 +107,7 @@ export const SETTING_KEYS: readonly Key[] = [
     since: '0.3.0',
     kind: 'docs',
     at: ['docs', 'dirs'],
-    about:
-      'the folders of documents the mod keeps, or single documents such as "AGENTS.md" (since 0.9.0): the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone',
+    about: `the folders of documents the mod keeps, ${DOCS_MAX_DEPTH} folders deep at most, or single documents such as "AGENTS.md" (since 0.9.0): the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone`,
   },
   {
     key: 'docs.max_chars',

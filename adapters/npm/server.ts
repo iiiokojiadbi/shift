@@ -72,6 +72,8 @@ type Session = {
   enabled: boolean
   rows: { text: string; level: Level }[]
   loop: LoopState
+  // The loop's last update, which the next one waits for.
+  updating: Promise<void>
   gauge: Gauge
   looks: Looks
   // The last step's prompt size: the history as the model read it.
@@ -122,6 +124,7 @@ const plugin: Definition = {
         enabled: begun.enabled,
         rows: [...startRows.splice(0), ...begun.rows],
         loop: { ...FRESH_LOOP, note, pending },
+        updating: Promise.resolve(),
         gauge: FRESH_GAUGE,
         looks: FRESH_LOOKS,
         fill: undefined,
@@ -173,19 +176,25 @@ const plugin: Definition = {
     function loopOf(sessionID: string): Loop {
       return {
         read: async () => (await state(sessionID)).loop,
+        // One update after another: a change made while the storage still writes the one before would build on a state
+        // that may yet be taken back.
         update: async change => {
           const session = await state(sessionID)
-          const before = session.loop
-          const after = change(before)
-          session.loop = after
-          try {
-            if (after.pending !== before.pending) await keep(pendingKey(sessionID), after.pending)
-            if (after.note !== before.note) await keep(waitKey(sessionID), after.note)
-          } catch (error) {
-            // Not kept, not changed: a shift the storage did not take is not let go either.
-            if (session.loop === after) session.loop = before
-            throw error
-          }
+          const turn = session.updating.then(async () => {
+            const before = session.loop
+            const after = change(before)
+            session.loop = after
+            try {
+              if (after.pending !== before.pending) await keep(pendingKey(sessionID), after.pending)
+              if (after.note !== before.note) await keep(waitKey(sessionID), after.note)
+            } catch (error) {
+              // Not kept, not changed: a shift the storage did not take is not let go either.
+              session.loop = before
+              throw error
+            }
+          })
+          session.updating = turn.catch(() => {})
+          await turn
         },
         tell: (row, level) => void tell(sessionID, row, level),
       }
@@ -196,10 +205,13 @@ const plugin: Definition = {
       else await ctx.storage.set(key, value as never)
     }
 
-    // A project loaded once for the hook at hand.
+    // A project loaded once for the hook at hand, and only when something asks for it.
     function once(): () => Promise<Project> {
-      const loading = projectAt(root)
-      return () => loading
+      let loading: Promise<Project> | undefined
+      return () => {
+        loading ??= projectAt(root)
+        return loading
+      }
     }
 
     function courierOf(sessionID: string, project: () => Promise<Project> = once()): Courier {
@@ -367,6 +379,8 @@ const plugin: Definition = {
           execute: async (input, call) => {
             const session = await state(call.sessionID)
             if (!session.enabled) throw new Error(`${MOD} is off in this project: its settings say enabled = false.`)
+            // A tool runs only in a run: one begun before the plugin reloaded has no start the plugin heard.
+            session.busy = true
             const run = session.runs
             const done = await tool.run(input as Record<string, unknown>, {
               project: () => projectAt(root),

@@ -74,7 +74,7 @@ The same npm package as pi's; opencode 2.x.
 | `commit` | `true` lets the project's git take `.shift/` in; by default the mod keeps it out through the local exclude file |
 | `[files]` `shift`, `owner`, `glossary` | where `SHIFT.md`, `OWNER.md` and `GLOSSARY.md` live |
 | `[files]` `always` | the project's own files loaded whole into every session |
-| `[docs]` `dirs` | the folders and files mapped into `SHIFT.md`; `[]` turns the map off |
+| `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` turns the map off |
 | `[docs]` `toc`, `max_chars`, `max_pinned`, `max_description`, `max_lines` | a toc in each document, and the limits of the map and the documents |
 
 ## Documentation

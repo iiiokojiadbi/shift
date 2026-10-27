@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { nodeStore } from '../store'
 
-test('writes of one file at once never mix; a link is written through, even to a file not there yet', async () => {
+test('writes of one file at once never mix; a link is written through, even to a file not there yet, a cycle refused', async () => {
   const root = await mkdtemp(join(tmpdir(), 'shift-store-'))
   const file = join(root, 'track.md')
   const texts = ['a'.repeat(16_384), 'b'.repeat(8_192), 'c'.repeat(12_000)]
@@ -20,6 +20,10 @@ test('writes of one file at once never mix; a link is written through, even to a
   await nodeStore.write(join(root, 'a.md'), 'END')
   expect(await readlink(join(root, 'b.md'))).toBe('end.md')
   expect(await readFile(join(root, 'end.md'), 'utf8')).toBe('END')
+  await symlink('y.md', join(root, 'x.md'))
+  await symlink('x.md', join(root, 'y.md'))
+  await expect(nodeStore.write(join(root, 'x.md'), 'X')).rejects.toThrow('cycle')
+  expect(await readlink(join(root, 'x.md'))).toBe('y.md')
 })
 
 test('a link counts as what it points to', async () => {

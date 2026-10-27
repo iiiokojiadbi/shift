@@ -39,7 +39,9 @@ for (const target of TARGETS) {
   }
 }
 
-const data = header(DATA) + files.read(DATA)
+const fixture = files.read(DATA)
+if (fixture === null) throw new Error(`${DATA} is missing: nothing to copy, and the copies are left as they are`)
+const data = header(DATA) + fixture
 for (const target of DATA_COPIES) {
   if (files.read(target) === data) continue
   stale.push(target)

@@ -73,7 +73,8 @@ export function projectAt(root: string): Promise<Project> {
   return loadProject(nodeStore, root)
 }
 
-// The file a write goes to: a link's target, through a chain of links, even one not there yet.
+// The file a write goes to: a link's target, through a chain of links, even one not there yet; a cycle of links is
+// refused, never written over.
 async function through(path: string): Promise<string> {
   const real = await realpath(path).catch(() => null)
   if (real !== null) return real
@@ -84,7 +85,7 @@ async function through(path: string): Promise<string> {
     at = resolve(dirname(at), link)
   }
 
-  return at
+  throw new Error(`${path}: too many links, or a cycle of them`)
 }
 
 // A folder's files and folders, a link counted as what it points to; an entry that cannot be read is left out.

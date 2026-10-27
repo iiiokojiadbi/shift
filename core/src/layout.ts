@@ -45,6 +45,10 @@ export const DOCS_MAP_MAX_CHARS = 100000
 // The pinned blocks of the docs, in characters; past it the map says so, and shows them all still.
 export const DOCS_PINNED_MAX_CHARS = 4000
 
+// How many folders deep a docs folder is walked: a store may follow a link to a folder, and a link back up must not make
+// a walk endless. A document deeper is not mapped.
+export const DOCS_MAX_DEPTH = 8
+
 // A knowledge file past this is split by topic.
 export const KNOWLEDGE_MAX_LINES = 400
 

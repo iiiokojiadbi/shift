@@ -89,7 +89,7 @@ if (versions.includes(manifest.version)) {
   if (tagged || !publish) throw new Error(`${reference} is already in the registry: bump the version in adapters/npm/package.json`)
   const head = run('npm', ['view', reference, 'gitHead']).trim()
   if (head === '') throw new Error(`${reference} is published without its commit recorded: tag it by hand as ${tag}`)
-  run('git', ['tag', tag, head])
+  run('git', ['tag', '--force', tag, head])
   run('git', ['push', '--quiet', 'origin', tag])
   console.log(`${reference} was published already; tagged ${tag} on ${head}`)
   process.exit(0)
@@ -101,6 +101,9 @@ if (!publish) {
   process.exit(0)
 }
 
+// npm packs the folder as it is now: the tree must still be the commit checked, nothing changed since.
+if (run('git', ['rev-parse', 'HEAD']).trim() !== commit || run('git', ['status', '--porcelain']).trim() !== '')
+  throw new Error(`the tree changed while ${reference} was checked: run the release again`)
 console.log(`\npublishing ${reference}...`)
 show('npm', ['publish', '--access', 'public', ...(otp === undefined ? [] : ['--otp', otp])], PACKAGE)
 
@@ -115,6 +118,7 @@ for (let attempt = 0; attempt < 30 && latest !== manifest.version; attempt++) {
 if (latest !== manifest.version) throw new Error(`published, but latest is still "${latest}": check \`npm view ${manifest.name}\``)
 console.log(`published ${reference}, latest is ${latest}`)
 
-run('git', ['tag', tag, commit])
+// A local tag left by an earlier run whose push failed is moved to this commit.
+run('git', ['tag', '--force', tag, commit])
 run('git', ['push', '--quiet', 'origin', tag])
 console.log(`tagged ${tag}`)
