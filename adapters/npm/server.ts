@@ -46,6 +46,7 @@ import {
   startSession,
   TASKS_COMMAND,
   TASKS_DESCRIPTION,
+  TOOL,
   TOOLS,
   tasksView,
   unassistedInstructions,
@@ -64,7 +65,6 @@ const KEPT_TOKENS = 15_000
 const CHARS_PER_TOKEN = 4
 // The rows the owner sees above what the mod sends the agent.
 const CONTINUED = `${MOD}: the letter and the records`
-const NOTES = `${MOD}: notes to the agent`
 
 // What the plugin keeps of one session; the plugin is one per project, shared by its sessions.
 type Session = {
@@ -83,8 +83,8 @@ type Session = {
   letGo: ((end: { text: string } | { error: string }) => void) | undefined
   // The inbox item of the let-go the mod asked for: its cancel ends the wait for it.
   letGoID: string | undefined
-  // A let-go opencode made by itself while a shift was pending, with the shift's Hold: it is that shift's let-go.
-  early: string | undefined
+  // Runs started in the session: a tool that ends after its run did knows its turn is over.
+  runs: number
   // The doctrine and the session's files as the session started or last let go: a block read anew every
   // request would show records the history has not reached yet and break the prompt's cache on every write.
   block: { doctrine: string; files: string | null } | undefined
@@ -101,11 +101,8 @@ const plugin: Definition = {
     // The docs' tocs and map are refreshed once, as the plugin starts: later the notes settle what changed, each with
     // its note.
     await sessionFiles(await projectAt(root)).catch(() => [])
-    // The model a session without its own uses.
-    let defaultModel: { providerID: string; modelID: string } | undefined
-    await ctx.model.transform(models => {
-      defaultModel = models.default.get()
-    })
+    // The rows of the plugin's start — `.shift/` just kept out of git — go to the first session that comes.
+    const startRows = [...start.rows]
 
     const sessions = new Map<string, Session>()
     const parents = new Map<string, string | null>()
@@ -114,16 +111,16 @@ const plugin: Definition = {
     let stopped = false
 
     // A session's state, its waiting letter read back from the plugin's storage the first time: it outlives a restart.
-    async function state(sessionID: string): Promise<Session> {
+    async function state(sessionID: string, project: () => Promise<Project> = once()): Promise<Session> {
       const known = sessions.get(sessionID)
       if (known !== undefined) return known
       const note = ((await ctx.storage.get(waitKey(sessionID))) ?? null) as WaitNote | null
       // A shift accepted before the plugin reloaded lets go at the next run's end.
       const pending = ((await ctx.storage.get(pendingKey(sessionID))) ?? null) as PendingShift | null
-      const begun = await startSession(await projectAt(root))
+      const begun = await startSession(await project())
       const fresh: Session = {
         enabled: begun.enabled,
-        rows: begun.rows,
+        rows: [...startRows.splice(0), ...begun.rows],
         loop: { ...FRESH_LOOP, note, pending },
         gauge: FRESH_GAUGE,
         looks: FRESH_LOOKS,
@@ -132,7 +129,7 @@ const plugin: Definition = {
         hold: undefined,
         letGo: undefined,
         letGoID: undefined,
-        early: undefined,
+        runs: 0,
         block: undefined,
       }
       sessions.set(sessionID, sessions.get(sessionID) ?? fresh)
@@ -146,8 +143,8 @@ const plugin: Definition = {
     }
 
     // A session the mod does not serve: a subagent's, or one the settings turned the mod off for.
-    async function apart(sessionID: string): Promise<boolean> {
-      return (await child(sessionID)) || !(await state(sessionID)).enabled
+    async function apart(sessionID: string, project?: () => Promise<Project>): Promise<boolean> {
+      return (await child(sessionID)) || !(await state(sessionID, project)).enabled
     }
 
     async function parentOf(sessionID: string): Promise<string | null> {
@@ -179,10 +176,16 @@ const plugin: Definition = {
         update: async change => {
           const session = await state(sessionID)
           const before = session.loop
-          session.loop = change(session.loop)
-          const { note, pending } = session.loop
-          if (pending !== before.pending) await keep(pendingKey(sessionID), pending)
-          if (note !== before.note) await keep(waitKey(sessionID), note)
+          const after = change(before)
+          session.loop = after
+          try {
+            if (after.pending !== before.pending) await keep(pendingKey(sessionID), after.pending)
+            if (after.note !== before.note) await keep(waitKey(sessionID), after.note)
+          } catch (error) {
+            // Not kept, not changed: a shift the storage did not take is not let go either.
+            if (session.loop === after) session.loop = before
+            throw error
+          }
         },
         tell: (row, level) => void tell(sessionID, row, level),
       }
@@ -230,8 +233,9 @@ const plugin: Definition = {
     // or the `buffer` given unless it leaves nothing. Kept per model: a session that changes its model is read anew.
     async function limits(sessionID: string): Promise<{ window: number; threshold: number | undefined }> {
       const info = await ctx.session.get({ sessionID }).catch(() => undefined)
-      const ref =
-        info?.model ?? (defaultModel === undefined ? undefined : { id: defaultModel.modelID, providerID: defaultModel.providerID })
+      // A session that names no model runs on the configured default.
+      const fallback = info?.model === undefined ? (await ctx.model.default().catch(() => undefined))?.data : undefined
+      const ref = info?.model ?? (fallback == null ? undefined : { id: fallback.id, providerID: fallback.providerID })
       if (ref === undefined) return { window: 0, threshold: undefined }
       const key = `${ref.providerID}/${ref.id}`
       const known = windows.get(key)
@@ -255,12 +259,6 @@ const plugin: Definition = {
         letGo: async instructions => {
           const session = await state(sessionID)
           const before = session.fill
-          // opencode let go by itself after the shift was accepted, with its Hold: that was the shift's let-go.
-          const early = session.early
-          session.early = undefined
-          if (early !== undefined) {
-            return { messages: [{ role: 'digest', text: early }], before, after: Math.round(early.length / CHARS_PER_TOKEN) }
-          }
           const ended = new Promise<{ text: string } | { error: string }>(done => {
             session.letGo = done
           })
@@ -302,6 +300,7 @@ const plugin: Definition = {
 
     // A compaction the agent asked for holds what its letter says; any other gets the summarizer's instructions.
     await ctx.session.hook('compaction', async event => {
+      if (await apart(event.sessionID)) return
       const session = sessions.get(event.sessionID)
       // One opencode makes by itself while a shift is pending holds that shift's Hold too.
       const pending = session?.loop.pending ?? null
@@ -311,16 +310,18 @@ const plugin: Definition = {
     })
 
     // The owner's message: what changed between turns, a hint, and after a wait the letter go with it.
+    // The notes go in the owner's message itself: opencode's inbox takes a message of its own separately, before or after
+    // the owner's, whether it steers or waits in the queue.
     await ctx.session.hook('prompt', async event => {
-      if (await apart(event.sessionID)) return
+      const project = once()
+      if (await apart(event.sessionID, project)) return
       const { sessionID } = event
-      const courier = courierOf(sessionID)
+      const courier = courierOf(sessionID, project)
       await countGrowth(courier.gauge, SOURCES.owner, event.prompt.text.length)
       const told = await atPrompt(courier, { runStarts: !(await state(sessionID)).busy, owner: true })
       if (told.notes.length === 0) return
       const text = told.notes.join('\n\n')
-      // Delivered as the owner's message is: a queued one takes its notes with it, not a run before it.
-      await ctx.session.synthetic({ sessionID, text, description: NOTES, resume: false, delivery: event.delivery })
+      event.prompt.text = `${event.prompt.text}\n\n${text}`
       await countGrowth(courier.gauge, SOURCES.attachments, text.length)
       await told.delivered()
     })
@@ -364,7 +365,9 @@ const plugin: Definition = {
           // Called by its name, not through the code-mode tool.
           options: { codemode: false },
           execute: async (input, call) => {
-            if (!(await state(call.sessionID)).enabled) throw new Error(`${MOD} is off in this project: its settings say enabled = false.`)
+            const session = await state(call.sessionID)
+            if (!session.enabled) throw new Error(`${MOD} is off in this project: its settings say enabled = false.`)
+            const run = session.runs
             const done = await tool.run(input as Record<string, unknown>, {
               project: () => projectAt(root),
               sessionId: async () => call.sessionID,
@@ -377,6 +380,10 @@ const plugin: Definition = {
               cannotLetGo: async () => null,
             })
             if ('deny' in done) throw new Error(done.deny)
+            // A shift accepted after its run ended — interrupted while it was written — is not made, never one of a later
+            // turn.
+            if (tool.name === TOOL && (!session.busy || session.runs !== run))
+              void afterTurn(await projectAt(root), loopOf(call.sessionID), letGoOf(call.sessionID), true)
 
             return { content: done.result }
           },
@@ -425,7 +432,7 @@ const plugin: Definition = {
       switch (event.type) {
         case 'session.execution.started':
           session.busy = true
-          session.early = undefined
+          session.runs += 1
           return
         case 'session.step.ended': {
           const tokens = data.tokens as Tokens | undefined
@@ -435,14 +442,13 @@ const plugin: Definition = {
           await countGrowth(keeperOf(data.sessionID), SOURCES.responses, said)
           return
         }
-        // Only the let-go the mod asked for answers it: one opencode makes by itself is `auto`, and while a shift is
-        // pending it carries the shift's Hold and stands for its let-go.
+        // Only a let-go asked for answers the shift's: one opencode makes by itself is `auto`. While a shift is pending
+        // that one carries the shift's Hold, and the shift still lets go of what came after it.
         case 'session.compaction.ended':
           session.gauge = letGoGauge(data.reason === 'auto')
           session.fill = undefined
           session.block = undefined
           if (data.reason !== 'auto') session.letGo?.({ text: data.text ?? '' })
-          else if (session.loop.pending !== null) session.early = data.text ?? ''
           return
         case 'session.compaction.failed':
           if (data.reason !== 'auto') session.letGo?.({ error: `the harness did not let the history go: ${errorText(data.error)}` })

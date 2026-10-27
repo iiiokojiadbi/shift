@@ -9,7 +9,7 @@ pre-commit:
   jobs:
     - name: core copies
       glob: "{core/src/**,core/test/data.ts,adapters/*/hooks/core/**,adapters/npm/core/**,adapters/claude-code/tests/data.ts,scripts/sync-core.ts}"
-      run: bun run sync-core --check
+      run: bun run sync-core --staged
     - name: biome
       glob: "*.{ts,js,json,jsonc}"
       run: bunx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}

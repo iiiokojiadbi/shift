@@ -36,6 +36,10 @@ export function withToc(text: string): string | null {
   return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join('\n')
 }
 
+// How deep a docs folder is walked: a store may follow a link to a folder, and a link back up must not make a walk
+// endless.
+const MAX_DEPTH = 8
+
 export function isDoc(path: string, dirs: readonly string[]): boolean {
   return path.endsWith('.md') && dirs.map(trimDir).some(entry => (isFile(entry) ? path === entry : path.startsWith(`${entry}/`)))
 }
@@ -263,9 +267,10 @@ export type Doc = { path: string; description: string | null; sections: string[]
 // has none, a hidden one is skipped — and a named document that is there.
 export async function docPaths(store: Store, root: string, dirs: readonly string[]): Promise<string[]> {
   const paths = new Set<string>()
-  const walk = async (dir: string): Promise<void> => {
+  const walk = async (dir: string, depth = 0): Promise<void> => {
     for (const name of await store.list(`${root}/${dir}`, 'file')) if (name.endsWith('.md')) paths.add(`${dir}/${name}`)
-    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`)
+    if (depth >= MAX_DEPTH) return
+    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of dirs.map(trimDir)) {
     if (!isFile(entry)) await walk(entry)
@@ -281,10 +286,11 @@ export async function docStamps(project: Project): Promise<Record<string, string
   const { store, root, settings } = project
   const found: Record<string, string> = {}
   if (!settings.enabled) return found
-  const walk = async (dir: string): Promise<void> => {
+  const walk = async (dir: string, depth = 0): Promise<void> => {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
       if (name.endsWith('.md') && `${dir}/${name}` !== settings.files.shift) found[`${dir}/${name}`] = stamp
-    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`)
+    if (depth >= MAX_DEPTH) return
+    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of settings.docs.dirs.map(trimDir)) {
     if (!isFile(entry)) await walk(entry)

@@ -22,14 +22,14 @@ Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome
 
 | Command | What it does |
 |---|---|
-| `bun run sync-core` | copies `core/src/` into each adapter's `core/`, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it |
+| `bun run sync-core` | copies `core/src/` into each adapter's `core/`, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it; `--check` fails on a stale copy on disk, `--staged` on one in git's index — what the commit takes — and a source folder that cannot be read stops it rather than empty the copies |
 | `bun run check` | fails on a stale core copy, then biome |
 | `bun run fix` | biome with fixes |
 | `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:npm` |
 | `bun run test` | every package's tests: `test:core`, `test:npm` (`bun test`), `test:claude-code` (`claude plugin test`) |
 | `bun run validate` | `claude plugin validate` of the Claude Code plugin: the hooks module and its state contract |
 
-The pre-commit hook runs, by the files staged, the same scripts per package — a command is written once, in `package.json`: the copy check, biome (it stages its own fixes), the core's types and tests, the plugin's validation, types and tests, the npm package's types and tests. Each job prints one line when it passes and its whole output when it fails.
+The pre-commit hook runs, by the files staged, the same scripts per package — a command is written once, in `package.json`: the copy check against the index (`sync-core --staged`: a source staged without its copies fails), biome (it stages its own fixes), the core's types and tests, the plugin's validation, types and tests, the npm package's types and tests. Each job prints one line when it passes and its whole output when it fails.
 
 ## Tests
 
@@ -64,6 +64,6 @@ A release that changes what the model or the owner sees is checked live after th
 The package `@iiiokojiadbi/shift` is `adapters/npm`, one for both harnesses, published to npm from this machine with the owner's npm login; nothing publishes from CI. A published version cannot be reused, so the gate does everything but upload unless told to.
 
 1. After a Claude Code release, when the package or the core changed since its last release: set `version` in `adapters/npm/package.json` to the plugin's, commit, `git push`.
-2. `bun run release:npm` — the dry run: the checks, the tarball file by file against what may ship (both entries, the store, the core copy, the README, the license) and its size, and whether the version is free; only npm's `E404` counts as free.
-3. With the owner's word: `bun run release:npm --publish`, with `--otp <code>` when the account asks for one. It refuses an uncommitted tree or a HEAD not on `origin/main`, publishes with `--access public`, waits up to five minutes for `latest` to show the version — a 404 right after the upload is the registry catching up, never a reason to publish again — and pushes the tag `shift-npm--v<version>` (`shift-pi--v<version>` up to 0.30.0).
+2. `bun run release:npm` — the dry run: the checks, the tarball file by file against what may ship (both entries, the store, every module of the core copy, the README, the license) and its size, and whether the version is free: it is not in the package's `versions`, or npm's `E404` says there is no package yet.
+3. With the owner's word: `bun run release:npm --publish`, with `--otp <code>` when the account asks for one. It refuses an uncommitted tree or a HEAD not on `origin/main`, publishes with `--access public`, waits up to five minutes for `latest` to show the version — a 404 right after the upload is the registry catching up, never a reason to publish again — and pushes the tag `shift-npm--v<version>` (`shift-pi--v<version>` up to 0.30.0) on the commit it checked, whatever HEAD is by then. A run that uploaded and stopped before its tag is finished by running it again: the version found in the registry without its tag on `origin`, it tags the commit npm recorded (`gitHead`) and stops.
 4. `pi update npm:@iiiokojiadbi/shift` and `opencode plugin update`, or the first install; the owner restarts both. opencode asks its running server, which checks npm itself and may answer "No plugin updates available" for a few minutes after the upload — `opencode plugin check` shows when it sees the version. The update installs a new generation under opencode's npm cache; the server loads it only when it starts again, so `opencode plugin list` shows the old version until then.

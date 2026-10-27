@@ -99,9 +99,10 @@ export default function shift(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       // Typed mid-run, it waits for the run to end, as Claude Code holds a command until the turn is over.
+      // The letter's clearing goes on the branch before the message that carries it, as `branchNote` reads them.
       const now = await shiftNow(loopOf(ctx), args.trim())
-      pi.sendUserMessage(now.text, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
       await now.delivered()
+      pi.sendUserMessage(now.text, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
     },
   })
 
@@ -113,13 +114,14 @@ export default function shift(pi: ExtensionAPI): void {
       const resumed = await resumeShift(await projectAt(ctx.cwd))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
+      // The newest letter goes now: one waiting for the owner's message is not told again. Its clearing goes on the
+      // branch before the message, as `branchNote` reads them.
+      await dropWaiting(loopOf(ctx))
       const words = args.trim()
       // Typed mid-run, both wait for the run to end.
       const busy = ctx.isIdle() ? {} : { deliverAs: 'followUp' as const }
       pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '', ...busy })
       if (words !== '') pi.sendUserMessage(words, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
-      // The newest letter went: one waiting for the owner's message is not told again.
-      await dropWaiting(loopOf(ctx))
     },
   })
 
@@ -321,11 +323,12 @@ export default function shift(pi: ExtensionAPI): void {
 }
 
 // The wait note of the branch the session stands on: its last wait entry, written whenever the note changes. A note
-// cleared by a message rewound off this branch still waits on it: every clearing is followed by the mod's message.
+// cleared by a message rewound off this branch still waits on it: every clearing is followed by the message that
+// carries the letter — the mod's, or the owner's /shift.
 function branchNote(ctx: ExtensionContext): WaitNote | null {
   let followed = false
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
-    if (entry.type === 'custom_message' && entry.customType === MOD) followed = true
+    if ((entry.type === 'custom_message' && entry.customType === MOD) || entry.type === 'message') followed = true
     if (entry.type !== 'custom' || entry.customType !== WAIT_ENTRY) continue
     const note = (entry.data as { note: WaitNote | null } | undefined)?.note ?? null
     if (note !== null || followed) return note

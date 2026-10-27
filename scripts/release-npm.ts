@@ -6,14 +6,18 @@
 //   bun run release:npm --publish          the same from a pushed, clean tree, then upload, verify and tag
 //   bun run release:npm --publish --otp 123456
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
 const PACKAGE = join(ROOT, 'adapters/npm')
 // The tarball's shape: pi's entry, opencode's, the store, the core copy, the README and the license; anything else got in
 // by mistake.
-const REQUIRED = ['LICENSE', 'README.md', 'core/index.ts', 'index.ts', 'package.json', 'server.ts', 'store.ts']
+// Every module of the core copy too: the entries import them, and one left out fails only when pi or opencode loads it.
+const CORE = readdirSync(join(PACKAGE, 'core'), { recursive: true, encoding: 'utf8' })
+  .filter(name => name.endsWith('.ts'))
+  .map(name => `core/${name}`)
+const REQUIRED = ['LICENSE', 'README.md', 'index.ts', 'package.json', 'server.ts', 'store.ts', ...CORE]
 const ALLOWED = /^(LICENSE|README\.md|package\.json|index\.ts|server\.ts|store\.ts|core\/[a-z/]+\.ts)$/
 const MAX_TARBALL_KB = 150
 
@@ -37,6 +41,9 @@ if (manifest.version !== plugin.version)
   throw new Error(
     `adapters/npm/package.json is ${manifest.version}, the Claude Code plugin ${plugin.version}: release the package with the plugin's version`,
   )
+
+// The commit checked, uploaded and tagged: a commit made while the script runs is never the one tagged.
+const commit = run('git', ['rev-parse', 'HEAD']).trim()
 
 if (publish) {
   // What goes up is a commit anyone can find: nothing uncommitted, and the commit on origin/main.
@@ -63,17 +70,30 @@ const missing = REQUIRED.filter(path => !shipped.includes(path))
 if (missing.length > 0) throw new Error(`missing from the package: ${missing.join(', ')}`)
 if (kb > MAX_TARBALL_KB) throw new Error(`the tarball is ${kb.toFixed(0)} KB, over ${MAX_TARBALL_KB} KB`)
 
-// `npm view` fails both for a version that is not there and for a registry it cannot reach: only npm's own E404
-// means the version is free.
-let taken = false
+// The package's versions as the registry lists them; `npm view` fails both for a package that is not there and for a
+// registry it cannot reach: only npm's own E404 means it has none yet.
+let versions: string[] = []
 try {
-  taken = run('npm', ['view', reference, 'version']).trim() !== ''
+  const listed = JSON.parse(run('npm', ['view', manifest.name, 'versions', '--json']).trim() || 'null')
+  if (!Array.isArray(listed) && typeof listed !== 'string')
+    throw new Error(`the registry answered no list of versions for ${manifest.name}`)
+  versions = Array.isArray(listed) ? listed : [listed]
 } catch (cause) {
   const text = String((cause as { stderr?: string }).stderr ?? cause)
   if (/npm (?:error|ERR!) code (E\d+|[A-Z_]+)/i.exec(text)?.[1] !== 'E404')
     throw new Error(`could not ask the registry whether ${reference} exists:\n${text.trim()}`)
 }
-if (taken) throw new Error(`${reference} is already in the registry: bump the version in adapters/npm/package.json`)
+if (versions.includes(manifest.version)) {
+  // Uploaded by an earlier run that stopped before its tag: the tag is all that is left, on the commit npm recorded.
+  const tagged = run('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`]).trim() !== ''
+  if (tagged || !publish) throw new Error(`${reference} is already in the registry: bump the version in adapters/npm/package.json`)
+  const head = run('npm', ['view', reference, 'gitHead']).trim()
+  if (head === '') throw new Error(`${reference} is published without its commit recorded: tag it by hand as ${tag}`)
+  run('git', ['tag', tag, head])
+  run('git', ['push', '--quiet', 'origin', tag])
+  console.log(`${reference} was published already; tagged ${tag} on ${head}`)
+  process.exit(0)
+}
 console.log(`\n${reference} is not in the registry yet`)
 
 if (!publish) {
@@ -95,6 +115,6 @@ for (let attempt = 0; attempt < 30 && latest !== manifest.version; attempt++) {
 if (latest !== manifest.version) throw new Error(`published, but latest is still "${latest}": check \`npm view ${manifest.name}\``)
 console.log(`published ${reference}, latest is ${latest}`)
 
-run('git', ['tag', tag])
+run('git', ['tag', tag, commit])
 run('git', ['push', '--quiet', 'origin', tag])
 console.log(`tagged ${tag}`)

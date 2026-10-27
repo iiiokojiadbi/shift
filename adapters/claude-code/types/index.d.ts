@@ -1,4 +1,4 @@
-// The contract must be self-contained: ShiftAfter, Gauge, PendingShift, Looks and WaitNote mirror the core's types of the same name.
+// The contract must be self-contained: ShiftAfter, Gauge, PendingShift, Looks, WaitNote and LoopState mirror the core's types of the same name.
 export type ShiftAfter = 'continue' | 'wait'
 export type Gauge = { base: number | null; hinted: number | null; unassisted: boolean; growth: Record<string, number>; whole: boolean }
 
@@ -23,6 +23,9 @@ export type LetGo = { heard: boolean }
 
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }
+
+// The shift loop's state, as the core's LoopState: one atom, so a change of it is one update.
+export type LoopState = { pending: PendingShift | null; note: WaitNote | null; letting?: LetGo | null }
 
 declare module 'claude-code' {
   // The mod's own tools, as `tools/list` gives them. The generated MCP entry is left out of tsconfig: it is a snapshot of whatever servers were connected at its last save.
@@ -59,10 +62,8 @@ declare module 'claude-code' {
 
   interface PluginState {
     shift: {
-      pending: PendingShift | null
-      waitNote: WaitNote | null
-      // A let-go in flight: the owner's message during it finds no letter yet, so the letter follows it.
-      letting: LetGo | null
+      // The shift accepted this turn, the letter waiting for the owner, a let-go in flight: one atom, changed whole.
+      loop: LoopState
       // true from a bare /unshift until its own prompt goes, or the owner's message comes first and makes it needless.
       resumeKick: boolean
       gauge: Gauge
