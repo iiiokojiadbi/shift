@@ -254,24 +254,26 @@ export const EXCLUDED = (file: string) =>
 export const SHIFT_TOO_EARLY = (why: string) =>
   `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown — after the first hint.`
 
-// A reason the harness gives, in the mod's words: it reaches the model, which reads only "shift" and "let go".
-function ourWords(why: string): string {
+// A reason the harness gives, in the mod's words: it reaches the model, which reads only "shift" and "let go". A word
+// inside a path or a file's name is left as it is, so the path still names the file.
+const OUTSIDE_NAME = (word: string) => new RegExp(`(?<![\\w./-])(?:${word})(?![\\w/-]|\\.\\w)`, 'gi')
+export function ourWords(why: string): string {
   return why
-    .replace(/\b(?:compaction|summarization|compression)\b/gi, 'let-go')
-    .replace(/\b(?:compact|summari[sz]e|compress)(?:s|ed|ing)?\b/gi, 'let go')
-    .replace(/\bsummary\b/gi, 'digest')
+    .replace(OUTSIDE_NAME('compaction|summarization|compression'), 'let-go')
+    .replace(OUTSIDE_NAME('(?:compact|summari[sz]e|compress)(?:s|ed|ing)?'), 'let go')
+    .replace(OUTSIDE_NAME('summary'), 'digest')
 }
 
 // A shift accepted and then not made: the agent was told it was accepted, so it is told it was not.
 export const NOT_MADE_NOTE = (name: string, why: string) =>
   `<${MOD} note="from the mod: the shift was not made">
-Shift ${name} was not made — ${ourWords(why)}. Nothing was let go: your history is whole, and your records stay as you wrote them; the shift's folder is kept as history. Go on from where you stopped, and shift again later.
+Shift ${name} was not made — ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; the shift's folder is kept as history. Go on from where you stopped, and shift again later.
 </${MOD}>`
 
 // A shift let go and its message not built: the agent has lost its history and got nothing back.
 export const UNSETTLED_NOTE = (name: string, why: string, dir: string) =>
   `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back — ${ourWords(why)}. Read the letter of this shift, ${dir}/${NAMES.letter} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read the letter of this shift, ${dir}/${NAMES.letter} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
 </${MOD}>`
 
 // What the owner's row names when a failure's note went with their message.

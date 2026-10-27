@@ -25,12 +25,12 @@ import {
   resumeShift,
   SETTINGS,
   SHIFT_COMMAND,
-  SHIFT_NOW,
   SHIFT_NOW_DESCRIPTION,
   SOURCES,
   sessionDoctrine,
   sessionFiles,
   shiftBase,
+  shiftNow,
   startSession,
   TASKS_COMMAND,
   TASKS_DESCRIPTION,
@@ -99,7 +99,9 @@ export default function shift(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       // Typed mid-run, it waits for the run to end, as Claude Code holds a command until the turn is over.
-      pi.sendUserMessage(SHIFT_NOW(args.trim()), ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
+      const now = await shiftNow(loopOf(ctx), args.trim())
+      pi.sendUserMessage(now.text, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
+      await now.delivered()
     },
   })
 
@@ -111,13 +113,13 @@ export default function shift(pi: ExtensionAPI): void {
       const resumed = await resumeShift(await projectAt(ctx.cwd))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
-      // The newest letter goes now: one waiting for the owner's message is not told again.
-      await dropWaiting(loopOf(ctx))
       const words = args.trim()
       // Typed mid-run, both wait for the run to end.
       const busy = ctx.isIdle() ? {} : { deliverAs: 'followUp' as const }
       pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '', ...busy })
       if (words !== '') pi.sendUserMessage(words, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
+      // The newest letter went: one waiting for the owner's message is not told again.
+      await dropWaiting(loopOf(ctx))
     },
   })
 
@@ -153,8 +155,8 @@ export default function shift(pi: ExtensionAPI): void {
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
-    const loading = projectAt(ctx.cwd)
-    const project = () => loading
+    const project = once(ctx)
+    const loading = project()
     // The doctrine at the settings' places: a shift may have moved a record.
     event.systemPromptOptions.sections[MOD] = sessionDoctrine((await loading).settings).doctrineBody
     // A session's first run refreshes the tocs and the map before the documents' stamps are first looked at.
@@ -194,20 +196,21 @@ export default function shift(pi: ExtensionAPI): void {
   // the docs after a write, a hint. A nested tool's write gets only the docs.
   pi.on('tool_call', async (event, ctx) => {
     if (!enabled || event.parentToolCallId !== undefined) return
-    outside.set(event.toolCallId, await beforeTool(courierOf(ctx)))
+    outside.set(event.toolCallId, await beforeTool(courierOf(ctx, once(ctx))))
   })
 
   pi.on('tool_result', async (event, ctx) => {
     if (!enabled) return
     const path = (event.toolName === 'edit' || event.toolName === 'write') && !event.isError ? event.input.path : undefined
     const written = typeof path === 'string' ? resolve(ctx.cwd, path) : undefined
+    const courier = courierOf(ctx, once(ctx))
     if (event.parentToolCallId !== undefined) {
-      if (written !== undefined) await afterWrite(courierOf(ctx), written)
+      if (written !== undefined) await afterWrite(courier, written)
       return
     }
     const before = outside.get(event.toolCallId) ?? []
     outside.delete(event.toolCallId)
-    const added = await afterTool(courierOf(ctx), before, { own: OURS.has(event.toolName), readOnly: READING.has(event.toolName), written })
+    const added = await afterTool(courier, before, { own: OURS.has(event.toolName), readOnly: READING.has(event.toolName), written })
     if (added.length === 0) return
 
     return {
@@ -240,7 +243,7 @@ export default function shift(pi: ExtensionAPI): void {
   })
 
   // The notes to the agent over the extension's runtime: the looks at the records, the loop and the gauge.
-  function courierOf(ctx: ExtensionContext, project: () => Promise<Project> = () => projectAt(ctx.cwd)): Courier {
+  function courierOf(ctx: ExtensionContext, project: () => Promise<Project> = once(ctx)): Courier {
     return {
       loop: loopOf(ctx),
       gauge: keeperOf(ctx, project),
@@ -350,6 +353,12 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
   const since = branch.slice(start).reduce((sum, entry) => sum + (entry.type === 'message' ? estimateTokens(entry.message) : 0), 0)
 
   return `the history since the last let-go is about ${formatK(since)} tokens, and pi keeps its last ${formatK(keep)} whole, so it has nothing to let go.`
+}
+
+// The project loaded once for the hook at hand.
+function once(ctx: ExtensionContext): () => Promise<Project> {
+  const loading = projectAt(ctx.cwd)
+  return () => loading
 }
 
 // A row for the owner; a context gone stale with its session has no one to tell.

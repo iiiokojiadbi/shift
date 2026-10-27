@@ -2,7 +2,7 @@ import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, offerHint, takeHint } from './hint'
 import { basename } from './paths'
 import type { Project } from './project'
-import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, UNSETTLED_NOTE } from './texts/prompts'
+import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, ourWords, SHIFT_NOW, UNSETTLED_NOTE } from './texts/prompts'
 import { DELIVERED, NOT_CONTINUED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
@@ -67,7 +67,9 @@ export async function loopOffer(loop: Loop, gauge: GaugeKeeper): Promise<{ text:
 // Once the turn has ended: a pending shift lets the history go, unless the turn was aborted. Every outcome is written
 // to the shift's about.md and told to the owner; nothing is lost silently.
 export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarness, aborted: boolean): Promise<void> {
-  // Claimed in the change that clears it: two ends of a turn never let go twice.
+  // The let-go is marked before the shift is claimed, so an owner's message never falls between the two: a harness may
+  // keep them apart. Claimed in the change that clears it: two ends of a turn never let go twice.
+  await loop.update(current => (current.pending === null ? current : { ...current, letting: { heard: current.letting?.heard === true } }))
   const claim: { shift?: PendingShift | null } = {}
   await loop.update(current => {
     claim.shift = current.pending
@@ -94,8 +96,10 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
 
   const done = await harness.letGo(compactInstructions(shift)).catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
   if ('skip' in done) {
-    loop.tell(await shiftNotMade(project, shift, done.skip, before), 'error')
-    await tellAgent(loop, harness, shift, NOT_MADE_NOTE(name, done.skip), true)
+    // The harness's reason, in the mod's words wherever it goes: the note, the row and about.md.
+    const why = ourWords(done.skip)
+    loop.tell(await shiftNotMade(project, shift, why, before), 'error')
+    await tellAgent(loop, harness, shift, NOT_MADE_NOTE(name, why), true)
     return
   }
   let settled: Settled
@@ -108,7 +112,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
       after: done.after ?? (await harness.fill()) ?? 0,
     })
   } catch (error) {
-    const why = String(error)
+    const why = ourWords(String(error))
     loop.tell(await shiftUnsettled(project, shift, why, done.before ?? before), 'error')
     await tellAgent(loop, harness, shift, UNSETTLED_NOTE(name, why, shift.dir), true)
     return
@@ -121,7 +125,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   loop.tell(settled.row, 'info')
   // The shift is settled and written; a turn that does not start is told, not recorded against it, and its letter
   // waits for the owner's next message as after a wait. A letter an earlier shift left waiting is older than this one.
-  await dropWaiting(loop)
+  await dropWaiting(loop).catch(() => undefined)
   await harness.continueWith(settled.prompt).catch(async (error: unknown) => {
     await loop.update(current => ({ ...current, note: settled.note }))
     loop.tell(NOT_CONTINUED(String(error)), 'error')
@@ -160,15 +164,11 @@ async function leave(loop: Loop, harness: LetGoHarness, note: WaitNote): Promise
 // delivery keeps it for the next one.
 export async function waitingNote(loop: Loop): Promise<{ context: string; delivered: () => Promise<void> } | null> {
   const { note, pending, letting } = await loop.read()
-  if (note === null) {
-    // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
-    // message.
-    if (pending !== null || letting != null)
-      await loop.update(current =>
-        current.pending === null && current.letting == null ? current : { ...current, letting: { heard: true } },
-      )
-    return null
-  }
+  // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
+  // message, whether an older letter goes with this one or not.
+  if (pending !== null || letting != null)
+    await loop.update(current => (current.pending === null && current.letting == null ? current : { ...current, letting: { heard: true } }))
+  if (note === null) return null
 
   return {
     context: note.context,
@@ -188,4 +188,13 @@ export async function dropWaiting(loop: Loop): Promise<void> {
 // Notes compared by value: a harness may keep them serialized.
 function sameNote(a: WaitNote | null, b: WaitNote): boolean {
   return a !== null && a.dir === b.dir && a.context === b.context
+}
+
+// The owner's /shift: the ask to shift, after a letter still waiting for them, which goes with it — the agent shifts
+// from its records, never past a letter it has not read.
+export async function shiftNow(loop: Loop, words: string): Promise<{ text: string; delivered: () => Promise<void> }> {
+  const letter = await waitingNote(loop)
+  const ask = SHIFT_NOW(words)
+
+  return letter === null ? { text: ask, delivered: async () => {} } : { text: `${letter.context}\n\n${ask}`, delivered: letter.delivered }
 }

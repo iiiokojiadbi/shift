@@ -18,11 +18,11 @@ import {
   resumeShift,
   runEnded,
   SHIFT_COMMAND,
-  SHIFT_NOW,
   SHIFT_NOW_DESCRIPTION,
   SOURCES,
   sessionDoctrine,
   sessionFiles,
+  shiftNow,
   startSession,
   TASKS_COMMAND,
   TASKS_DESCRIPTION,
@@ -164,7 +164,8 @@ export const register: Register = on => {
 
   // The owner's word to shift, without writing it: after the turn in flight, a turn of its own.
   on('command.run', { command: SHIFT_COMMAND }, async ($, e) => {
-    $.clock.after(100, () => void $.prompt.submit({ text: SHIFT_NOW(e.args.trim()) }))
+    const now = await shiftNow(loopOf($), e.args.trim())
+    $.clock.after(100, () => void submitShift($, now))
 
     return {}
   })
@@ -265,6 +266,12 @@ function pieces(text: string): string[] {
   }
 
   return [...out, rest]
+}
+
+// The owner's /shift, a letter still waiting with it; the letter is told once the message went.
+async function submitShift($: EngineInterface, now: { text: string; delivered: () => Promise<void> }): Promise<void> {
+  const submitted = await $.prompt.submit({ text: now.text })
+  if (!('drop' in submitted)) await now.delivered()
 }
 
 // The session and the project it runs in: the block is read again when either changes.

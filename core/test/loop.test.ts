@@ -10,10 +10,11 @@ import {
   type Loop,
   type LoopState,
   loopHint,
+  shiftNow,
   waitingNote,
 } from '../src/loop'
 import { frontmatter } from '../src/markdown'
-import { NOT_MADE_NOTE } from '../src/texts/prompts'
+import { ourWords } from '../src/texts/prompts'
 import type { Gauge } from '../src/types'
 import { BOARD, LETTER, listWith, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
@@ -235,6 +236,30 @@ test('a delivered letter clears only itself; a newer shift or /unshift drops an 
   expect(going.kept.state.note).toBeNull()
 })
 
-test("a harness's reason reaches the agent in the mod's words", () => {
-  expect(NOT_MADE_NOTE('s', 'Compaction cancelled: nothing to summarize')).toContain('— let-go cancelled: nothing to let go.')
+test("a harness's reason reaches the agent in the mod's words, a path as it is", () => {
+  expect(ourWords('Compaction cancelled: nothing to summarize')).toBe('let-go cancelled: nothing to let go')
+  // A path keeps its file's name.
+  expect(ourWords('EACCES: .shift/shifts/x/.summary.md.12.tmp')).toBe('EACCES: .shift/shifts/x/.summary.md.12.tmp')
+  expect(ourWords('wrote summary.md, the summary failed')).toBe('wrote summary.md, the digest failed')
+})
+
+test("the owner's /shift takes a letter still waiting; an older letter does not hide the owner from a newer shift", async () => {
+  const waiting = await setUp('wait')
+  await afterTurn(waiting.project, waiting.loop, harness(digest), false)
+  const now = await shiftNow(waiting.loop, 'please')
+  expect(now.text).toMatch(/<letter path=[\s\S]*The owner asks you to shift now/)
+  await now.delivered()
+  expect(waiting.kept.state.note).toBeNull()
+  expect((await shiftNow(waiting.loop, '')).text).not.toContain('<letter path=')
+
+  // Letter A waits while shift B lets go: the owner's message takes A, and B's letter follows it at once.
+  const newer = await setUp('wait')
+  newer.kept.state = { ...newer.kept.state, note: { context: 'LETTER A', dir: 'a', files: [] } }
+  const prompts: string[] = []
+  const during: LetGoHarness['letGo'] = async instructions => {
+    expect((await waitingNote(newer.loop))?.context).toBe('LETTER A')
+    return digest(instructions)
+  }
+  await afterTurn(newer.project, newer.loop, harness(during, prompts), false)
+  expect(prompts[0]).toContain('<letter path=')
 })

@@ -68,7 +68,8 @@ export async function handOver($: EngineInterface, aborted: boolean): Promise<vo
       },
       // The session's files and the doctrine as the shift left them: the settings may have moved a record.
       afterLetGo: async () => {
-        const loaded = renderSessionFiles(await sessionFiles(project))
+        // The tocs are not refreshed here: a document a script changed gets its toc with the next prompt's note.
+        const loaded = renderSessionFiles(await sessionFiles(project, { refresh: false }))
         await update($, files, () => loaded)
         await update($, doctrineText, () => sessionDoctrine(project.settings).doctrine)
       },
