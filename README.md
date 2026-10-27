@@ -1,5 +1,9 @@
 # shift
 
+[![npm](https://img.shields.io/npm/v/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
+[![downloads](https://img.shields.io/npm/dm/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
+[![license](https://img.shields.io/npm/l/@iiiokojiadbi/shift)](https://github.com/iiiokojiadbi/shift/blob/main/LICENSE)
+
 An agent decides by itself when to **shift**. At a stage boundary it updates its work board and task folders, writes a letter to itself and asks the harness to let the stretch's history go, saying what to hold. Right after the shift its letter, board and tasks in progress come back whole, and it continues from where it stopped. The agent does not change: only what is in front of it does.
 
 Long work outlives the context window. A harness's own compaction keeps a generic summary of the history, not the agent's line of thought: decisions get lost, and knowledge that was written down is not looked up again. shift keeps the thread on disk, in records strict enough to resume from: a state, not a diary.

@@ -4,6 +4,10 @@
   "description": "The agent decides by itself when to shift: it keeps a work board and task folders, writes a letter to itself, and continues from where it stopped.",
   "license": "MIT",
   "type": "module",
+  "homepage": "https://github.com/iiiokojiadbi/shift#readme",
+  "bugs": {
+    "url": "https://github.com/iiiokojiadbi/shift/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/iiiokojiadbi/shift.git",
@@ -11,7 +15,13 @@
   },
   "keywords": [
     "pi-package",
-    "opencode-plugin"
+    "opencode-plugin",
+    "pi",
+    "opencode",
+    "agent",
+    "context",
+    "memory",
+    "handoff"
   ],
   "files": [
     "index.ts",

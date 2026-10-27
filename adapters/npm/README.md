@@ -1,5 +1,9 @@
 # shift for pi and opencode
 
+[![npm](https://img.shields.io/npm/v/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
+[![downloads](https://img.shields.io/npm/dm/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
+[![license](https://img.shields.io/npm/l/@iiiokojiadbi/shift)](https://github.com/iiiokojiadbi/shift/blob/main/LICENSE)
+
 The agent decides by itself when to **shift**. At a stage boundary it updates its work board and task folders, writes a letter to itself, and has the harness let the stretch's history go, with a direction of what to hold. Right after the shift it gets its letter, board and tasks in progress back whole and continues from where it stopped.
 
 One package for both harnesses: pi loads `index.ts`, opencode loads `server.ts`.
