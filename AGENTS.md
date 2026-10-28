@@ -89,3 +89,4 @@ lefthook.yml  biome.json  package.json  LICENSE
 - A text the model reads interpolates the constant its check uses, and says only "shift" — never "compression", "summary" or "compaction" (`docs/concept.md`).
 - Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English.
 - A release follows `docs/development.md`; users get only tagged releases.
+- Temporary files of the work — scripts, logs, probe projects, a reviewer's checks — go under `/tmp/shift/`, never loose in `/tmp`; tests remove their own (`docs/development.md`, Tests).

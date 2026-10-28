@@ -1,11 +1,13 @@
-import { expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { afterAll, expect, test } from 'bun:test'
+import { mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { nodeStore } from '../store'
+import { cleanup, scratch } from './scratch'
+
+afterAll(cleanup)
 
 test('writes of one file at once never mix; a link is written through, even to a file not there yet, a cycle refused', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'shift-store-'))
+  const root = await scratch('store')
   const file = join(root, 'track.md')
   const texts = ['a'.repeat(16_384), 'b'.repeat(8_192), 'c'.repeat(12_000)]
   await Promise.all(texts.map(text => nodeStore.write(file, text)))
@@ -30,7 +32,7 @@ test('writes of one file at once never mix; a link is written through, even to a
 })
 
 test('a link counts as what it points to', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'shift-store-'))
+  const root = await scratch('store')
   await mkdir(join(root, 'pages'))
   await writeFile(join(root, 'pages/real.md'), '# R')
   await symlink('real.md', join(root, 'pages/guide.md'))

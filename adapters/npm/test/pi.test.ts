@@ -1,15 +1,17 @@
-import { expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { afterAll, expect, test } from 'bun:test'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import shift from '../index'
+import { cleanup, scratch } from './scratch'
+
+afterAll(cleanup)
 
 // The extension over a stand-in of pi's API: what it registers, the handlers it puts on events, the active tools.
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown> | unknown
 type Registered = { name: string; executionMode?: string; execute: (...args: unknown[]) => Promise<{ content: { text: string }[] }> }
 
 async function project(files: Record<string, string>): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'shift-pi-'))
+  const root = await scratch('pi')
   for (const [path, text] of Object.entries(files)) {
     await mkdir(dirname(join(root, path)), { recursive: true })
     await writeFile(join(root, path), text)

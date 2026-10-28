@@ -35,7 +35,7 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 
 - **Core** — `core/test/*.test.ts` over `memory.ts` (`memoryStore`, `memoryProject` — a project over an in-memory store with a git that answers `check-ignore` and `rev-parse`) and `fixtures.ts`: the records' data — the letter, the board, task.md, the track, OWNER.md, traps, one copy each — lives in `data.ts`, with no imports, so the plugin's tests take a generated copy of it; `fixtures.ts` adds what needs the core (`WORK`, `check`). Test a behaviour through the module's interface, not past it.
 - **Claude Code** — `adapters/claude-code/tests/shift.test.ts`, the wiring only, over `tests/data.ts` — GENERATED from `core/test/data.ts`, never edit. `stubSession` fakes `$.fs`, `$.process`, the session and the UI over a map; `on('session.id')` may be registered once per test, so a test that changes the session passes it as the last argument.
-- **pi** — `adapters/npm/test/pi.test.ts`: the extension loaded over a stand-in of `ExtensionAPI` in a temporary project. opencode's entry has no test of its own yet: it is checked live.
+- **pi** — `adapters/npm/test/pi.test.ts`: the extension loaded over a stand-in of `ExtensionAPI` in a temporary project. A test that needs real files takes its folder from `scratch()` in `adapters/npm/test/scratch.ts` — under `shift/tests/` in the system's temporary folder — and the file's `afterAll(cleanup)` removes them; a bare `mkdtemp` in `/tmp` was left behind by every run. opencode's entry has no test of its own yet: it is checked live.
 
 ## Installing for development
 
