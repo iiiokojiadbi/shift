@@ -3,6 +3,7 @@ import { acceptShift } from '../src/flows'
 import { letGoGauge } from '../src/hint'
 import {
   afterTurn,
+  awaitShift,
   dropWaiting,
   FRESH_LOOP,
   holdOwner,
@@ -281,6 +282,36 @@ test("the owner's held message is never lost: a turn that does not start keeps i
   expect(prompts).toEqual([expect.stringContaining('was not made — the turn was aborted')])
   expect(prompts[0]).toEndWith('WHY')
   expect(aborted.kept.state).toMatchObject({ note: null, letting: null })
+})
+
+test("the owner's message kept in a harness's hook until the shift is over takes the shift's message as a note", async () => {
+  for (const after of ['continue', 'wait'] as const) {
+    const { project, loop, kept } = await setUp(after)
+    const prompts: string[] = []
+    // The hook waits while the history is let go; its sleep lets the let-go run.
+    let waiting: Promise<boolean> | undefined
+    const during: LetGoHarness['letGo'] = async instructions => {
+      waiting = awaitShift(loop, () => new Promise(done => setTimeout(done, 1)), 60_000)
+      return digest(instructions)
+    }
+    await afterTurn(project, loop, harness(during, prompts), false)
+    expect(await waiting).toBe(true)
+    // Nothing started apart from the owner's message: the shift's message waits for it.
+    expect(prompts).toEqual([])
+    expect(kept.state.letting).toBeNull()
+    const note = await waitingNote(loop)
+    expect(note?.context).toContain(after === 'continue' ? 'Shift done' : '<letter path=')
+  }
+
+  // No shift under way: the message goes at once. A hook that gives up lets the shift's message go on its own.
+  const idle = await setUp()
+  idle.kept.state = { ...FRESH_LOOP }
+  expect(await awaitShift(idle.loop, async () => {}, 1000)).toBe(true)
+  const tired = await setUp()
+  expect(await awaitShift(tired.loop, async () => {}, 500)).toBe(false)
+  const prompts: string[] = []
+  await afterTurn(tired.project, tired.loop, harness(digest, prompts), false)
+  expect(prompts).toEqual([expect.stringContaining('Shift done')])
 })
 
 test('a delivered letter clears only itself; a newer shift or /unshift drops an older one', async () => {

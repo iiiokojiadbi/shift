@@ -50,6 +50,8 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 
 Users get only tagged releases; `main` may be unfinished. The Claude Code plugin and the npm package share one version: the package is released with the number of the Claude Code release whose core it carries, and its gate refuses another.
 
+Every release has an entry in `CHANGELOG.md`, newest first: one entry per released version, covering every commit since the last release — fixes may land as several commits, the entry tells them together, for people, by what changed for them (Added, Changed, Fixed). It is written and committed with the version bump, before the tags; once both harnesses are released, `gh release create shift--v<version> --title <version> --notes-file <the entry>` publishes it on GitHub.
+
 ### Claude Code
 
 1. Bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, commit, `git push`.

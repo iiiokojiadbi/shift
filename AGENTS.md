@@ -75,6 +75,7 @@ scripts/sync-core.ts       copies core/src into every adapter and core/test/data
 scripts/release-npm.ts     the npm package's release gate: checks and the tarball; --publish uploads, verifies and tags
 docs/                      the documentation, above
 README.md                  for people: what shift is, installing, commands, tools, settings
+CHANGELOG.md               for people: what changed in each release, one entry per version
 lefthook.yml  biome.json  package.json  LICENSE
 ```
 

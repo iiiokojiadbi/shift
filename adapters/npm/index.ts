@@ -251,10 +251,14 @@ export default function shift(pi: ExtensionAPI): void {
     if (enabled && loop.pending !== null && event.reason === 'threshold') return { cancel: true }
   })
 
-  // The shift lets go once the run has settled: compacting aborts whatever runs, so never from inside the turn.
+  // The shift lets go once the run has settled: compacting aborts whatever runs, so never from inside the turn. Not
+  // awaited: pi defers every prompt until its settled handlers return, so an owner's message sent during the let-go
+  // would come only after the shift is over, too late to be held, and run before the shift's message.
   pi.on('agent_settled', async (event, ctx) => {
     if (loop.pending === null) return
-    await afterTurn(await projectAt(ctx.cwd), loopOf(ctx), letGoOf(ctx), event.aborted)
+    void projectAt(ctx.cwd)
+      .then(project => afterTurn(project, loopOf(ctx), letGoOf(ctx), event.aborted))
+      .catch((error: unknown) => tell(ctx, `the shift did not finish: ${String(error)}`, 'error'))
   })
 
   // Any compaction starts a new stretch; one the agent did not ask for is told to it at its next look.

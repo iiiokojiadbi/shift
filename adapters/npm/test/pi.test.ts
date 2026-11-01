@@ -74,7 +74,13 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
       options.onComplete({ summary: 'DIGEST', tokensBefore: 300_000, estimatedTokensAfter: 20_000 }),
     model: undefined,
   }
-  const on = (name: string, event: unknown = {}) => handlers.get(name)?.(event, ctx)
+  // The let-go runs after the settled handler returns, as pi needs: the stand-in gives it time to end.
+  const on = async (name: string, event: unknown = {}) => {
+    const result = await handlers.get(name)?.(event, ctx)
+    if (name === 'agent_settled') await new Promise(done => setTimeout(done, 300))
+
+    return result
+  }
   const call = async (name: string, params: Record<string, unknown> = {}) =>
     (await tools.get(name)?.execute('1', params, undefined, undefined, ctx))?.content[0]?.text
 

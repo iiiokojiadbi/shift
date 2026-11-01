@@ -208,7 +208,7 @@ export const register: Register = on => {
       const loop = loopOf($)
       const { pending, letting } = await loop.read()
       if ((pending !== null || letting != null) && (await holdOwner(loop, { text: e.text, attachments: e.attachments }))) {
-        $.ui.log(HELD)
+        // The engine shows the drop's reason under the message: the owner reads why it waits.
         // Idle with a shift no let-go has claimed: its turn's end was missed, and the held message must not wait forever.
         if (letting == null && e.turnId === undefined) $.clock.after(1000, () => void handOver($, false))
 

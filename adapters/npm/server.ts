@@ -20,6 +20,7 @@ import {
   afterTurn,
   afterWrite,
   atPrompt,
+  awaitShift,
   beforeTool,
   compactInstructions,
   contentChars,
@@ -29,6 +30,7 @@ import {
   FRESH_LOOKS,
   FRESH_LOOP,
   gaugeStatus,
+  HELD_NOTE,
   letGoGauge,
   MOD,
   RESUME_COMMAND,
@@ -65,6 +67,8 @@ const KEPT_TOKENS = 15_000
 const CHARS_PER_TOKEN = 4
 // The rows the owner sees above what the mod sends the agent.
 const CONTINUED = `${MOD}: the letter and the records`
+// How long the owner's message waits for a shift's let-go before it goes as it is.
+const HOLD_LIMIT = 10 * 60_000
 
 // What the plugin keeps of one session; the plugin is one per project, shared by its sessions.
 type Session = {
@@ -324,16 +328,28 @@ const plugin: Definition = {
     // The owner's message: what changed between turns, a hint, and after a wait the letter go with it.
     // The notes go in the owner's message itself: opencode's inbox takes a message of its own separately, before or after
     // the owner's, whether it steers or waits in the queue.
+    // While a shift is under way the owner's message waits here, before it enters the session: entered, it would run
+    // before the shift's message, which then takes it as a note and goes first.
     await ctx.session.hook('prompt', async event => {
       const project = once()
       if (await apart(event.sessionID, project)) return
       const { sessionID } = event
+      const loop = loopOf(sessionID)
+      const { pending, letting } = await loop.read()
+      const waited = pending !== null || letting != null
+      if (waited) {
+        // Idle with a shift no let-go has claimed: its run's end was missed, and the message must not wait for it.
+        if (pending !== null && letting == null && !(await state(sessionID)).busy)
+          void afterTurn(await project(), loop, letGoOf(sessionID), false)
+        await awaitShift(loop, ms => new Promise(done => setTimeout(done, ms)), HOLD_LIMIT)
+      }
       const courier = courierOf(sessionID, project)
       await countGrowth(courier.gauge, SOURCES.owner, event.prompt.text.length)
       const told = await atPrompt(courier, { runStarts: !(await state(sessionID)).busy, owner: true })
       if (told.notes.length === 0) return
       const text = told.notes.join('\n\n')
-      event.prompt.text = `${event.prompt.text}\n\n${text}`
+      // After a shift the owner's words follow its message, marked as held for it, as in the other harnesses.
+      event.prompt.text = waited ? `${text}\n\n${HELD_NOTE([event.prompt.text])}` : `${event.prompt.text}\n\n${text}`
       await countGrowth(courier.gauge, SOURCES.attachments, text.length)
       await told.delivered()
     })
