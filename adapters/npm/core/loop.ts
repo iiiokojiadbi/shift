@@ -213,15 +213,15 @@ export async function holdOwner(loop: Loop, message: HeldMessage): Promise<boole
 
 // The owner's message while a shift is under way, from a harness that cannot take it back but can keep it in its hook
 // until the shift is over: it then carries the shift's message, which waits for it as a note. The harness waits while
-// `sleep` lets it, up to `limit` ms; true once the shift is over, false when it gave up — the message then goes as it
-// is, and the shift's message is sent on its own.
+// `sleep` lets it, up to `limit` ms; true once the shift it waited for is over, false when none was under way or it
+// gave up — the message then goes as it is, and the shift's message is sent on its own.
 export async function awaitShift(loop: Loop, sleep: (ms: number) => Promise<void>, limit: number): Promise<boolean> {
   const under = { now: false }
   await loop.update(current => {
     under.now = current.pending !== null || current.letting != null
     return under.now ? { ...current, letting: { ...lettingOf(current), waiting: (current.letting?.waiting ?? 0) + 1 } } : current
   })
-  if (!under.now) return true
+  if (!under.now) return false
   for (let waited = 0; waited < limit; waited += WAIT_STEP) {
     const { pending, letting } = await loop.read()
     if (pending === null && letting == null) return true
@@ -232,9 +232,7 @@ export async function awaitShift(loop: Loop, sleep: (ms: number) => Promise<void
       ? current
       : { ...current, letting: { ...current.letting, waiting: Math.max(0, (current.letting.waiting ?? 1) - 1) } },
   )
-  const { pending, letting } = await loop.read()
-
-  return pending === null && letting == null
+  return false
 }
 
 const WAIT_STEP = 250

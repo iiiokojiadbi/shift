@@ -303,10 +303,10 @@ test("the owner's message kept in a harness's hook until the shift is over takes
     expect(note?.context).toContain(after === 'continue' ? 'Shift done' : '<letter path=')
   }
 
-  // No shift under way: the message goes at once. A hook that gives up lets the shift's message go on its own.
+  // No shift under way: the message goes at once, as it is. A hook that gives up lets the shift's message go on its own.
   const idle = await setUp()
   idle.kept.state = { ...FRESH_LOOP }
-  expect(await awaitShift(idle.loop, async () => {}, 1000)).toBe(true)
+  expect(await awaitShift(idle.loop, async () => {}, 1000)).toBe(false)
   const tired = await setUp()
   expect(await awaitShift(tired.loop, async () => {}, 500)).toBe(false)
   const prompts: string[] = []

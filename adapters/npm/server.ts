@@ -78,6 +78,9 @@ type Session = {
   loop: LoopState
   // The loop's last update, which the next one waits for.
   updating: Promise<void>
+  // The owner's last message through the prompt hook, which the next one waits for: messages held for a shift take its
+  // message once and keep their order.
+  prompting: Promise<void>
   gauge: Gauge
   looks: Looks
   // The last step's prompt size: the history as the model read it.
@@ -129,6 +132,7 @@ const plugin: Definition = {
         rows: [...startRows.splice(0), ...begun.rows],
         loop: { ...FRESH_LOOP, note, pending },
         updating: Promise.resolve(),
+        prompting: Promise.resolve(),
         gauge: FRESH_GAUGE,
         looks: FRESH_LOOKS,
         fill: undefined,
@@ -334,24 +338,28 @@ const plugin: Definition = {
       const project = once()
       if (await apart(event.sessionID, project)) return
       const { sessionID } = event
-      const loop = loopOf(sessionID)
-      const { pending, letting } = await loop.read()
-      const waited = pending !== null || letting != null
-      if (waited) {
-        // Idle with a shift no let-go has claimed: its run's end was missed, and the message must not wait for it.
-        if (pending !== null && letting == null && !(await state(sessionID)).busy)
-          void afterTurn(await project(), loop, letGoOf(sessionID), false)
-        await awaitShift(loop, ms => new Promise(done => setTimeout(done, ms)), HOLD_LIMIT)
-      }
-      const courier = courierOf(sessionID, project)
-      await countGrowth(courier.gauge, SOURCES.owner, event.prompt.text.length)
-      const told = await atPrompt(courier, { runStarts: !(await state(sessionID)).busy, owner: true })
-      if (told.notes.length === 0) return
-      const text = told.notes.join('\n\n')
-      // After a shift the owner's words follow its message, marked as held for it, as in the other harnesses.
-      event.prompt.text = waited ? `${text}\n\n${HELD_NOTE([event.prompt.text])}` : `${event.prompt.text}\n\n${text}`
-      await countGrowth(courier.gauge, SOURCES.attachments, text.length)
-      await told.delivered()
+      const session = await state(sessionID)
+      const turn = session.prompting.then(async () => {
+        const loop = loopOf(sessionID)
+        const { pending, letting } = await loop.read()
+        let held = false
+        if (pending !== null || letting != null) {
+          // Idle with a shift no let-go has claimed: its run's end was missed, and the message must not wait for it.
+          if (pending !== null && letting == null && !session.busy) void afterTurn(await project(), loop, letGoOf(sessionID), false)
+          held = await awaitShift(loop, ms => new Promise(done => setTimeout(done, ms)), HOLD_LIMIT)
+        }
+        const courier = courierOf(sessionID, project)
+        await countGrowth(courier.gauge, SOURCES.owner, event.prompt.text.length)
+        const told = await atPrompt(courier, { runStarts: !session.busy, owner: true })
+        if (told.notes.length === 0) return
+        const text = told.notes.join('\n\n')
+        // After a shift the owner's words follow its message, marked as held for it, as in the other harnesses.
+        event.prompt.text = held ? `${text}\n\n${HELD_NOTE([event.prompt.text])}` : `${event.prompt.text}\n\n${text}`
+        await countGrowth(courier.gauge, SOURCES.attachments, text.length)
+        await told.delivered()
+      })
+      session.prompting = turn.catch(() => undefined)
+      await turn
     })
 
     // Every note to the agent mid-run goes with a tool's result: what changed in the records around a tool of the agent,
