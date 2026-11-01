@@ -3,7 +3,7 @@ import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, offerHint, takeHint } from './hint'
 import { basename } from './paths'
 import type { Project } from './project'
-import { compactInstructions, FAILURE_NOTE, NOT_MADE_NOTE, ourWords, SHIFT_NOW, UNSETTLED_NOTE } from './texts/prompts'
+import { compactInstructions, FAILURE_NOTE, HELD_NOTE, NOT_MADE_NOTE, ourWords, SHIFT_NOW, UNSETTLED_NOTE } from './texts/prompts'
 import { DELIVERED, NOT_CONTINUED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
@@ -17,9 +17,13 @@ export type LoopState = {
   // The letter and the records waiting for the owner's next message.
   note: WaitNote | null
   // A let-go in flight, and whether the owner spoke during it: their message found no letter yet, so the one the
-  // shift then leaves for them is sent after it rather than kept for a message they already sent.
-  letting?: { heard: boolean } | null
+  // shift then leaves for them is sent after it rather than kept for a message they already sent. A harness that can
+  // take the owner's message back holds it here instead, and it goes after the letter, never before it.
+  letting?: { heard: boolean; held?: HeldMessage[] } | null
 }
+
+// An owner's message held back while a shift is under way; what it carried besides the text, as the harness gave it.
+export type HeldMessage = { text: string; attachments?: readonly unknown[] }
 
 export type Level = 'info' | 'warning' | 'error'
 
@@ -38,8 +42,8 @@ export type LetGoHarness = {
   letGo(
     instructions: string,
   ): Promise<{ messages: readonly { role: string; text: string }[]; before?: number; after?: number } | { skip: string }>
-  // Starts the agent's next turn with the prompt.
-  continueWith(prompt: string): Promise<void>
+  // Starts the agent's next turn with the prompt, and what the owner's held messages carried besides their text.
+  continueWith(prompt: string, attachments?: readonly unknown[]): Promise<void>
   // What the harness refreshes once the history is let go, before the message after it.
   afterLetGo?(): Promise<void>
 }
@@ -70,19 +74,25 @@ export async function loopOffer(loop: Loop, gauge: GaugeKeeper): Promise<{ text:
 export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarness, aborted: boolean): Promise<void> {
   // The let-go is marked before the shift is claimed, so an owner's message never falls between the two: a harness may
   // keep them apart. Claimed in the change that clears it: two ends of a turn never let go twice.
-  await loop.update(current => (current.pending === null ? current : { ...current, letting: { heard: current.letting?.heard === true } }))
+  await loop.update(current => (current.pending === null ? current : { ...current, letting: lettingOf(current) }))
   const claim: { shift?: PendingShift | null } = {}
   await loop.update(current => {
     claim.shift = current.pending
-    return current.pending === null ? current : { ...current, pending: null, letting: { heard: current.letting?.heard === true } }
+    return current.pending === null ? current : { ...current, pending: null, letting: lettingOf(current) }
   })
   const { shift } = claim
   if (shift === undefined || shift === null) return
   try {
     await letGoShift(project, loop, harness, shift, aborted)
   } finally {
-    await loop.update(current => (current.letting == null ? current : { ...current, letting: null }))
+    // Whatever way the shift ended, a message the owner sent meanwhile is never dropped with it.
+    const held = await release(loop)
+    if (held.length > 0) await send(loop, harness, { context: '', dir: shift.dir, files: [] }, held)
   }
+}
+
+function lettingOf(current: LoopState): { heard: boolean; held?: HeldMessage[] } {
+  return { ...current.letting, heard: current.letting?.heard === true }
 }
 
 async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, shift: PendingShift, aborted: boolean): Promise<void> {
@@ -127,8 +137,9 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   // The shift is settled and written; a turn that does not start is told, not recorded against it, and its letter
   // waits for the owner's next message as after a wait. A letter an earlier shift left waiting is older than this one.
   await dropWaiting(loop).catch(() => undefined)
-  await harness.continueWith(settled.prompt).catch(async (error: unknown) => {
-    await loop.update(current => ({ ...current, note: settled.note }))
+  const held = await release(loop)
+  await harness.continueWith(withHeld(settled.prompt, held), attachmentsOf(held)).catch(async (error: unknown) => {
+    await loop.update(current => ({ ...current, note: { ...settled.note, context: withHeld(settled.note.context, held) } }))
     loop.tell(NOT_CONTINUED(String(error)), 'error')
   })
 }
@@ -137,10 +148,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
 // otherwise with the owner's next message.
 async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift, context: string, goOn: boolean): Promise<void> {
   if (goOn && shift.after === 'continue') {
-    await harness.continueWith(context).catch(async (error: unknown) => {
-      await loop.update(current => ({ ...current, note: { context, dir: shift.dir, files: [FAILURE_NOTE] } }))
-      loop.tell(NOT_CONTINUED(String(error), FAILURE_NOTE), 'error')
-    })
+    await send(loop, harness, { context, dir: shift.dir, files: [FAILURE_NOTE] }, await release(loop))
     return
   }
   await leave(loop, harness, { context, dir: shift.dir, files: [FAILURE_NOTE] })
@@ -149,16 +157,61 @@ async function tellAgent(loop: Loop, harness: LetGoHarness, shift: PendingShift,
 // A note for the owner's next message — or, when the owner already spoke while the history was let go, sent after
 // that message at once; kept for the next one if it does not go.
 async function leave(loop: Loop, harness: LetGoHarness, note: WaitNote): Promise<void> {
-  const heard: { now?: boolean } = {}
+  const heard: { now?: boolean; held: HeldMessage[] } = { held: [] }
   await loop.update(current => {
     heard.now = current.letting?.heard === true
+    heard.held = current.letting?.held ?? []
     return heard.now ? { ...current, letting: null } : { ...current, note, letting: null }
   })
   if (heard.now !== true) return
-  await harness.continueWith(note.context).catch(async (error: unknown) => {
-    await loop.update(current => ({ ...current, note }))
+  await send(loop, harness, note, heard.held)
+}
+
+// The note and the owner's held messages after it start the next turn; kept together for the owner's next message
+// if the turn does not start.
+async function send(loop: Loop, harness: LetGoHarness, note: WaitNote, held: readonly HeldMessage[]): Promise<void> {
+  const kept = { ...note, context: withHeld(note.context, held) }
+  await harness.continueWith(kept.context, attachmentsOf(held)).catch(async (error: unknown) => {
+    await loop.update(current => ({ ...current, note: kept }))
     loop.tell(NOT_CONTINUED(String(error), note.files.includes(FAILURE_NOTE) ? FAILURE_NOTE : undefined), 'error')
   })
+}
+
+// The let-go is over: the owner's messages held during it are taken in the change that ends it, so one sent after it
+// is not held at all.
+async function release(loop: Loop): Promise<HeldMessage[]> {
+  const taken: { held: HeldMessage[] } = { held: [] }
+  await loop.update(current => {
+    taken.held = current.letting?.held ?? []
+    return current.letting == null ? current : { ...current, letting: null }
+  })
+
+  return taken.held
+}
+
+function withHeld(context: string, held: readonly HeldMessage[]): string {
+  if (held.length === 0) return context
+  const words = HELD_NOTE(held.map(message => message.text))
+
+  return context === '' ? words : `${context}\n\n${words}`
+}
+
+function attachmentsOf(held: readonly HeldMessage[]): readonly unknown[] | undefined {
+  const all = held.flatMap(message => message.attachments ?? [])
+
+  return all.length === 0 ? undefined : all
+}
+
+// The owner's message while a shift waits for its turn to end or lets the history go, from a harness that can take it
+// back: held, to go after the letter, and true; false when no shift is under way and the message goes as it is.
+export async function holdOwner(loop: Loop, message: HeldMessage): Promise<boolean> {
+  const held = { now: false }
+  await loop.update(current => {
+    held.now = current.pending !== null || current.letting != null
+    return held.now ? { ...current, letting: { heard: true, held: [...(current.letting?.held ?? []), message] } } : current
+  })
+
+  return held.now
 }
 
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed
@@ -168,7 +221,9 @@ export async function waitingNote(loop: Loop): Promise<{ context: string; delive
   // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
   // message, whether an older letter goes with this one or not.
   if (pending !== null || letting != null)
-    await loop.update(current => (current.pending === null && current.letting == null ? current : { ...current, letting: { heard: true } }))
+    await loop.update(current =>
+      current.pending === null && current.letting == null ? current : { ...current, letting: { ...current.letting, heard: true } },
+    )
   if (note === null) return null
 
   return {

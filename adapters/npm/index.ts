@@ -1,5 +1,12 @@
 import { resolve } from 'node:path'
-import type { CompactionEntry, CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent'
+import type {
+  CompactionEntry,
+  CompactionResult,
+  ExtensionAPI,
+  ExtensionContext,
+  InputEvent,
+  SessionEntry,
+} from '@earendil-works/pi-coding-agent'
 import { estimateTokens, findCutPoint, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
 import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, Project, WaitNote } from './core/index'
@@ -18,6 +25,8 @@ import {
   FRESH_LOOP,
   formatK,
   gaugeStatus,
+  HELD,
+  holdOwner,
   letGoGauge,
   MOD,
   RESUME_COMMAND,
@@ -148,10 +157,19 @@ export default function shift(pi: ExtensionAPI): void {
 
   // The owner's own input: only a message that starts a run takes the waiting letter with it. An extension's message
   // comes after any owner input another extension took without a run, so it clears what that left.
-  pi.on('input', async (event, _ctx) => {
+  pi.on('input', async (event, ctx) => {
     if (!enabled) return
-    if (event.source === 'extension') ownerTyped = false
-    else if (event.streamingBehavior === undefined) ownerTyped = true
+    if (event.source === 'extension') {
+      ownerTyped = false
+      return
+    }
+    // While a shift waits for its run to end or lets the history go, the owner's message is held and goes after the
+    // letter: pi sends what was typed during the let-go as soon as it ends, before the letter. A command runs as it is.
+    if (!event.text.startsWith('/') && (await holdOwner(loopOf(ctx), { text: event.text, attachments: event.images }))) {
+      tell(ctx, HELD, 'info')
+      return { action: 'handled' as const }
+    }
+    if (event.streamingBehavior === undefined) ownerTyped = true
   })
 
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
@@ -287,8 +305,11 @@ export default function shift(pi: ExtensionAPI): void {
               }),
           })
         }).catch((error: unknown) => ({ skip: `did not start: ${String(error)}` })),
-      continueWith: async prompt => {
-        pi.sendMessage({ customType: MOD, content: prompt, display: true }, { triggerTurn: true })
+      continueWith: async (prompt, attachments) => {
+        // The images of the owner's held messages go with it as pi gave them.
+        const images = (attachments ?? []) as NonNullable<InputEvent['images']>
+        const content = images.length === 0 ? prompt : [{ type: 'text' as const, text: prompt }, ...images]
+        pi.sendMessage({ customType: MOD, content, display: true }, { triggerTurn: true })
       },
     }
   }

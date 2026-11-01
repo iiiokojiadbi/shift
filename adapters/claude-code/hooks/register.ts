@@ -9,6 +9,8 @@ import {
   dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
+  HELD,
+  holdOwner,
   letGoGauge,
   type Project,
   RESUME_COMMAND,
@@ -200,6 +202,19 @@ export const register: Register = on => {
     if (!(await read($, enabled))) return next(e)
     const owner = OWNER_ORIGINS.has(e.origin?.kind ?? '')
     if (owner) await update($, resumeKick, () => false)
+    // While a shift waits for its turn to end or lets the history go, the owner's message is held and goes after the
+    // letter: the engine would run it first, the letter only after its turn. A command runs as it is.
+    if (owner && e.command === undefined) {
+      const loop = loopOf($)
+      const { pending, letting } = await loop.read()
+      if ((pending !== null || letting != null) && (await holdOwner(loop, { text: e.text, attachments: e.attachments }))) {
+        $.ui.log(HELD)
+        // Idle with a shift no let-go has claimed: its turn's end was missed, and the held message must not wait forever.
+        if (letting == null && e.turnId === undefined) $.clock.after(1000, () => void handOver($, false))
+
+        return { drop: HELD }
+      }
+    }
     // A message queued while a tool runs does not start a run: what changed meanwhile may be that tool's.
     const told = await atPrompt(courierOf($), { runStarts: false, owner })
     if (told.notes.length === 0) return next(e)

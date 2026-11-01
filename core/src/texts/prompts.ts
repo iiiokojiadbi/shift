@@ -276,5 +276,9 @@ export const UNSETTLED_NOTE = (name: string, why: string, dir: string) =>
 Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read the letter of this shift, ${dir}/${NAMES.letter} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
 </${MOD}>`
 
+// The owner's messages held back while the history was let go, after the letter: their words as they wrote them.
+export const HELD_NOTE = (texts: readonly string[]) =>
+  `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? 'this message' : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? 'it' : 'them'} back to reach you after your letter. ${texts.length === 1 ? 'It goes' : 'They go'} first, before "${NEXT}".</${MOD}>\n\n${texts.join('\n\n')}`
+
 // What the owner's row names when a failure's note went with their message.
 export const FAILURE_NOTE = 'the note that the shift failed'

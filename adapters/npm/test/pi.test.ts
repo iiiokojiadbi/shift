@@ -126,9 +126,16 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
   await going.on('session_start')
   expect(await going.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).toContain('Shift accepted')
   await expect(going.call('shift', { letter: '.shift/letter.md', after: 'continue', about: 'a' })).rejects.toThrow('already accepted')
+  // The owner types before the history is let go: pi would send it first, so it is held for after the letter.
+  expect(await going.on('input', { text: 'OWNER WORDS', source: 'interactive', streamingBehavior: 'steer' })).toEqual({ action: 'handled' })
+  expect(await going.on('input', { text: '/tasks', source: 'interactive' })).toBeUndefined()
   await going.on('agent_settled', { aborted: false })
+  expect(going.sent).toHaveLength(1)
   expect(going.sent[0]).toContain('Shift done')
+  expect(going.sent[0]).toEndWith('OWNER WORDS')
   expect(going.notes.some(note => note.includes('continuing from the letter'))).toBe(true)
+  // The shift is over: the owner's next input goes as it is.
+  expect(await going.on('input', { text: 'next', source: 'interactive' })).toBeUndefined()
 
   // pi keeps its last keepRecentTokens whole: a history no bigger has nothing to let go, and the shift says so first.
   const small = load(await project(records), 40_000)
@@ -205,10 +212,10 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   const letter = async () =>
     ((await pi.on('before_agent_start', run())) as { message?: { content: string } } | undefined)?.message?.content ?? ''
   // The owner's input taken by another extension without a run, then an extension's own message: no letter.
-  await pi.on('input', { source: 'interactive' })
-  await pi.on('input', { source: 'extension' })
+  await pi.on('input', { text: 'hi', source: 'interactive' })
+  await pi.on('input', { text: 'x', source: 'extension' })
   expect(await letter()).not.toContain('<letter path=')
-  await pi.on('input', { source: 'interactive' })
+  await pi.on('input', { text: 'hi', source: 'interactive' })
   expect(await letter()).toContain('<letter path=')
 
   // The message that took the letter rewound away: the clearing entry stays on the branch, the letter waits again.
@@ -216,14 +223,14 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   const note = { context: 'THE LETTER', dir: 'x', files: [] }
   const rewound = load(await project(records), 200_000, () => [wait(note), wait(null)])
   await rewound.on('session_start')
-  await rewound.on('input', { source: 'interactive' })
+  await rewound.on('input', { text: 'hi', source: 'interactive' })
   expect(((await rewound.on('before_agent_start', run())) as { message: { content: string } }).message.content).toContain('THE LETTER')
   const patched = load(await project(records), 200_000, () => [wait(note), wait(null), { type: 'message', message: { role: 'system' } }])
   await patched.on('session_start')
-  await patched.on('input', { source: 'interactive' })
+  await patched.on('input', { text: 'hi', source: 'interactive' })
   expect(((await patched.on('before_agent_start', run())) as { message: { content: string } }).message.content).toContain('THE LETTER')
   const told = load(await project(records), 200_000, () => [wait(note), wait(null), { type: 'custom_message', customType: 'shift' }])
   await told.on('session_start')
-  await told.on('input', { source: 'interactive' })
+  await told.on('input', { text: 'hi', source: 'interactive' })
   expect(await told.on('before_agent_start', run())).toBeUndefined()
 })

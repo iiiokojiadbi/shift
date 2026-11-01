@@ -1,4 +1,4 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, PromptSubmitArgs } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import { afterTurn, FRESH_LOOP, type Loop, renderSessionFiles, sessionDoctrine, sessionFiles } from './core/index'
 import { projectOf } from './disk'
@@ -40,8 +40,10 @@ export async function handOver($: EngineInterface, aborted: boolean): Promise<vo
 
         return { messages: done.messages, before: done.tokensBefore, after: after ?? done.tokensAfter }
       },
-      continueWith: async prompt => {
-        const submitted = await $.prompt.submit({ text: prompt })
+      continueWith: async (prompt, attachments) => {
+        // What the owner's held messages carried goes as they gave it.
+        const carried = attachments as PromptSubmitArgs['attachments']
+        const submitted = await $.prompt.submit(carried === undefined ? { text: prompt } : { text: prompt, attachments: carried })
         if ('drop' in submitted) throw new Error(`the message was dropped: ${submitted.drop}`)
       },
       // The session's files and the doctrine as the shift left them: the settings may have moved a record.

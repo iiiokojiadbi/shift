@@ -18,8 +18,11 @@ export type PendingShift = {
 
 export type Looks = { seen: Record<string, string> | null; running: number; written?: readonly string[]; docs?: Record<string, string> }
 
-// A let-go in flight, and whether the owner spoke during it.
-export type LetGo = { heard: boolean }
+// An owner's message held back while a shift is under way, with what it carried besides the text.
+export type HeldMessage = { text: string; attachments?: readonly unknown[] }
+
+// A let-go in flight, whether the owner spoke during it, and their messages held for after the letter.
+export type LetGo = { heard: boolean; held?: HeldMessage[] }
 
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }

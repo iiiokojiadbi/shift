@@ -5,6 +5,7 @@ import {
   afterTurn,
   dropWaiting,
   FRESH_LOOP,
+  holdOwner,
   holdShift,
   type LetGoHarness,
   type Loop,
@@ -215,6 +216,71 @@ test('the owner speaking after the turn ends and before the let-go is heard too'
   await afterTurn(project, loop, harness(digest, prompts), false)
   expect(prompts[0]).toContain('<letter path=')
   expect(kept.state).toMatchObject({ note: null, letting: null })
+})
+
+test("the owner's message held during a shift goes after the letter in one prompt, never before it", async () => {
+  // No shift under way: the message goes as it is.
+  const idle = await setUp()
+  idle.kept.state = { ...FRESH_LOOP }
+  expect(await holdOwner(idle.loop, { text: 'hi' })).toBe(false)
+  expect(idle.kept.state.letting).toBeUndefined()
+
+  for (const after of ['continue', 'wait'] as const) {
+    const { project, loop, kept } = await setUp(after)
+    const sent: { prompt: string; attachments?: readonly unknown[] }[] = []
+    // One message while the turn is still to end, one while the history is let go.
+    expect(await holdOwner(loop, { text: 'FIRST' })).toBe(true)
+    const during: LetGoHarness['letGo'] = async instructions => {
+      expect(await holdOwner(loop, { text: 'SECOND', attachments: ['IMAGE'] })).toBe(true)
+      return digest(instructions)
+    }
+    await afterTurn(
+      project,
+      loop,
+      {
+        ...harness(during),
+        continueWith: async (prompt, attachments) => {
+          sent.push({ prompt, attachments })
+        },
+      },
+      false,
+    )
+    expect(sent).toHaveLength(1)
+    const { prompt } = sent[0] ?? { prompt: '' }
+    expect(prompt.indexOf('<letter path=')).toBeGreaterThanOrEqual(0)
+    expect(prompt.indexOf('the owner wrote while you shifted')).toBeGreaterThan(prompt.indexOf('<letter path='))
+    expect(prompt).toEndWith('FIRST\n\nSECOND')
+    expect(sent[0]?.attachments).toEqual(['IMAGE'])
+    expect(kept.state).toMatchObject({ note: null, letting: null })
+    // Once the let-go is over, a message is not held.
+    expect(await holdOwner(loop, { text: 'LATER' })).toBe(false)
+  }
+})
+
+test("the owner's held message is never lost: a turn that does not start keeps it with the letter, a shift not made sends it", async () => {
+  const failing = await setUp()
+  await holdOwner(failing.loop, { text: 'KEEP ME' })
+  await afterTurn(
+    failing.project,
+    failing.loop,
+    {
+      ...harness(digest),
+      continueWith: async () => Promise.reject(new Error('dropped')),
+    },
+    false,
+  )
+  expect(failing.kept.state.note?.context).toContain('<letter path=')
+  expect(failing.kept.state.note?.context).toEndWith('KEEP ME')
+  expect(failing.kept.state.letting).toBeNull()
+
+  // The owner stopped the turn that shifted and wrote: the shift is not made, and their message goes with that news.
+  const aborted = await setUp()
+  await holdOwner(aborted.loop, { text: 'WHY' })
+  const prompts: string[] = []
+  await afterTurn(aborted.project, aborted.loop, harness(digest, prompts), true)
+  expect(prompts).toEqual([expect.stringContaining('was not made — the turn was aborted')])
+  expect(prompts[0]).toEndWith('WHY')
+  expect(aborted.kept.state).toMatchObject({ note: null, letting: null })
 })
 
 test('a delivered letter clears only itself; a newer shift or /unshift drops an older one', async () => {

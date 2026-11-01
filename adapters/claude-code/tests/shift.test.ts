@@ -182,6 +182,34 @@ test('continue: after the turn the history is let go with the hold, and the lett
   expect(files.get(`${DIR}/about.md`)).toContain('tokens: 120K → 50K')
 })
 
+test("the owner's message while a shift is under way is held and goes after the letter", async ($, on) => {
+  const files = project()
+  const submitted: string[] = []
+  stubSession(on, files)
+  const clock = mock.clock(on, { now: AT })
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'SUMMARY', toolUses: [], toolResults: [] }] }))
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'continue', about: 'ABOUT' })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+  // Typed after the turn that shifted ended, before the history is let go: the engine would run it first.
+  const typed = await $.prompt.submit({ text: 'OWNER WORDS', origin: { kind: 'composer' }, wait: false })
+  expect(typed).toEqual({ drop: expect.stringContaining('waits for the shift') })
+  expect(submitted).toEqual([])
+  await clock.advance(1500)
+
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('Shift done')
+  expect(submitted[0]).toEndWith('OWNER WORDS')
+  // The shift is over: the next message goes as it is.
+  await $.prompt.submit({ text: 'NEXT', origin: { kind: 'composer' }, wait: false })
+  expect(submitted.at(-1)).toBe('NEXT')
+})
+
 test("wait: the letter rides along with the owner's next prompt, once", async ($, on) => {
   const files = project()
   const contexts: (readonly string[] | undefined)[] = []

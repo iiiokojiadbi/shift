@@ -20,6 +20,8 @@ export const UNSETTLED = (name: string, why: string) =>
 
 export const DELIVERED = (files: readonly string[], dir: string) => `went with your message: ${files.join(', ')} — ${dir}/${NAMES.letter}`
 
+export const HELD = 'your message waits for the shift: it goes to the agent after its letter, once the history is let go'
+
 export const NOT_CONTINUED = (why: string, carried = 'the letter') =>
   `the next turn did not start after the shift — ${why}; send any message to go on, ${carried} goes with it`
 
