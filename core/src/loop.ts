@@ -1,8 +1,18 @@
-import { settleShift, shiftNotMade, shiftUnsettled } from './flows'
+import { handBack, settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, offerHint, takeHint } from './hint'
 import { basename } from './paths'
 import type { Project } from './project'
-import { compactInstructions, FAILURE_NOTE, HELD_NOTE, NOT_MADE_NOTE, ourWords, SHIFT_NOW, UNSETTLED_NOTE } from './texts/prompts'
+import {
+  compactInstructions,
+  continuePrompt,
+  FAILURE_NOTE,
+  HELD_NOTE,
+  NOT_MADE_NOTE,
+  ourWords,
+  SHIFT_NOW,
+  UNSETTLED_NOTE,
+  WAKE,
+} from './texts/prompts'
 import { DELIVERED, NOT_CONTINUED } from './texts/rows'
 import type { PendingShift, Settled, WaitNote } from './types'
 
@@ -41,10 +51,13 @@ export type Loop = {
 export type LetGoHarness = {
   // How full the history is now; undefined before the first reading.
   fill(): Promise<number | undefined>
-  // Lets the history go with the instructions: what it went into and the fills around it, or why it did not.
+  // Lets the history go with the instructions: what it went into and the fills around it, or why it did not. `carry`
+  // is the message a harness able to put it into the replacement history takes; `carried` says that it did, and then
+  // the message is never told again as the turn's prompt.
   letGo(
     instructions: string,
-  ): Promise<{ messages: readonly { role: string; text: string }[]; before?: number; after?: number } | { skip: string }>
+    carry?: string,
+  ): Promise<{ messages: readonly { role: string; text: string }[]; before?: number; after?: number; carried?: boolean } | { skip: string }>
   // Starts the agent's next turn with the prompt, and what the owner's held messages carried besides their text.
   continueWith(prompt: string, attachments?: readonly unknown[]): Promise<void>
   // What the harness refreshes once the history is let go, before the message after it.
@@ -107,7 +120,12 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
     return
   }
 
-  const done = await harness.letGo(compactInstructions(shift)).catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
+  // A continue shift's message is built before the let-go: a harness able to put it into the replacement history takes
+  // it there, so everything admitted after the compaction reads the letter first.
+  const back = shift.after === 'continue' ? await handBack(project, shift.dir).catch(() => null) : null
+  const done = await harness
+    .letGo(compactInstructions(shift), back === null ? undefined : continuePrompt(shift.letter, back))
+    .catch((error: unknown) => ({ skip: `the let-go failed: ${String(error)}` }))
   if ('skip' in done) {
     // The harness's reason, in the mod's words wherever it goes: the note, the row and about.md.
     const why = ourWords(done.skip)
@@ -118,12 +136,16 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   let settled: Settled
   try {
     await harness.afterLetGo?.()
-    settled = await settleShift(project, {
-      shift,
-      messages: done.messages,
-      before: done.before ?? before,
-      after: done.after ?? (await harness.fill()) ?? 0,
-    })
+    settled = await settleShift(
+      project,
+      {
+        shift,
+        messages: done.messages,
+        before: done.before ?? before,
+        after: done.after ?? (await harness.fill()) ?? 0,
+      },
+      back ?? undefined,
+    )
   } catch (error) {
     const why = ourWords(String(error))
     loop.tell(await shiftUnsettled(project, shift, why, done.before ?? before), 'error')
@@ -139,7 +161,11 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   // The shift is settled and written; a turn that does not start is told, not recorded against it, and its letter
   // waits for the owner's next message as after a wait. A letter an earlier shift left waiting is older than this one.
   await dropWaiting(loop).catch(() => undefined)
-  await finish(loop, harness, settled.prompt, settled.note)
+  // A message the harness carried is in the history already: the turn starts from one line, never the whole message
+  // told twice. A note kept for a turn that did not start carries that line too.
+  const carried = done.carried === true
+  const text = carried ? WAKE : settled.prompt
+  await finish(loop, harness, text, carried ? { ...settled.note, context: text } : settled.note)
 }
 
 // A failed shift is told to the agent, who was told it was accepted: at once when it was to continue and may go on,

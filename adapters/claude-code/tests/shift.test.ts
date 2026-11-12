@@ -182,6 +182,123 @@ test('continue: after the turn the history is let go with the hold, and the lett
   expect(files.get(`${DIR}/about.md`)).toContain('tokens: 120K → 50K')
 })
 
+test('continue: the message rides in the compaction history, and one line starts the turn', async ($, on) => {
+  const files = project()
+  const submitted: string[] = []
+  stubSession(on, files)
+  const clock = mock.clock(on, { now: AT })
+  // The /compact the let-go runs waits here: the compaction itself is raised from the test, as the engine's command
+  // raises it, while the let-go stands with the message ready to be appended.
+  let release: (() => void) | undefined
+  const commands: { command: string; args: string }[] = []
+  on('command.run', (_$: unknown, e: { command: string; args: string }) => {
+    commands.push({ command: e.command, args: e.args })
+
+    return new Promise(resolve => {
+      release = () => resolve({ text: 'Compacted' })
+    })
+  })
+  on('session.compact', () => ({
+    messages: [{ role: 'user', text: 'SUMMARY', toolUses: [], toolResults: [] }],
+    tokensBefore: 120000,
+    tokensAfter: 9000,
+  }))
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'continue', about: 'ABOUT' })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+  await clock.advance(500)
+  expect(commands.map(one => one.command)).toEqual(['compact'])
+  expect(commands[0]?.args).toContain('HOLD-THIS')
+  // The engine's own compaction, with the instructions the command was asked with: the message goes into the history.
+  const replaced = await $.session.compact({
+    trigger: 'manual',
+    instructions: commands[0]?.args,
+    messages: [{ role: 'user', text: 'OLD', toolUses: [] }],
+  })
+  expect(replaced.messages?.at(-1)).toMatchObject({ text: expect.stringContaining('<letter path=') })
+  release?.()
+  for (let waited = 0; waited < 20 && submitted.length === 0; waited++) await clock.advance(5)
+
+  // The letter, the board and the tasks went into the replacement history: the turn starts from one line, never the
+  // whole message told twice.
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).not.toContain('<letter path=')
+  expect(submitted[0]).toContain('Continue from "Next"')
+  // What settled the shift is the engine's own compaction, not the message appended to it.
+  expect(files.get(`${DIR}/summary.md`)).toContain('SUMMARY')
+  expect(files.get(`${DIR}/summary.md`)).not.toContain('<letter path=')
+  expect(files.get(`${DIR}/about.md`)).toContain('continuing')
+  expect(files.get(`${DIR}/about.md`)).toContain('tokens: 120K → 50K')
+})
+
+test('continue: an unrelated compaction neither takes the message nor settles the shift', async ($, on) => {
+  const files = project()
+  const submitted: string[] = []
+  stubSession(on, files)
+  const clock = mock.clock(on, { now: AT })
+  let release: (() => void) | undefined
+  on(
+    'command.run',
+    () =>
+      new Promise(resolve => {
+        release = () => resolve({ text: undefined })
+      }),
+  )
+  on('session.compact', (_$: unknown, e: { trigger: string }) => ({
+    messages: [{ role: 'user', text: `T-${e.trigger}`, toolUses: [], toolResults: [] }],
+  }))
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'continue', about: 'ABOUT' })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+  await clock.advance(500)
+
+  // An unasked compaction while the let-go waits for its own: it takes nothing from the shift.
+  const auto = await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'OLD', toolUses: [] }] })
+  expect(auto.messages).toHaveLength(1)
+  expect(auto.messages?.[0]).toMatchObject({ text: 'T-auto' })
+  release?.()
+  for (let waited = 0; waited < 20 && submitted.length === 0; waited++) await clock.advance(5)
+
+  // Nothing stood for the shift's own compaction: the history is let go the plain way and the letter goes as the prompt.
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('<letter path=')
+  expect(files.get(`${DIR}/summary.md`)).toContain('T-undefined')
+  expect(files.get(`${DIR}/summary.md`)).not.toContain('T-auto')
+})
+
+test('continue: a /compact that does not compact lets the history go the plain way, the letter as the prompt', async ($, on) => {
+  const files = project()
+  const submitted: string[] = []
+  stubSession(on, files)
+  const clock = mock.clock(on, { now: AT })
+  on('command.run', () => ({ text: undefined }))
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'SUMMARY', toolUses: [], toolResults: [] }] }))
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'continue', about: 'ABOUT' })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+  await clock.advance(500)
+
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('Shift done')
+  expect(submitted[0]).toContain('<letter path=')
+  expect(files.get(`${DIR}/about.md`)).toContain('continuing')
+})
+
 test("the owner's message while a shift is under way is held and goes after the letter", async ($, on) => {
   const files = project()
   const submitted: string[] = []

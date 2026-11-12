@@ -313,8 +313,9 @@ export async function resumeShift(project: Project): Promise<{ text: string; pro
   return { text: `No letter.md in any folder of ${SHIFTS}/ — nothing to pick up.` }
 }
 
-// The records, the last shifts and the documents' remarks as they are now, for the message after a shift.
-async function handBack(project: Project, dir: string): Promise<HandedBack> {
+// The records, the last shifts and the documents' remarks as they are now, for the message after a shift. A harness
+// that carries the message into the replacement history reads them before the let-go, not after it.
+export async function handBack(project: Project, dir: string): Promise<HandedBack> {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
@@ -390,8 +391,9 @@ export type LetGo = {
   after: number
 }
 
-// After the let-go: the summary and the outcome on disk, then continue or wait, as the agent asked.
-export async function settleShift(project: Project, letGo: LetGo): Promise<Settled> {
+// After the let-go: the summary and the outcome on disk, then continue or wait, as the agent asked. `back` is what
+// the message hands back, read before the let-go when the harness carries it into the replacement history.
+export async function settleShift(project: Project, letGo: LetGo, back?: HandedBack): Promise<Settled> {
   const { store } = project
   const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
@@ -402,19 +404,19 @@ export async function settleShift(project: Project, letGo: LetGo): Promise<Settl
       `${shift.dir}/${NAMES.about}`,
       renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
     )
-  const back = await handBack(project, shift.dir)
+  const handed = back ?? (await handBack(project, shift.dir))
   const name = basename(shift.dir)
 
-  const files = deliveredFiles(back.work)
+  const files = deliveredFiles(handed.work)
   if (shift.after === 'continue') {
     await outcome(OUTCOME.continuing(shrank))
-    const prompt = continuePrompt(shift.letter, back)
+    const prompt = continuePrompt(shift.letter, handed)
 
     return { after: 'continue', prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) }
   }
 
   await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
-  const note = { context: waitContext(shift.letter, back), dir: shift.dir, files }
+  const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files }
 
   return { after: 'wait', note, row: WAITING(name, shrank) }
 }

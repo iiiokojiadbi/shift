@@ -208,6 +208,10 @@ export function continuePrompt(letter: string, back: HandedBack): string {
   return shiftMessage('Shift done. You continue from where you stopped.', letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`])
 }
 
+// The turn after a let-go whose message the harness already put into the replacement history: the letter, the board
+// and the tasks are above this line, so only the turn has to be started, never the message told twice.
+export const WAKE = `The shift is done and your letter is above. Continue from "${NEXT}".`
+
 export function waitContext(letter: string, back: HandedBack): string {
   return shiftMessage("You shifted and waited for the owner; the owner's message comes with this one.", letter, back, [GUIDE_KNOWN])
 }

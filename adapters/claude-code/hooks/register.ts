@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
+import type { LetGoDone } from '../types/index'
 import {
   afterTool,
   afterWrite,
@@ -46,6 +47,10 @@ const filesSession = atom({ plugin: 'shift', key: 'filesSession' } as const, nul
 const gauge = atom({ plugin: 'shift', key: 'gauge' } as const, FRESH_GAUGE)
 const resumeKick = atom({ plugin: 'shift', key: 'resumeKick' } as const, false)
 const looks = atom({ plugin: 'shift', key: 'looks' } as const, FRESH_LOOKS)
+// The message a let-go puts into the compaction's replacement history, with the instructions its /compact was asked
+// with, and what that compaction gave back before the message.
+const carry = atom({ plugin: 'shift', key: 'carry' } as const, null as { text: string; instructions: string } | null)
+const letGoDone = atom({ plugin: 'shift', key: 'letGoDone' } as const, null as LetGoDone | null)
 
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
@@ -236,13 +241,23 @@ export const register: Register = on => {
   })
 
   // Any let-go of the main history starts a new stretch; one the agent did not ask for is told to it at its next look.
+  // A shift's message rides in the replacement history here: the let-go runs /compact as a command for this hook to be
+  // raised (handover.ts), so everything admitted after the compaction reads the letter first. What the engine gave back
+  // is kept before the message is appended, and the shift settles from it.
   on('session.compact', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && done.messages !== undefined) {
       await update($, gauge, () => letGoGauge(e.trigger === 'auto'))
     }
+    if ('skip' in done) return done
+    // Only the compaction this let-go asked for, of the main history: an auto, precompute or subagent one, or another
+    // manual one, must neither take the message nor stand for the shift's result — the let-go falls back instead.
+    const carried = await read($, carry)
+    if (carried === null || e.agentId !== undefined || e.trigger !== 'manual') return done
+    if ((e.instructions ?? '').trim() !== carried.instructions.trim()) return done
+    await update($, letGoDone, () => ({ messages: done.messages, tokensBefore: done.tokensBefore, tokensAfter: done.tokensAfter }))
 
-    return done
+    return { ...done, messages: [...done.messages, { role: 'user' as const, text: carried.text, toolUses: [] }] }
   }).catch((_$, e, next) => next(e))
 
   on('session.compact', { trigger: 'auto' }, async ($, e, next) => {

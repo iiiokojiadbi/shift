@@ -27,6 +27,14 @@ export type LetGo = { heard: boolean; held?: HeldMessage[] }
 // The letter waiting for the owner's next message, and the shift folder it came from.
 export type WaitNote = { context: string; dir: string; files: string[] }
 
+// What the engine's compaction gave back while a shift let go: its messages and the fills around it, as the compact
+// hook sees them before the shift's message is appended.
+export type LetGoDone = {
+  messages: readonly { role: string; text: string }[]
+  tokensBefore?: number
+  tokensAfter?: number
+}
+
 // The shift loop's state, as the core's LoopState: one atom, so a change of it is one update.
 export type LoopState = { pending: PendingShift | null; note: WaitNote | null; letting?: LetGo | null }
 
@@ -84,6 +92,11 @@ declare module 'claude-code' {
       // The records as the mod last saw them, `<stamp>#<fingerprint>` per path from the project's root, null before the
       // first look; and the main agent's tools running now: a change seen while one runs may be its own.
       looks: Looks
+      // The shift's message while its let-go runs and the instructions its /compact was asked with, for the compact
+      // hook to recognize that compaction and append the message; null when no shift is letting go.
+      carry: { text: string; instructions: string } | null
+      // What that compaction gave back, before the message was appended: the let-go settles the shift from it.
+      letGoDone: LetGoDone | null
     }
   }
 }

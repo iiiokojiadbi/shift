@@ -16,7 +16,7 @@ import {
   waitingNote,
 } from '../src/loop'
 import { frontmatter } from '../src/markdown'
-import { ourWords } from '../src/texts/prompts'
+import { ourWords, WAKE } from '../src/texts/prompts'
 import type { Gauge } from '../src/types'
 import { BOARD, LETTER, listWith, R, ROOT, taskMd } from './fixtures'
 import { memoryProject } from './memory'
@@ -172,6 +172,55 @@ test('a turn that does not start after the shift is told, not recorded against t
   // The letter waits for the owner's next message instead.
   const note = await waitingNote(loop)
   expect(note?.context).toContain('fixing tests')
+})
+
+test('a harness that carries the message starts the turn with one line, never the letter twice', async () => {
+  const { project, loop, rows, dir, kept } = await setUp()
+  const prompts: string[] = []
+  const carries: (string | undefined)[] = []
+  const carrying: LetGoHarness['letGo'] = async (_instructions, carry) => {
+    carries.push(carry)
+    return { messages: [{ role: 'user', text: 'DIGEST' }], after: 20_000, carried: true }
+  }
+  await afterTurn(project, loop, harness(carrying, prompts), false)
+
+  // The message is built before the let-go and taken by the harness.
+  expect(carries).toHaveLength(1)
+  expect(carries[0]).toContain('Shift done. You continue from where you stopped.')
+  expect(carries[0]).toContain('<letter path=')
+  // The turn starts from one line: the letter is in the history already.
+  expect(prompts).toEqual([WAKE])
+  expect(kept.state.note).toBeNull()
+  expect(rows.at(-1)).toEqual(['info', expect.stringContaining('continuing from the letter')])
+  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
+})
+
+test('a wake line that does not start the turn waits as the note, never the whole message again', async () => {
+  const { project, loop } = await setUp()
+  const stuck: LetGoHarness = {
+    fill: async () => 300_000,
+    letGo: async () => ({ messages: [], after: 20_000, carried: true }),
+    continueWith: async () => Promise.reject(new Error('busy')),
+  }
+  await afterTurn(project, loop, stuck, false)
+  const note = await waitingNote(loop)
+  expect(note?.context).toBe(WAKE)
+})
+
+test('a wait shift carries nothing: a harness is never asked to put the letter into the history', async () => {
+  const { project, loop, kept } = await setUp('wait')
+  const carries: (string | undefined)[] = []
+  await afterTurn(
+    project,
+    loop,
+    harness(async (_instructions, carry) => {
+      carries.push(carry)
+      return { messages: [], after: 20_000 }
+    }),
+    false,
+  )
+  expect(carries).toEqual([undefined])
+  expect(kept.state.note?.context).toContain('<letter path=')
 })
 
 test('two ends of one turn let go once; a fill that cannot be read does not stop the shift', async () => {
