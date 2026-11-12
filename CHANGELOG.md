@@ -2,6 +2,17 @@
 
 What changed in each release of the Claude Code plugin and the npm package `@iiiokojiadbi/shift`, which share one version. Newest first.
 
+## 0.36.0
+
+### Fixed
+
+- In Claude Code, a prompt let in while a shift was letting the history go — a task notification, another plugin's message — started a turn before the shift's message: the agent worked without its letter for minutes, and the harness drew the queued shift prompt twice. The message after a `continue` shift now goes into the history the compaction leaves, so everything let in after the compaction reads the letter first, and the turn starts from one line. A compaction the mod did not ask for never takes the message or stands for the shift's let-go; a refused command or a skipped compaction falls back to the whole message as the prompt.
+- The session block — `SHIFT.md`, `OWNER.md`, `GLOSSARY.md`, `TASKS.md` and the doctrine — is read again before the shift's message enters the history, so a turn let in right after the compaction never reads stale files under a letter that says they were read.
+
+### Changed
+
+- In Claude Code the transcript shows the `/compact` the shift runs and its "Compacted" row, and the letter arrives as a plain history message, without the "The shift plugin sent a message" frame. The shift is the agent's decision; those rows are not typed by the person. pi and opencode are unchanged.
+
 ## 0.35.0
 
 ### Fixed
