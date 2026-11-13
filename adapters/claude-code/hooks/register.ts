@@ -109,7 +109,10 @@ export const register: Register = on => {
       throw error
     }
     const path = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : undefined
-    const written = (e.tool === 'Edit' || e.tool === 'Write') && done.deny === undefined && done.isError !== true ? path : undefined
+    const written =
+      (e.tool === 'Edit' || e.tool === 'Write') && done.deny === undefined && done.isError !== true && !heldForReview(done)
+        ? path
+        : undefined
     if (!main && written !== undefined) await afterWrite(courier, written)
     const notes = main
       ? await afterTool(courier, before, {
@@ -280,6 +283,14 @@ function growthSource(door: string, origin: { kind: string; tool?: string } | un
 
 // The tools that run a subagent: what it writes comes back as this call's own.
 const SPAWNS: ReadonlySet<string> = new Set(['Agent', 'Task'])
+
+// An Edit or Write the engine held for the machine's owner to review instead of writing: the file is unchanged, so
+// nothing followed it and no document mentions what it would have made.
+function heldForReview(done: { result?: unknown }): boolean {
+  const result = done.result as { staged?: boolean } | undefined
+
+  return result?.staged === true
+}
 
 // A context entry past 100,000 characters reaches the model as a head and a path: a long note goes as several entries,
 // cut between lines, in order, so the letter at its end is read whole.

@@ -518,6 +518,25 @@ test('after Edit and Write the map follows, the toc and remarks come with the ne
   expect(String(mentions.result)).toContain('No document in `docs/` mentions `a.md`.')
 })
 
+test('a Write the engine held for review wrote nothing, so no document follows it', async ($, on) => {
+  const files = project()
+  files.set('/proj/.shift/settings.toml', '[docs]\ntoc = true')
+  files.set('/proj/docs/a.md', '---\ndescription: A\n---\n\n# A\n')
+  stubSession(on, files)
+  const contexts: (readonly string[] | undefined)[] = []
+  on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => {
+    contexts.push(e.context)
+    return { text: e.text }
+  })
+  on('tool.call', { tool: 'Write' }, () => ({ result: { type: 'update', filePath: '/proj/docs/a.md', staged: true } }) as never)
+
+  const held = await $.tool.call({ tool: 'Write', file_path: '/proj/docs/a.md', content: '# A\n\n## One\n' } as never)
+  expect(held.context).toBeUndefined()
+  await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
+  expect(contexts[0]).toBeUndefined()
+  expect(files.get('/proj/docs/a.md')).not.toContain('<!-- toc -->')
+})
+
 test("records are looked at around every tool: the agent's own change told only when broken, someone else's always", async ($, on) => {
   const files = project()
   stubSession(on, files)
