@@ -2,6 +2,12 @@
 
 What changed in each release of the Claude Code plugin and the npm package `@iiiokojiadbi/shift`, which share one version. Newest first.
 
+## 0.36.1
+
+### Fixed
+
+- In Claude Code, an `Edit` or `Write` that the harness held for the machine's owner to review wrote nothing, yet the mod counted it as a written file: it wrote the toc of a document nobody touched and told the agent that the file had changed. Such a call is no write now, so nothing follows it.
+
 ## 0.36.0
 
 ### Fixed
