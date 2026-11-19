@@ -1,5 +1,5 @@
 ---
-description: Each harness's slots for the shift — Claude Code, pi, opencode — and the facts about them not obvious from the code: what loads, what survives a restart, how text reaches the model. Before touching an adapter or starting a new one.
+description: Each harness's slots for the shift — Claude Code, pi, opencode and Codex — and the facts about them not obvious from the code: what loads, what survives a restart, how text reaches the model. Before touching an adapter or starting a new one.
 ---
 
 # shift: adapters
@@ -9,6 +9,7 @@ description: Each harness's slots for the shift — Claude Code, pi, opencode �
 - Claude Code
 - pi
 - opencode
+- Codex
 <!-- /toc -->
 
 An adapter fills the core's ports (`docs/architecture.md`) with what its harness offers. Marks: **[run]** built and run in the harness, **[types]** checked against the harness's types, **[code]** read in its sources, not run.
@@ -85,3 +86,19 @@ The adapter is `server.ts` of the npm package `adapters/npm/`, a server plugin o
 - The window is the session's model's, or the configured default's (`ctx.model.default()`) when the session names none, kept per model; a `buffer` at least as large as the window is ignored, as opencode does.
 - opencode finds a package's server entry as `<name>/server` (the package's `exports`), else the package's root; a local folder by its `server.ts`, else `index.ts`. So the entry is `server.ts`: `index.ts` is pi's, and a folder would load it. Plugins install through `@npmcli/arborist`, which fetches peers unless they are optional. `opencode plugin add` takes the registry or git only.
 - Try it: link `adapters/npm` into a project's `.opencode/plugins/` or the global `~/.config/opencode/plugins/`, then `opencode run -s <id> --auto -m <model> '…'` against the background service; the plugin keeps working after `run` exits, and `opencode api GET /api/session/<id>/context` shows what the model read.
+
+## Codex
+
+The installed plugin is `shift@shift`. Codex loads its session hooks and MCP server from the marketplace package. `SessionStart` injects the doctrine and session files, including at a built-in shift. `UserPromptSubmit` refreshes the documentation map and supplies the session block when it changed. `PostToolUse` can deliver a growth hint from the local transcript. A profile that has not trusted the hooks has no automatic session block. The agent's record tools resolve their project from the session hook using the session identity supplied by the host.
+
+For the shift call the MCP server connects to the local app server, verifies the active main thread and subscribes to its events. Records and document tools work independently of that connection. The MCP server never starts or restarts a daemon. A shift requires the TUI and plugin to share the same local daemon. MCP tool approval and hook trust remain owner settings.
+
+For protocol development, the source launcher in `adapters/codex/index.ts` connects the stock TUI to its own local app server over a private Unix socket. It also serves the app server protocol over stdio for clients that negotiate the experimental API. Start a new thread through the adapter to register the core tool table in the `shift` namespace. Tool registration belongs to thread creation. Existing threads created outside the adapter can pick up their project in a new thread through the `unshift` tool.
+
+The first owner turn receives the doctrine and the full session files, including the configured SHIFT.md and its rebuilt documentation map. Tool events feed record checks and document updates. At the next prompt the core detects scripted edits and returns the changed session block. The adapter takes its fill from the last step of `thread/tokenUsage/updated` and uses the reported context window for the hint threshold.
+
+After the accepting turn completes, the adapter puts Hold in the model-visible history and requests `thread/compact/start` on that thread. The protocol supplies no dedicated Hold parameter. Completion requires both a completed context item and its completed turn. When the local history exposes a textual digest it goes into the snapshot. Opaque histories have no readable digest. A missing token reading is recorded as unknown.
+
+A continue starts a turn with the fresh session files and letter. A wait parks the same material in the thread without starting a turn, so it survives a restart. A prompt submitted through the source launcher during the transition stays with its original input and attachments. A queued owner turn takes the place of an automatic wake. Other clients connected independently to a different server are outside this delivery contract.
+
+The installed runtime bundles the shared TypeScript core and the Node store. The launcher imports both directly. The Codex tools for resuming and listing work are named `unshift` and `shift_tasks`. The TUI owns its slash command menu.

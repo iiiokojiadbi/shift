@@ -8,7 +8,7 @@ An agent decides by itself when to **shift**. At a stage boundary it updates its
 
 Long work outlives the context window. A harness's own compaction keeps a generic summary of the history, not the agent's line of thought: decisions get lost, and knowledge that was written down is not looked up again. shift keeps the thread on disk, in records strict enough to resume from: a state, not a diary.
 
-Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and [opencode](#opencode) (as a plugin).
+Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and [opencode](#opencode) (as a plugin). A marketplace plugin is available for [Codex](#codex).
 
 ## How it works
 
@@ -21,6 +21,17 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs with their descriptions), `OWNER.md`, `GLOSSARY.md` and `TASKS.md`, so the agent knows what is written down before it needs it.
 
 ## Install
+
+### Codex
+
+Requires Bun on PATH and Codex CLI (tested with 0.170.0). Install the tagged plugin from the repository's marketplace:
+
+```sh
+codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.1.0
+codex plugin add shift@shift
+```
+
+Start Codex with `codex` as usual. In `/hooks`, review and trust the hooks supplied by `shift@shift`, then open a new thread. The first turn receives SHIFT.md with its documentation map. To let the agent initiate a shift, the TUI needs the local app server. If its daemon is stopped, run `codex app-server daemon start` once and reopen Codex. Ask for `unshift` to pick up the latest letter or `shift_tasks` to list the work.
 
 ### Claude Code
 

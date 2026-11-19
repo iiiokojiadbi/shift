@@ -4,19 +4,23 @@
   "type": "module",
   "scripts": {
     "sync-core": "bun scripts/sync-core.ts",
-    "check": "bun scripts/sync-core.ts --check && biome check .",
+    "check": "bun scripts/sync-core.ts --check && bun run build:codex --check && biome check .",
     "fix": "biome check --write .",
-    "test": "bun run test:core && bun run test:npm && bun run test:claude-code",
+    "test": "bun run test:core && bun run test:npm && bun run test:claude-code && bun run test:codex",
     "test:core": "bun test core/test",
     "test:npm": "bun test adapters/npm/test",
     "test:claude-code": "claude plugin test adapters/claude-code",
     "validate": "claude plugin validate adapters/claude-code",
     "release:npm": "bun scripts/release-npm.ts",
-    "typecheck": "bun run types:core && bun run types:claude-code && bun run types:npm",
+    "typecheck": "bun run types:core && bun run types:claude-code && bun run types:npm && bun run types:codex",
     "types:core": "tsc -p core && tsc -p core/test",
     "types:claude-code": "tsc -p adapters/claude-code --noEmit",
     "types:npm": "tsc -p adapters/npm && tsc -p adapters/npm/test",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "shift:codex": "bun adapters/codex/index.ts",
+    "test:codex": "bun test adapters/codex/test",
+    "types:codex": "tsc -p adapters/codex",
+    "build:codex": "bun scripts/build-codex.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",

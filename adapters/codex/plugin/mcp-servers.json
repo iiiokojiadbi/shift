@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "shift": { "command": "bun", "cwd": ".", "args": ["runtime.js", "mcp"], "env_vars": ["CODEX_HOME"] }
+  }
+}

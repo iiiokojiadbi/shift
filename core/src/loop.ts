@@ -142,7 +142,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
         shift,
         messages: done.messages,
         before: done.before ?? before,
-        after: done.after ?? (await harness.fill()) ?? 0,
+        after: done.after ?? (await harness.fill()),
       },
       back ?? undefined,
     )
