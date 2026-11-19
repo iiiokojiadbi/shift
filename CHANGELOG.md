@@ -1,6 +1,16 @@
 # Changelog
 
-What changed in each release of the Claude Code plugin and the npm package `@iiiokojiadbi/shift`, which share one version, and the independently versioned Codex plugin. Newest first.
+The adapters share the project's version number. Newest first.
+
+## 0.37.0
+
+### Added
+
+- Codex joins the shared release. Install `shift@shift` from the tagged marketplace and start the usual CLI. The plugin loads SHIFT.md with its documentation map, and the agent can shift and continue from its letter or wait for the owner.
+
+### Fixed
+
+- Shift history shows an unknown token count when the harness has no reading for the transition. A missing reading previously appeared as zero.
 
 ## Codex plugin 0.1.0
 
