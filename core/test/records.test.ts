@@ -165,62 +165,50 @@ test('shiftDir names the folder by UTC time', () => {
   expect(shiftDir('/proj', Date.UTC(2026, 9, 23, 14, 5, 9))).toBe('/proj/.shift/shifts/20261023-140509')
 })
 
-test('hints: soft every max(150K, 40%) of the limit, none right before the final, final at 80% and every 5% after', () => {
+test('the effective limit sets the soft and final milestones, once each per stretch', () => {
   let gauge = FRESH_GAUGE
-  const step = (tokens: number | undefined, window: number, threshold?: number) => {
-    const hint = shiftHint(gauge, { tokens, window, threshold })
+  const step = (tokens: number | undefined, threshold?: number) => {
+    const hint = shiftHint(gauge, { tokens, window: 500_000, threshold })
     gauge = hint.gauge
     return hint.text
   }
-  const big = (tokens: number | undefined) => step(tokens, 1_000_000)
-
-  expect(big(undefined)).toBeNull()
-  expect(big(20_000)).toBeNull()
-  expect(big(300_000)).toBeNull()
-  expect(big(420_000)).toContain('grown by 400K')
-  expect(big(500_000)).toBeNull()
-  expect(big(790_000)).toBeNull()
-  expect(big(800_000)).toContain('800K of 1000K used')
-  expect(big(820_000)).toBeNull()
-  expect(big(850_000)).toContain('850K of 1000K')
+  expect(step(undefined)).toBeNull()
+  expect(step(20_000)).toBeNull()
+  expect(step(299_999)).toBeNull()
+  expect(step(300_000)).toContain('grown by 280K')
+  expect(step(419_999)).toBeNull()
+  expect(step(420_000)).toContain('420K of 500K used')
+  expect(step(420_000)).toBeNull()
+  expect(step(490_000)).toBeNull()
 
   gauge = FRESH_GAUGE
-  const half = (tokens: number) => step(tokens, 500_000)
-  expect(half(20_000)).toBeNull()
-  expect(half(220_000)).toContain('grown by 200K')
-  expect(half(390_000)).toBeNull()
-  expect(half(400_000)).toContain('400K of 500K')
-
-  // On a small window the soft step does not fit before the final hint: the final one is the only one.
-  gauge = FRESH_GAUGE
-  const mid = (tokens: number) => step(tokens, 272_000)
-  expect(mid(9_000)).toBeNull()
-  expect(mid(159_000)).toBeNull()
-  expect(mid(209_000)).toBeNull()
-  expect(mid(218_000)).toContain('218K of 272K')
-
-  gauge = FRESH_GAUGE
-  const small = (tokens: number) => step(tokens, 200_000, 128_000)
-  expect(small(9_000)).toBeNull()
-  expect(small(100_000)).toBeNull()
-  expect(small(103_000)).toContain('103K of 128K')
-
-  gauge = FRESH_GAUGE
-  expect(big(850_000)).toBeNull()
-  expect(big(855_000)).toBeNull()
-  expect(big(900_000)).toContain('900K of 1000K')
+  const small = (tokens: number) => step(tokens, 258_000)
+  expect(small(0)).toBeNull()
+  expect(small(154_800)).toBeNull()
+  expect(small(200_000)).toBeNull()
+  expect(small(216_719)).toBeNull()
+  expect(small(216_720)).toContain('nearest stage boundary')
+  expect(small(257_000)).toBeNull()
 
   gauge = { ...FRESH_GAUGE, unassisted: true }
-  expect(big(undefined)).toBeNull()
-  expect(big(40_000)).toContain('without your shift')
-  expect(big(41_000)).toBeNull()
-
+  expect(step(undefined)).toBeNull()
+  expect(step(430_000)).toContain('without your shift')
+  expect(step(454_999)).toBeNull()
+  expect(step(455_000)).toContain('455K of 500K')
   gauge = FRESH_GAUGE
-  expect(big(280_000)).toBeNull()
-  expect(renderStatus(gauge, { tokens: 70_000, window: 1_000_000, threshold: undefined })).toContain('next soft hint at 470K')
-  expect(big(70_000)).toBeNull()
-  expect(big(310_000)).toBeNull()
-  expect(big(470_000)).toContain('grown by 400K')
+  expect(step(490_000)).toBeNull()
+  expect(step(494_999)).toBeNull()
+  expect(step(495_000)).toContain('495K of 500K')
+  expect(step(70_000)).toBeNull()
+  expect(step(300_000)).toContain('grown by 230K')
+})
+
+test('a late reading skips a soft hint near the final, including on a high starting fill', () => {
+  const reading = (tokens: number) => ({ tokens, window: 500_000, threshold: undefined })
+  const gauge = { ...FRESH_GAUGE, base: 20_000 }
+  expect(shiftHint(gauge, reading(370_001)).text).toBeNull()
+  expect(shiftHint(gauge, reading(421_000)).text).toContain('421K of 500K')
+  expect(renderStatus({ ...gauge, base: 180_000 }, reading(200_000))).toContain('no soft hint')
 })
 
 test('a hint and the status name what the history grew from', () => {
@@ -230,12 +218,12 @@ test('a hint and the status name what the history grew from', () => {
   let gauge = addGrowth(addGrowth(addGrowth(FRESH_GAUGE, 'Read', 600), 'Bash', 300), 'your responses', 30)
   gauge = addGrowth(gauge, 'Read', 70)
   gauge = shiftHint(gauge, { tokens: 20_000, window: 1_000_000, threshold: undefined }).gauge
-  expect(shiftHint(gauge, { tokens: 420_000, window: 1_000_000, threshold: undefined }).text).toContain('Mostly from: Read 67%, Bash 30%.')
+  expect(shiftHint(gauge, { tokens: 600_000, window: 1_000_000, threshold: undefined }).text).toContain('Mostly from: Read 67%, Bash 30%.')
 
   const status = renderStatus(gauge, { tokens: 300_000, window: 1_000_000, threshold: 800_000 })
   expect(status).toContain('Used: 300K of 1000K window; the harness lets the history go by itself at 800K.')
   expect(status).toContain('Since the last shift: +280K.')
-  expect(status).toContain('next soft hint at 340K; final at 640K.')
+  expect(status).toContain('next soft hint at 480K; final at 672K.')
   expect(status).toContain('Grown mostly from: Read 67%, Bash 30%.')
   expect(renderStatus(FRESH_GAUGE, { tokens: undefined, window: 1_000_000, threshold: undefined })).toContain('No reading yet')
 })

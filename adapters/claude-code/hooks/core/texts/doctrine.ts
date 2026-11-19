@@ -145,7 +145,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled — fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board — create it.
+\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled — fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, update its document alongside the change, following the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
@@ -193,13 +193,13 @@ ${doctrineBody(tools)}
 
 export const GUIDE = `# Shift: how to shift
 
-A shift is the boundary between stretches of work. You prepare your records, call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
+A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
 
 First the flow of a shift, then the rules of each record it checks.
 
 ## How to shift
 
-1. Board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
+1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
 2. The letter — by its sections below.
 3. Call \`${TOOL}\`:
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;

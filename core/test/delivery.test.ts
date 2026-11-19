@@ -132,7 +132,7 @@ test('a hint goes last in a tool result, in its own tag, and is told to the owne
   const { courier, kept, rows } = await setUp()
   await beforeTool(courier)
   await afterTool(courier, [], TOOL)
-  kept.reading = { tokens: 450_000, window: 1_000_000, threshold: undefined }
+  kept.reading = { tokens: 600_000, window: 1_000_000, threshold: undefined }
   kept.gauge = { base: 20_000, hinted: null, unassisted: false, growth: {}, whole: true }
   await beforeTool(courier)
   const notes = await afterTool(courier, [], TOOL)
@@ -180,7 +180,7 @@ test('a prompt that did not go keeps its notes — the records, the docs, the hi
   await atPrompt(courier, { runStarts: true, owner: true })
   await put('OWNER.md', `${OWNER}\n- «a new rule»`)
   await afterWrite(courier, `${ROOT}/docs/a.md`)
-  kept.reading = { tokens: 450_000, window: 1_000_000, threshold: undefined }
+  kept.reading = { tokens: 600_000, window: 1_000_000, threshold: undefined }
 
   const dropped = await atPrompt(courier, { runStarts: true, owner: true })
   expect(dropped.notes).toHaveLength(3)

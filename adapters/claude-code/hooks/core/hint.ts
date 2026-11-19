@@ -1,22 +1,28 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { BOARD, TASK_LIST, TASKS, TOOL } from './layout'
 import { formatK } from './markdown'
-import type { Gauge, Reading } from './types'
+import type { Gauge, HintTargets, Reading } from './types'
 
-// Every step is a share of the limit — the harness's own threshold, or the window when it is unknown — so the rhythm is the same on any window.
-// Soft hints come every max(150K, 40%) of growth: a shorter stretch does not pay for its letter, its records and the cache
-// built anew after it. On a small window the step does not fit before the final hint, so the final one is the only one.
-export function softStep(limit: number): number {
-  return Math.max(150_000, Math.round(limit * 0.4))
+// A stretch needs enough new work to justify the cost of a voluntary shift.
+function nextSoft(base: number, tokens: number, limit: number, targets: HintTargets): number | null {
+  if (targets.soft === null) return null
+  const at = Math.max(tokens, targets.soft, base + 200_000)
+  return at + Math.round(limit * 0.1) <= targets.final ? at : null
 }
 
-// The final hint comes at 80% of the limit, with room left to finish a stage, and again every 5% after it.
 export function finalAt(limit: number): number {
-  return Math.round(limit * 0.8)
+  return Math.round(limit * 0.84)
 }
 
-export function finalStep(limit: number): number {
-  return Math.round(limit / 20)
+function hintTargets(limit: number, overrides?: HintTargets): HintTargets {
+  return overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) }
+}
+
+// Give a new stretch some room even when the previous shift left a full history.
+function firstFinal(base: number, limit: number, final: number): number {
+  if (base < final) return final
+  const growth = Math.min(limit * 0.05, (limit - base) / 2)
+  return base + Math.max(1, Math.round(growth))
 }
 
 export const FRESH_GAUGE: Gauge = { base: null, hinted: null, unassisted: false, growth: {}, whole: false }
@@ -35,36 +41,33 @@ function rebased(gauge: Gauge, tokens: number): Gauge {
   return gauge.base !== null && tokens < (gauge.hinted ?? gauge.base) ? { ...gauge, base: tokens, hinted: null, growth: {} } : gauge
 }
 
-// One hint at most per new growth; an ignored one is not repeated until the history grows again.
-export function shiftHint(current: Gauge, { tokens, window, threshold }: Reading): { gauge: Gauge; text: string | null } {
+// A reading that crosses both milestones gives only the final hint.
+export function shiftHint(
+  current: Gauge,
+  { tokens, window, threshold, hintTargets: overrides }: Reading,
+): { gauge: Gauge; text: string | null } {
   if (tokens === undefined) return { gauge: current, text: null }
   const gauge = rebased(current, tokens)
   if (gauge.base === null) return { gauge: { ...gauge, base: tokens, unassisted: false }, text: gauge.unassisted ? UNASSISTED_HINT : null }
 
   const limit = threshold ?? window
-  const final = finalAt(limit)
-  const grown = tokens - gauge.base
-  const since = tokens - (gauge.hinted ?? gauge.base)
+  const targets = hintTargets(limit, overrides)
   const hinted = { ...gauge, hinted: tokens }
-  if (grown < finalStep(limit)) return { gauge, text: null }
+  if (tokens >= firstFinal(gauge.base, limit, targets.final) && (gauge.hinted === null || gauge.hinted < targets.final))
+    return { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) }
 
-  if (tokens >= final) {
-    const isFirst = gauge.hinted === null || gauge.hinted < final
-    return isFirst || since >= finalStep(limit) ? { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) } : { gauge, text: null }
-  }
-  // No soft hint right before the final one: it would come twice in a row.
-  const step = softStep(limit)
-  if (since >= step && tokens + step / 2 <= final) return { gauge: hinted, text: softHint(grown, gauge.growth) }
+  if (gauge.hinted === null && nextSoft(gauge.base, tokens, limit, targets) === tokens)
+    return { gauge: hinted, text: softHint(tokens - gauge.base, gauge.growth) }
 
   return { gauge, text: null }
 }
 
 function softHint(grown: number, growth: Record<string, number>): string {
-  return `Shift hint: the history has grown by ${formatK(grown)} since the last shift.${sources(growth)} This is not an alarm — running out of room gets a hint of its own. If you are at a stage boundary and the stretch's history is not needed whole any more, shift; if not, go on — the next hint comes after new growth.`
+  return `Shift hint: the history has grown by ${formatK(grown)} since the last shift.${sources(growth)} This is not an alarm — running out of room gets a hint of its own. If you are at a stage boundary and the stretch's history is not needed whole any more, shift; otherwise keep working.`
 }
 
 function finalHint(tokens: number, limit: number, growth: Record<string, number>): string {
-  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used — close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: board, tasks, letter, \`${TOOL}\`.`
+  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used — close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: check the current records, write your letter, then call \`${TOOL}\`.`
 }
 
 // Token counts per row are not known, so the growth is counted in characters and named by shares.
@@ -134,20 +137,21 @@ export function growthOf(messages: readonly { role: string; content: unknown }[]
 }
 
 // What the status tool answers: the fill, the limit, the growth since the last shift, when the next hints come, and what grew.
-export function renderStatus(current: Gauge, { tokens, window, threshold }: Reading): string {
+export function renderStatus(current: Gauge, { tokens, window, threshold, hintTargets: overrides }: Reading): string {
   if (tokens === undefined) return 'No reading yet: the first response since the last let-go has not come back.'
   const gauge = rebased(current, tokens)
   const limit = threshold ?? window
-  const final = finalAt(limit)
+  const targets = hintTargets(limit, overrides)
+  const base = gauge.base ?? tokens
+  const final = firstFinal(base, limit, targets.final)
   const lines = [
-    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? 'the harness lets nothing go by itself, or its threshold is not read yet: the window stands for it' : `the harness lets the history go by itself at ${formatK(threshold)}`}.`,
+    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? 'the automatic threshold is unknown' : `the harness lets the history go by itself at ${formatK(threshold)}`}.`,
   ]
   if (gauge.base !== null) lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`)
   if (tokens >= final) lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`)
   else {
-    const step = softStep(limit)
-    const soft = Math.max(tokens, (gauge.hinted ?? gauge.base ?? tokens) + step)
-    const next = soft + step / 2 <= final ? `next soft hint at ${formatK(soft)}` : 'no soft hint before the final'
+    const soft = gauge.hinted === null ? nextSoft(base, tokens, limit, targets) : null
+    const next = soft === null ? 'no soft hint before the final' : `next soft hint at ${formatK(soft)}`
     lines.push(`Hints: ${next}; final at ${formatK(final)}.`)
   }
   const shares = growthShares(gauge.growth)
@@ -282,16 +286,12 @@ async function restore(keeper: GaugeKeeper): Promise<void> {
   })
 }
 
-// The last step the history has passed since the base: its hint was given before the restart, so it is not repeated,
-// and the next step still hints. Past the final the hint is taken as given now: the final repeats every 5%, and a step
-// placed below the real one would repeat it at once.
-export function lastStep(base: number | null, { tokens, window, threshold }: Reading): number | null {
+// On restore, infer the milestones already passed in this stretch.
+export function lastStep(base: number | null, { tokens, window, threshold, hintTargets: overrides }: Reading): number | null {
   if (base === null || tokens === undefined || tokens < base) return null
   const limit = threshold ?? window
-  const final = finalAt(limit)
-  if (tokens >= final) return tokens
-  const step = softStep(limit)
-  const passed = Math.floor((tokens - base) / step)
-
-  return passed > 0 ? base + passed * step : null
+  const targets = hintTargets(limit, overrides)
+  if (tokens >= firstFinal(base, limit, targets.final)) return tokens
+  const soft = nextSoft(base, base, limit, targets)
+  return soft !== null && tokens >= soft ? soft : null
 }

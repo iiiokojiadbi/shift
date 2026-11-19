@@ -16,11 +16,12 @@ function stubSession(
   ignored = 0,
   history: { role: string; content: unknown }[] = [],
   session = () => 'sess',
+  window = 200_000,
 ) {
   on('session.root', () => ({ value: '/proj' }))
   on('session.messages', () => ({ value: history as never }))
   on('session.id', () => ({ value: session() }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, tokens: tokens() }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window, tokens: tokens() }, rateLimits: [] } }))
   on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
     files.set(e.path, e.text)
     return { value: undefined }
@@ -396,7 +397,7 @@ test('a hint goes with a tool result and with a prompt, and a let-go starts a ne
   let tokens = 20000
   const prompts: (readonly string[] | undefined)[] = []
   const logs: string[] = []
-  stubSession(on, files, logs, () => tokens)
+  stubSession(on, files, logs, () => tokens, 0, [], undefined, 500_000)
   on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => {
     prompts.push(e.context)
     return { text: e.text }
@@ -415,16 +416,16 @@ test('a hint goes with a tool result and with a prompt, and a let-go starts a ne
 
   await bash()
   await toolResult()
-  tokens = 165000
+  tokens = 300_000
   const hinted = String((await bash()).context)
   expect(hinted).toContain('<shift note="a hint from the mod, not part of what it came with">\nShift hint')
   expect(hinted).toContain('Mostly from: Bash')
   expect(logs.filter(line => line.startsWith('to the agent — Shift hint'))).toHaveLength(1)
-  tokens = 170000
+  tokens = 310_000
   expect(String((await bash()).context)).not.toContain('Shift hint')
-  tokens = 175000
+  tokens = 420_000
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
-  expect(String(prompts[0])).toContain('175K of 200K used')
+  expect(String(prompts[0])).toContain('420K of 500K used')
 
   await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'long history', toolUses: [], toolResults: [] }] })
   tokens = 30000

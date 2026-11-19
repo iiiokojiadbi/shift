@@ -2107,14 +2107,23 @@ async function tasksView(project) {
 }
 
 // core/src/hint.ts
-function softStep(limit) {
-  return Math.max(150000, Math.round(limit * 0.4));
+function nextSoft(base, tokens, limit, targets) {
+  if (targets.soft === null)
+    return null;
+  const at = Math.max(tokens, targets.soft, base + 200000);
+  return at + Math.round(limit * 0.1) <= targets.final ? at : null;
 }
 function finalAt(limit) {
-  return Math.round(limit * 0.8);
+  return Math.round(limit * 0.84);
 }
-function finalStep(limit) {
-  return Math.round(limit / 20);
+function hintTargets(limit, overrides) {
+  return overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) };
+}
+function firstFinal(base, limit, final) {
+  if (base < final)
+    return final;
+  const growth = Math.min(limit * 0.05, (limit - base) / 2);
+  return base + Math.max(1, Math.round(growth));
 }
 var FRESH_GAUGE = { base: null, hinted: null, unassisted: false, growth: {}, whole: false };
 var SOURCES = {
@@ -2126,33 +2135,26 @@ var SOURCES = {
 function rebased(gauge, tokens) {
   return gauge.base !== null && tokens < (gauge.hinted ?? gauge.base) ? { ...gauge, base: tokens, hinted: null, growth: {} } : gauge;
 }
-function shiftHint(current, { tokens, window, threshold }) {
+function shiftHint(current, { tokens, window, threshold, hintTargets: overrides }) {
   if (tokens === undefined)
     return { gauge: current, text: null };
   const gauge = rebased(current, tokens);
   if (gauge.base === null)
     return { gauge: { ...gauge, base: tokens, unassisted: false }, text: gauge.unassisted ? UNASSISTED_HINT : null };
   const limit = threshold ?? window;
-  const final = finalAt(limit);
-  const grown = tokens - gauge.base;
-  const since = tokens - (gauge.hinted ?? gauge.base);
+  const targets = hintTargets(limit, overrides);
   const hinted = { ...gauge, hinted: tokens };
-  if (grown < finalStep(limit))
-    return { gauge, text: null };
-  if (tokens >= final) {
-    const isFirst = gauge.hinted === null || gauge.hinted < final;
-    return isFirst || since >= finalStep(limit) ? { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) } : { gauge, text: null };
-  }
-  const step = softStep(limit);
-  if (since >= step && tokens + step / 2 <= final)
-    return { gauge: hinted, text: softHint(grown, gauge.growth) };
+  if (tokens >= firstFinal(gauge.base, limit, targets.final) && (gauge.hinted === null || gauge.hinted < targets.final))
+    return { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) };
+  if (gauge.hinted === null && nextSoft(gauge.base, tokens, limit, targets) === tokens)
+    return { gauge: hinted, text: softHint(tokens - gauge.base, gauge.growth) };
   return { gauge, text: null };
 }
 function softHint(grown, growth) {
-  return `Shift hint: the history has grown by ${formatK(grown)} since the last shift.${sources(growth)} This is not an alarm \u2014 running out of room gets a hint of its own. If you are at a stage boundary and the stretch's history is not needed whole any more, shift; if not, go on \u2014 the next hint comes after new growth.`;
+  return `Shift hint: the history has grown by ${formatK(grown)} since the last shift.${sources(growth)} This is not an alarm \u2014 running out of room gets a hint of its own. If you are at a stage boundary and the stretch's history is not needed whole any more, shift; otherwise keep working.`;
 }
 function finalHint(tokens, limit, growth) {
-  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used \u2014 close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: board, tasks, letter, \`${TOOL}\`.`;
+  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used \u2014 close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: check the current records, write your letter, then call \`${TOOL}\`.`;
 }
 function addGrowth(gauge, source, chars) {
   if (chars <= 0)
@@ -2169,23 +2171,24 @@ function sources(growth) {
   const shares = growthShares(growth);
   return shares.length === 0 ? "" : ` Mostly from: ${shares.map((each) => `${each.source} ${each.share}%`).join(", ")}.`;
 }
-function renderStatus(current, { tokens, window, threshold }) {
+function renderStatus(current, { tokens, window, threshold, hintTargets: overrides }) {
   if (tokens === undefined)
     return "No reading yet: the first response since the last let-go has not come back.";
   const gauge = rebased(current, tokens);
   const limit = threshold ?? window;
-  const final = finalAt(limit);
+  const targets = hintTargets(limit, overrides);
+  const base = gauge.base ?? tokens;
+  const final = firstFinal(base, limit, targets.final);
   const lines = [
-    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? "the harness lets nothing go by itself, or its threshold is not read yet: the window stands for it" : `the harness lets the history go by itself at ${formatK(threshold)}`}.`
+    `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? "the automatic threshold is unknown" : `the harness lets the history go by itself at ${formatK(threshold)}`}.`
   ];
   if (gauge.base !== null)
     lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`);
   if (tokens >= final)
     lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`);
   else {
-    const step = softStep(limit);
-    const soft = Math.max(tokens, (gauge.hinted ?? gauge.base ?? tokens) + step);
-    const next = soft + step / 2 <= final ? `next soft hint at ${formatK(soft)}` : "no soft hint before the final";
+    const soft = gauge.hinted === null ? nextSoft(base, tokens, limit, targets) : null;
+    const next = soft === null ? "no soft hint before the final" : `next soft hint at ${formatK(soft)}`;
     lines.push(`Hints: ${next}; final at ${formatK(final)}.`);
   }
   const shares = growthShares(gauge.growth);
@@ -2271,16 +2274,15 @@ async function restore(keeper) {
     return { ...merged, base: from, hinted: now.hinted ?? lastStep(from, reading), whole: true };
   });
 }
-function lastStep(base, { tokens, window, threshold }) {
+function lastStep(base, { tokens, window, threshold, hintTargets: overrides }) {
   if (base === null || tokens === undefined || tokens < base)
     return null;
   const limit = threshold ?? window;
-  const final = finalAt(limit);
-  if (tokens >= final)
+  const targets = hintTargets(limit, overrides);
+  if (tokens >= firstFinal(base, limit, targets.final))
     return tokens;
-  const step = softStep(limit);
-  const passed = Math.floor((tokens - base) / step);
-  return passed > 0 ? base + passed * step : null;
+  const soft = nextSoft(base, base, limit, targets);
+  return soft !== null && tokens >= soft ? soft : null;
 }
 
 // core/src/loop.ts
@@ -3246,7 +3248,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled \u2014 fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board \u2014 create it.
+\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled \u2014 fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, update its document alongside the change, following the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
@@ -3292,13 +3294,13 @@ ${doctrineBody(tools)}
 }
 var GUIDE = `# Shift: how to shift
 
-A shift is the boundary between stretches of work. You prepare your records, call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
+A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
 
 First the flow of a shift, then the rules of each record it checks.
 
 ## How to shift
 
-1. Board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
+1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
 2. The letter \u2014 by its sections below.
 3. Call \`${TOOL}\`:
    - \`letter\` \u2014 the path to the letter, usually \`${LETTER}\`;
@@ -3800,6 +3802,21 @@ class Requests {
 }
 
 // adapters/codex/gauge.ts
+function windowTargets(window) {
+  switch (window) {
+    case 258400:
+      return { soft: null, final: 184800 };
+    case 475000:
+      return { soft: 300000, final: 410000 };
+    default:
+      return;
+  }
+}
+function usageReading(previous, gauge, tokens, window) {
+  const reading = { tokens, window, threshold: undefined, hintTargets: windowTargets(window) };
+  const changed = previous.window > 0 && previous.window !== window;
+  return { reading, gauge: changed ? { ...gauge, hinted: null } : gauge };
+}
 async function saved(file) {
   return readFile2(file, "utf8").then((text) => JSON.parse(text), () => ({
     gauge: FRESH_GAUGE,
@@ -3809,7 +3826,7 @@ async function saved(file) {
 }
 async function status(file) {
   const { gauge, reading } = await saved(file);
-  return renderStatus(gauge, reading);
+  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) });
 }
 async function sample(file, transcript, reset) {
   const state = await saved(file);
@@ -3843,7 +3860,7 @@ async function sample(file, transcript, reset) {
           const tokens = fields(info.last_token_usage).total_tokens;
           if (typeof tokens !== "number" || typeof info.model_context_window !== "number" || info.model_context_window <= 0)
             continue;
-          state.reading = { tokens, window: info.model_context_window, threshold: undefined };
+          Object.assign(state, usageReading(state.reading, state.gauge, tokens, info.model_context_window));
           const next = shiftHint(state.gauge, state.reading);
           state.gauge = next.gauge;
           hint = next.text ?? hint;
@@ -4125,8 +4142,11 @@ class Session {
     if (method === "thread/tokenUsage/updated") {
       const usage = fields(params.tokenUsage);
       const tokens = fields(usage.last).totalTokens;
-      if (typeof tokens === "number" && typeof usage.modelContextWindow === "number" && usage.modelContextWindow > 0)
-        this.reading = { tokens, window: usage.modelContextWindow, threshold: undefined };
+      if (typeof tokens === "number" && typeof usage.modelContextWindow === "number" && usage.modelContextWindow > 0) {
+        const next = usageReading(this.reading, this.gauge, tokens, usage.modelContextWindow);
+        this.reading = next.reading;
+        this.gauge = next.gauge;
+      }
     }
     const transition = this.transition;
     const turn = fields(params.turn);

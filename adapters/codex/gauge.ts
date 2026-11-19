@@ -4,6 +4,25 @@ import { fields } from './protocol'
 
 type Sample = { gauge: Gauge; reading: Reading; offset: number }
 
+// Token events give usable capacity. Keep reminder targets separate from the unknown automatic threshold.
+function windowTargets(window: number) {
+  switch (window) {
+    case 258_400:
+      return { soft: null, final: 184_800 }
+    case 475_000:
+      return { soft: 300_000, final: 410_000 }
+    default:
+      return undefined
+  }
+}
+
+export function usageReading(previous: Reading, gauge: Gauge, tokens: number, window: number) {
+  const reading: Reading = { tokens, window, threshold: undefined, hintTargets: windowTargets(window) }
+  // A soft hint in a larger window must not count as the final hint in a smaller one.
+  const changed = previous.window > 0 && previous.window !== window
+  return { reading, gauge: changed ? { ...gauge, hinted: null } : gauge }
+}
+
 async function saved(file: string): Promise<Sample> {
   return readFile(file, 'utf8').then(
     text => JSON.parse(text),
@@ -17,7 +36,7 @@ async function saved(file: string): Promise<Sample> {
 
 export async function status(file: string) {
   const { gauge, reading } = await saved(file)
-  return renderStatus(gauge, reading)
+  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) })
 }
 
 // Hook processes share only the latest reading and its byte offset. Long tool results are skipped by
@@ -48,7 +67,7 @@ export async function sample(file: string, transcript: string, reset: boolean) {
           const info = fields(payload.info)
           const tokens = fields(info.last_token_usage).total_tokens
           if (typeof tokens !== 'number' || typeof info.model_context_window !== 'number' || info.model_context_window <= 0) continue
-          state.reading = { tokens, window: info.model_context_window, threshold: undefined }
+          Object.assign(state, usageReading(state.reading, state.gauge, tokens, info.model_context_window))
           const next = shiftHint(state.gauge, state.reading)
           state.gauge = next.gauge
           hint = next.text ?? hint

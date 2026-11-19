@@ -15,35 +15,33 @@ A model rarely shifts by itself: without a hint it does not, and a frequent hint
 
 ## The rule
 
-The stretch starts at the first fill after any let-go — the agent's shift or the harness's own. Every threshold is a share of the limit L: the harness's own let-go threshold, or the window when it is unknown. Windows differ several times over (1M, 272K, 128K), and fixed steps made hints frequent on small windows and rare on large ones; shares keep the rhythm the same.
+Use the harness's own let-go threshold as the effective limit L, falling back to its reported window. The base is the first reading after a shift. An adapter can supply reminder targets calibrated for its reported window; the Codex targets are in `docs/adapters.md`.
 
-- **Soft** — every `max(150K, 40% of L)` of growth since the start of the stretch or the last hint. A shorter stretch does not pay for its letter, its records and the harness's cache built anew after it: every shift writes the history's cache from scratch and the agent reads its files again, so frequent early shifts spend the owner's limits. No soft hint when the final one is less than half a step away, so a small window gets the final hint alone. It says it is not an alarm.
-- **Final** — at 80% of L, with room left to finish a stage, then every 5% of L.
-- **Nothing** before the stretch has grown by 5% of L, so a shift that leaves the window full does not loop.
-- **Unassisted** — after the harness let the history go by itself, the agent is told at its next look that there is no letter and it must read the board.
-- **Rebase** — a fill below the base or the last hint means the history was let go unseen (a cleared session); the count starts again there.
+- **Soft.** Offer one optional shift at 60% of L once the stretch has grown by at least 200K tokens. Skip it if the current reading leaves less than 10% of L before the final. This gives the agent time to finish meaningful work between the two signals.
+- **Final.** At 84% of L, ask the agent to shift at the nearest stage boundary. A stretch that starts at or above the final milestone must first grow by 5% of L to avoid a shift loop, capped at half the remaining room. A large jump can deliver the final directly. Each stretch gets at most one final reminder.
+- **Unassisted.** After the harness lets the history go by itself, the agent is told at its next look to read the board.
+- **Rebase.** A fill below the base or the last hint starts a new count there.
 
-| window | soft | final |
-|---|---|---|
-| 1M | ~400K | ~800K |
-| 500K | ~200K | ~400K |
-| 272K | — | ~218K |
-| 200K | — | ~160K |
-| 128K | — | ~102K |
+| Effective limit | Soft (low starting fill) | Final | Room left at final |
+|---|---|---|---|
+| 1M | 600K | 840K | 160K |
+| 500K | 300K | 420K | 80K |
+| 258K | — | 216,720 | 41,280 |
+| 128K | — | 107,520 | 20,480 |
 
-`shiftHint` in `core/src/hint.ts` is a pure function of the gauge and a reading; the numbers are `softStep`, `finalAt` and `finalStep` there. The doctrine says never to shift before the first hint, soft or final, unless the owner asks, and gives the cost as the reason: agents shifted at 120K right after finishing a task.
+The agent may shift before the first hint on the owner's request. Otherwise it keeps working and maintaining its records.
 
 ## The gauge
 
 The gauge is the stretch's count: the fill it started from, the fill at the last hint, whether the last let-go was unasked, and the growth per source. The harness gives no token count per row, so every row of the main history is counted in characters by source — a tool by its name, the agent's own responses, the owner's messages, attachments and reminders — and a hint names the largest shares: "Mostly from: Bash 51%, your responses 30%". A large share of tool output no longer needed is the strongest reason to shift.
 
-The core keeps the gauge over a `GaugeKeeper` port; the adapter only stores it and reads its history. The gauge lives in the harness's memory, so a fresh process (a restart, a resumed session) restores it once, at the first look with a reading of the fill: the base from the last shift's `about.md` if that shift was this session's, the growth from the history as it is, plus whatever it counted meanwhile, and the last hint as the last step the history has passed since the base — its hint was given before the restart, so a restart never repeats it, and the next step still hints. Past the final the last hint is taken as given at the fill now: a step placed below the real one would repeat the final at once.
+The core keeps the gauge over a `GaugeKeeper` port; the adapter only stores it and reads its history. The gauge lives in the harness's memory, so a fresh process (a restart, a resumed session) restores it once, at the first look with a reading of the fill: the base from the last shift's `about.md` if that shift was this session's, the growth from the history as it is, plus whatever it counted meanwhile, and the last milestone inferred from the base and the current fill if the gauge has no saved hint.
 
 A hint at the next prompt is marked given only once that prompt went with it; a prompt that failed or was dropped gets it again with the next one.
 
 ## Delivery
 
-A hint is one of the notes `delivery.ts` hands out (`docs/architecture.md`): it goes with a tool's result — in Claude Code as the result's `context`, in pi as a text block — and between turns with the next message, in a `<shift note="a hint from the mod, …">` tag. It stays in the history: no harness offers a channel that does not, so loops are held back by "one hint per new growth". Every hint is also a dim row for the owner, so the owner sees what the agent is told. No hint while a shift is pending.
+A hint is one of the notes `delivery.ts` hands out (`docs/architecture.md`): it goes with a tool's result — in Claude Code as the result's `context`, in pi as a text block — and between turns with the next message, in a `<shift note="a hint from the mod, …">` tag. It stays in the history: no harness offers a channel that does not, so each milestone is delivered once per stretch. Every hint is also a dim row for the owner, so the owner sees what the agent is told. No hint while a shift is pending.
 
 `shift_status` answers on request: the fill against the window, where the harness lets the history go by itself, the growth since the last shift, when the next hints come and what the history grew from.
 

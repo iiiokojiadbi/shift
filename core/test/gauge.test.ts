@@ -35,15 +35,15 @@ test('a restart does not repeat a hint already given; the next step still hints'
   const soft = keeper({ tokens: 640_000, ...limits }, {}, 20_000)
   soft.kept.gauge = FRESH_GAUGE
   expect(await takeHint(soft.port)).toBeNull()
-  expect(soft.kept.gauge?.hinted).toBe(420_000)
-  const later = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
+  expect(soft.kept.gauge?.hinted).toBe(600_000)
+  const later = keeper({ tokens: 850_000, ...limits }, {}, 20_000)
   later.kept.gauge = await soft.port.read()
-  expect(await takeHint(later.port)).toContain('830K of 1000K used')
+  expect(await takeHint(later.port)).toContain('850K of 1000K used')
 
-  const final = keeper({ tokens: 830_000, ...limits }, {}, 20_000)
+  const final = keeper({ tokens: 850_000, ...limits }, {}, 20_000)
   final.kept.gauge = FRESH_GAUGE
   expect(await takeHint(final.port)).toBeNull()
-  expect(final.kept.gauge?.hinted).toBe(830_000)
+  expect(final.kept.gauge?.hinted).toBe(850_000)
 })
 
 test('a restart before the first step leaves no hint behind it', () => {
@@ -67,22 +67,22 @@ test('a fresh process restores only once a reading is there; the hint given befo
   blind.kept.gauge = FRESH_GAUGE
   await countGrowth(blind.port, 'Bash', 50)
   expect(blind.kept.gauge?.whole).toBe(false)
-  const seen = keeper({ tokens: 820_000, window: 1_000_000, threshold: undefined }, {}, 20_000)
+  const seen = keeper({ tokens: 860_000, window: 1_000_000, threshold: undefined }, {}, 20_000)
   seen.kept.gauge = blind.kept.gauge
   expect(await takeHint(seen.port)).toBeNull()
-  expect(seen.kept.gauge).toMatchObject({ base: 20_000, hinted: 820_000, whole: true })
+  expect(seen.kept.gauge).toMatchObject({ base: 20_000, hinted: 860_000, whole: true })
 })
 
 test('the status names no soft hint the rule would hold back', async () => {
-  const { port, kept } = keeper({ tokens: 700_000, window: 1_000_000, threshold: undefined })
+  const { port, kept } = keeper({ tokens: 750_000, window: 1_000_000, threshold: undefined })
   kept.gauge = { ...FRESH_GAUGE, base: 20_000, whole: true }
-  expect(await gaugeStatus(port)).toContain('Hints: no soft hint before the final; final at 800K.')
+  expect(await gaugeStatus(port)).toContain('Hints: no soft hint before the final; final at 840K.')
 })
 
 test('a hint offered with a prompt never takes the count back below a hint given since', async () => {
   const at = (tokens: number) => keeper({ tokens, window: 1_000_000, threshold: undefined })
   const offered = at(850_000)
-  offered.kept.gauge = { ...FRESH_GAUGE, base: 20_000, hinted: 420_000, whole: true }
+  offered.kept.gauge = { ...FRESH_GAUGE, base: 20_000, hinted: 600_000, whole: true }
   const hint = await offerHint(offered.port)
   expect(hint?.text).toContain('850K of 1000K')
   const later = at(900_000)

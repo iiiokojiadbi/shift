@@ -97,7 +97,8 @@ export type AboutMeta = {
   result: string
 }
 
-export type Reading = { tokens: number | undefined; window: number; threshold: number | undefined }
+export type HintTargets = { soft: number | null; final: number }
+export type Reading = { tokens: number | undefined; window: number; threshold: number | undefined; hintTargets?: HintTargets }
 
 export type HistoryEntry = { name: string; about: string | null }
 // The last shifts' about.md, oldest first, and how many shifts the project has in all.

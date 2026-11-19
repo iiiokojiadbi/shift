@@ -84,6 +84,7 @@ lefthook.yml  biome.json  package.json  LICENSE
 
 ## Rules for every change
 
+- Include the `Co-authored-by: Codex <noreply@openai.com>` trailer in every commit in this repository.
 - Edit shared logic only in `core/src/`, then `bun run sync-core`; run it again after `bun run fix` touched `core/src/`.
 - Before a commit: `bun run check`, `bun run typecheck`, `bun run test`; `bun run validate` when the Claude Code plugin changed. Lint findings are fixed, never silenced.
 - A behaviour two adapters would do the same way goes into the core over a port; an adapter keeps only wiring, where its state lives, measurement, the let-go call and delivery.

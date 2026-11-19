@@ -34,6 +34,7 @@ import {
   tasksView,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
+import { usageReading } from './gauge'
 import { deferred, type Fields, fields, type Request, textInput } from './protocol'
 
 export const namespace = 'shift'
@@ -292,8 +293,11 @@ export class Session {
     if (method === 'thread/tokenUsage/updated') {
       const usage = fields(params.tokenUsage)
       const tokens = fields(usage.last).totalTokens
-      if (typeof tokens === 'number' && typeof usage.modelContextWindow === 'number' && usage.modelContextWindow > 0)
-        this.reading = { tokens, window: usage.modelContextWindow, threshold: undefined }
+      if (typeof tokens === 'number' && typeof usage.modelContextWindow === 'number' && usage.modelContextWindow > 0) {
+        const next = usageReading(this.reading, this.gauge, tokens, usage.modelContextWindow)
+        this.reading = next.reading
+        this.gauge = next.gauge
+      }
     }
     const transition = this.transition
     const turn = fields(params.turn)
