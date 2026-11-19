@@ -37,6 +37,9 @@ console.log(`preparing ${reference}`)
 
 // One version for every harness: the package carries the core of the Claude Code release with the same number.
 const plugin = JSON.parse(readFileSync(join(ROOT, 'adapters/claude-code/.claude-plugin/plugin.json'), 'utf8'))
+const marketplace = JSON.parse(readFileSync(join(ROOT, 'adapters/codex/plugin/.codex-plugin/plugin.json'), 'utf8'))
+if (marketplace.version !== manifest.version)
+  throw new Error(`Marketplace version ${marketplace.version} differs from npm version ${manifest.version}.`)
 if (manifest.version !== plugin.version)
   throw new Error(
     `adapters/npm/package.json is ${manifest.version}, the Claude Code plugin ${plugin.version}: release the package with the plugin's version`,

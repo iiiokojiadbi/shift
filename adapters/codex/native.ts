@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline'
 import { renderSessionFiles, sessionFiles, startSession, TOOLS } from '../../core/src'
 import { projectAt } from '../npm/store'
 import { sample, status } from './gauge'
+import manifest from './plugin/.codex-plugin/plugin.json'
 import { deferred, type Fields, fields, type Packet, Requests } from './protocol'
 import { Session } from './session'
 
@@ -82,7 +83,10 @@ class Daemon {
     this.ready = connected.promise
       .finally(() => clearTimeout(timer))
       .then(async () => {
-        await this.rpc.call('initialize', { clientInfo: { name: 'shift', version: '1' }, capabilities: { experimentalApi: true } })
+        await this.rpc.call('initialize', {
+          clientInfo: { name: manifest.name, version: manifest.version },
+          capabilities: { experimentalApi: true },
+        })
         socket.send(JSON.stringify({ method: 'initialized' }))
       })
   }
@@ -138,7 +142,7 @@ async function serve() {
         return reply(packet.id, {
           protocolVersion: '2025-03-26',
           capabilities: { tools: {} },
-          serverInfo: { name: 'shift', version: '0.1.0' },
+          serverInfo: { name: manifest.name, version: manifest.version },
         })
       case 'ping':
         return reply(packet.id, {})

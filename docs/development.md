@@ -53,13 +53,13 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 
 ## Release
 
-Users get only tagged releases; `main` may be unfinished. The Claude Code plugin and the npm package share one version: the package is released with the number of the Claude Code release whose core it carries, and its gate refuses another.
+Users get only tagged releases; `main` may be unfinished. The two plugin manifests and the npm package share one version. Bump all three together and run `bun run build:codex` before committing. The npm release gate checks all three manifests.
 
-Every release has an entry in `CHANGELOG.md`, newest first: one entry per released version, covering every commit since the last release — fixes may land as several commits, the entry tells them together, for people, by what changed for them (Added, Changed, Fixed). It is written and committed with the version bump, before the tags; once both harnesses are released, `gh release create shift--v<version> --title <version> --notes-file <the entry>` publishes it on GitHub.
+Every release has an entry in `CHANGELOG.md`, newest first: one entry per released version, covering every commit since the last release — fixes may land as several commits, the entry tells them together, for people, by what changed for them (Added, Changed, Fixed). It is written and committed with the version bump, before the tags; once all three distribution channels are verified, `gh release create shift--v<version> --title <version> --notes-file <the entry>` publishes it on GitHub.
 
 ### Claude Code
 
-1. Bump `version` in `adapters/claude-code/.claude-plugin/plugin.json`, commit, `git push`.
+1. Commit the shared version bump and changelog, then push the release commit to `origin/main`.
 2. `claude plugin tag adapters/claude-code --push` — the tag is `shift--v<version>`.
 3. In the catalog repo `iiiokojiadbi/claude-plugins`, set the entry's `ref` in `.claude-plugin/marketplace.json` to that tag, commit, push.
 4. `claude plugin marketplace update iiiokojiadbi`, then `claude plugin update shift@iiiokojiadbi`; a restart applies it.
@@ -70,12 +70,11 @@ A release that changes what the model or the owner sees is checked live after th
 
 The package `@iiiokojiadbi/shift` is `adapters/npm`, one for both harnesses, published to npm from this machine with the owner's npm login; nothing publishes from CI. A published version cannot be reused, so the gate does everything but upload unless told to.
 
-1. After a Claude Code release, when the package or the core changed since its last release: set `version` in `adapters/npm/package.json` to the plugin's, commit, `git push`.
+1. Release from the same clean commit on `origin/main` as the marketplace tags.
 2. `bun run release:npm` — the dry run: the checks, the tarball file by file against what may ship (both entries, the store, every module of the core copy, the README, the license) and its size, and whether the version is free: it is not in the package's `versions`, or npm's `E404` says there is no package yet.
 3. With the owner's word: `bun run release:npm --publish`, with `--otp <code>` when the account asks for one. It refuses an uncommitted tree or a HEAD not on `origin/main`, publishes with `--access public`, waits up to five minutes for `latest` to show the version — a 404 right after the upload is the registry catching up, never a reason to publish again — and pushes the tag `shift-npm--v<version>` (`shift-pi--v<version>` up to 0.30.0) on the commit it checked; a tree changed while it checked — another HEAD, uncommitted changes — stops it before the upload, since npm packs the folder as it is. A run that uploaded and stopped before its tag is finished by running it again: the version found in the registry without its tag on `origin`, it tags the commit npm recorded (`gitHead`), moving a local tag a failed push left, and stops.
 4. `pi update npm:@iiiokojiadbi/shift` and `opencode plugin update`, or the first install; the owner restarts both. opencode asks its running server, which checks npm itself and may answer "No plugin updates available" for a few minutes after the upload — `opencode plugin check` shows when it sees the version. The update installs a new generation under opencode's npm cache; the server loads it only when it starts again, so `opencode plugin list` shows the old version until then.
 
-
 ### Codex marketplace
 
-The repository itself is the marketplace. Its index in `.agents/plugins/marketplace.json` selects `adapters/codex/plugin/`. That directory ships the manifest, hooks, MCP declaration, license and standalone Bun entry. Each marketplace version gets a matching manifest version, changelog entry and `shift-codex--v<version>` tag. Build the runtime, run the repository checks and verify the tagged Git source in a clean profile before announcing the release. The Claude Code and npm release gates are independent of a marketplace-only release.
+The repository itself is the marketplace. Its index in `.agents/plugins/marketplace.json` selects `adapters/codex/plugin/`. That directory ships the manifest, hooks, MCP declaration, license and standalone Bun entry. Each marketplace version gets a matching manifest version, changelog entry and `shift-codex--v<version>` tag. Build the runtime, run the repository checks and verify the tagged Git source in a clean profile before announcing the release. Push the marketplace tag on the same release commit as the npm and catalog tags. Publish the shared GitHub release under `shift--v<version>`.

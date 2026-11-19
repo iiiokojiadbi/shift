@@ -3860,6 +3860,14 @@ async function sample(file, transcript, reset) {
   }
   return hint;
 }
+// adapters/codex/plugin/.codex-plugin/plugin.json
+var plugin_default = {
+  name: "shift",
+  version: "0.37.0",
+  description: "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
+  hooks: "./hooks/hooks.json",
+  mcpServers: "./mcp-servers.json"
+};
 
 // adapters/codex/session.ts
 import { createReadStream } from "fs";
@@ -4294,7 +4302,10 @@ class Daemon {
       this.sessions.get(String(params.threadId))?.event(packet.method, params);
     };
     this.ready = connected.promise.finally(() => clearTimeout(timer)).then(async () => {
-      await this.rpc.call("initialize", { clientInfo: { name: "shift", version: "1" }, capabilities: { experimentalApi: true } });
+      await this.rpc.call("initialize", {
+        clientInfo: { name: plugin_default.name, version: plugin_default.version },
+        capabilities: { experimentalApi: true }
+      });
       socket.send(JSON.stringify({ method: "initialized" }));
     });
   }
@@ -4344,7 +4355,7 @@ async function serve() {
         return reply(packet.id, {
           protocolVersion: "2025-03-26",
           capabilities: { tools: {} },
-          serverInfo: { name: "shift", version: "0.1.0" }
+          serverInfo: { name: plugin_default.name, version: plugin_default.version }
         });
       case "ping":
         return reply(packet.id, {});
