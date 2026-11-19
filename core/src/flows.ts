@@ -1,6 +1,6 @@
 import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
-import { docsReport, refreshDocs } from './docs'
+import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import {
   ARCHIVE,
@@ -43,7 +43,19 @@ import {
 } from './texts/prompts'
 import { CONTINUING, NOT_MADE, renderTasks, type TaskView, UNSETTLED, WAITING } from './texts/rows'
 import { numberTracks } from './track'
-import type { ArchiveInput, HandedBack, OpenInput, PendingShift, SessionFile, Settled, ShiftInput, Stuck, TaskFiles, Work } from './types'
+import type {
+  ArchiveInput,
+  HandedBack,
+  OpenInput,
+  PendingShift,
+  SessionFile,
+  Settled,
+  ShiftInput,
+  Stuck,
+  TaskFiles,
+  WaitNote,
+  Work,
+} from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -59,15 +71,14 @@ export type ChangedBy = 'agent' | 'other'
 
 // The records changed since the mod last looked, each checked by the checks of its file, so what the shift would refuse
 // is told as it is written, not hundreds of K later. The agent's own change is told only when broken; someone else's
-// is told always, so the agent reads it before writing over it. The first look only remembers; a removed file is the
-// shift's to tell.
+// is told always, so the agent reads it before writing over it. The first look only remembers. Generated map and toc changes have their own delivery slot.
 export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; body: string | null }> {
   if (!project.settings.enabled) return { seen: seen ?? {}, body: null }
   // A new stamp alone is not a change: a file rewritten with the same text, or edited and put back, says nothing.
-  const now: Seen = {}
+  const now: Seen = Object.create(null)
   const changed: string[] = []
   for (const [path, stamp] of Object.entries(await recordStamps(project))) {
-    const was = seen?.[path] ?? ''
+    const was = seen && Object.hasOwn(seen, path) ? (seen[path] ?? '') : ''
     const at = was.lastIndexOf('#')
     if (at !== -1 && was.slice(0, at) === stamp) {
       now[path] = was
@@ -75,14 +86,23 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
     }
     const text = await project.store.read(`${project.root}/${path}`)
     if (text === null) continue
-    const hash = String(fingerprint(text))
+    let observed = text
+    if (path === project.settings.files.shift) observed = withMap(text, '').trim()
+    else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs)) observed = withToc(text) ?? text
+    const hash = String(fingerprint(observed))
     now[path] = `${stamp}#${hash}`
-    if (seen !== null && was.slice(at + 1) !== hash) changed.push(path)
+    const generated = !was && path === project.settings.files.shift && observed === withMap(null, '').trim()
+    if (seen !== null && was.slice(at + 1) !== hash && !generated) changed.push(path)
   }
-  if (changed.length === 0) return { seen: now, body: null }
+  const lines: string[] = []
+  if (by === 'other' && seen) {
+    for (const path of Object.keys(seen))
+      if (!(path in now) && !(await project.store.exists(`${project.root}/${path}`)))
+        lines.push(`\`${path}\` was removed outside your tools.`)
+  }
+  if (changed.length === 0) return { seen: now, body: lines.join('\n') || null }
 
   const work = await readRecords(project)
-  const lines: string[] = []
   let broken = false
   for (const path of changed) {
     const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project)
@@ -101,15 +121,22 @@ async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
   const stamped = async (dir: string, only?: (name: string) => boolean): Promise<Seen> =>
     Object.fromEntries(
       Object.entries(await store.stamps(join(root, dir)))
-        .filter(([name]) => (name.endsWith('.md') || join(dir, name) === SETTINGS) && (only?.(name) ?? true))
+        .filter(([name]) => (only ? only(name) : name.endsWith('.md')))
         .map(([name, stamp]) => [join(dir, name), stamp]),
     )
-  const own = new Set([BOARD, TASK_LIST, LETTER, SETTINGS, settings.files.owner, settings.files.glossary])
+  const own = new Set([
+    BOARD,
+    TASK_LIST,
+    LETTER,
+    SETTINGS,
+    settings.files.owner,
+    settings.files.glossary,
+    settings.files.shift,
+    ...settings.files.always,
+  ])
   const tasks = await store.list(`${root}/${TASKS}`, 'dir')
   const parts = await Promise.all([
-    ...[...new Set([DIR, dirname(settings.files.owner), dirname(settings.files.glossary)])].map(dir =>
-      stamped(dir, name => own.has(join(dir, name))),
-    ),
+    ...[...new Set([...own].map(dirname))].map(dir => stamped(dir, name => own.has(join(dir, name)))),
     ...tasks.flatMap(name => [
       stamped(`${TASKS}/${name}`, file => file === NAMES.task || file === NAMES.track),
       stamped(`${TASKS}/${name}/${NAMES.notes}`),
@@ -384,6 +411,7 @@ async function recordFailure(project: Project, shift: PendingShift, about: strin
 
 export type LetGo = {
   shift: PendingShift
+  parkWait?(note: WaitNote): Promise<void>
   // What the history was let go into, as the harness gives it back.
   messages: readonly { role: string; text: string }[]
   before: number | undefined
@@ -414,8 +442,10 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
     return { after: 'continue', prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) }
   }
 
-  await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
   const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files }
+  // Publish the waiting outcome only once a harness with durable thread history has parked the letter.
+  await letGo.parkWait?.(note)
+  await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
 
   return { after: 'wait', note, row: WAITING(name, shrank) }
 }
@@ -460,7 +490,7 @@ export async function sessionFiles(project: Project, { refresh = true }: { refre
   const { store, root, settings } = project
   if (!settings.enabled || (await staleLayout(project)) !== null) return []
   if (refresh) await refreshDocs(project)
-  const paths = [settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always]
+  const paths = [...new Set([settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always])]
   const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
 
   return files.filter((file): file is SessionFile => file.text !== null)

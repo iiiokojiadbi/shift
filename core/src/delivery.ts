@@ -19,14 +19,14 @@ export type Looks = { seen: Seen | null; running: number; written?: readonly str
 
 export const FRESH_LOOKS: Looks = { seen: null, running: 0 }
 
-export type Courier = {
-  loop: Loop
-  gauge: GaugeKeeper
+export type RecordCourier = {
   project(): Promise<Project>
   looks(): Promise<Looks>
   // A change applied to the looks as they are then.
   updateLooks(change: (current: Looks) => Looks): Promise<void>
 }
+
+export type Courier = RecordCourier & { loop: Loop; gauge: GaugeKeeper }
 
 // A note before it goes: its kind and what it says.
 export type Note = { kind: NoteKind; body: string }
@@ -46,7 +46,7 @@ export type ToolEnd = {
 // Of tools started together only the first looks: the count is claimed in one change, so two never tell the same change.
 // What it saw is kept at once: a tool that throws loses its note, which only a failing harness does, while a look kept
 // open would let a sibling tool take the change as its own or put back what it saw.
-export async function beforeTool(courier: Courier): Promise<Note[]> {
+export async function beforeTool(courier: RecordCourier): Promise<Note[]> {
   const claim: { first?: boolean } = {}
   await courier.updateLooks(current => {
     claim.first = current.running === 0
@@ -63,6 +63,15 @@ export async function beforeTool(courier: Courier): Promise<Note[]> {
 // After a tool of the main agent: the notes from before it, what it changed in the records, and a hint if the fill
 // calls for one — wrapped, each told to the owner as it goes into the result. A file it wrote is only followed.
 export async function afterTool(courier: Courier, before: readonly Note[], done: ToolEnd | null): Promise<string[]> {
+  const notes = await afterToolRecords(courier, before, done)
+  if (done === null) return []
+  const hint = await loopHint(courier.loop, courier.gauge).catch(() => null)
+  if (hint !== null) notes.push({ kind: 'hint', body: hint })
+
+  return deliver(courier.loop, notes)
+}
+
+export async function afterToolRecords(courier: RecordCourier, before: readonly Note[], done: ToolEnd | null): Promise<Note[]> {
   await courier.updateLooks(current => ({ ...current, running: Math.max(0, current.running - 1) }))
   if (done === null) return []
   const notes = [...before]
@@ -70,10 +79,7 @@ export async function afterTool(courier: Courier, before: readonly Note[], done:
   if (own !== null) await remember(courier, own.seen)
   if (own?.body != null && !done.own) notes.push({ kind: 'records', body: own.body })
   if (done.written !== undefined) await follow(courier, done.written)
-  const hint = await loopHint(courier.loop, courier.gauge).catch(() => null)
-  if (hint !== null) notes.push({ kind: 'hint', body: hint })
-
-  return deliver(courier.loop, notes)
+  return notes
 }
 
 // A file written by a subagent: the docs follow it, settled with the main agent's next prompt.
@@ -89,6 +95,24 @@ export async function atPrompt(
   courier: Courier,
   { runStarts, owner }: { runStarts: boolean; owner: boolean },
 ): Promise<{ notes: string[]; delivered(): Promise<void> }> {
+  const records = await promptRecords(courier, runStarts)
+  const notes = records.notes
+  const hint = await loopOffer(courier.loop, courier.gauge).catch(() => null)
+  if (hint !== null) notes.push({ kind: 'hint', body: hint.text })
+  const letter = owner ? await waitingNote(courier.loop) : null
+
+  return {
+    notes: [...notes.map(wrap), ...(letter === null ? [] : [letter.context])],
+    delivered: async () => {
+      await records.delivered()
+      await hint?.take()
+      for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
+      await letter?.delivered()
+    },
+  }
+}
+
+export async function promptRecords(courier: RecordCourier, runStarts: boolean) {
   if (runStarts) await courier.updateLooks(current => ({ ...current, running: 0 }))
   const notes: Note[] = []
   const { running } = await courier.looks()
@@ -99,12 +123,8 @@ export async function atPrompt(
   if (running === 0) await scripted(courier)
   const docs = running === 0 ? await settle(courier) : null
   if (docs !== null) notes.push({ kind: 'docs', body: docs.body })
-  const hint = await loopOffer(courier.loop, courier.gauge).catch(() => null)
-  if (hint !== null) notes.push({ kind: 'hint', body: hint.text })
-  const letter = owner ? await waitingNote(courier.loop) : null
-
   return {
-    notes: [...notes.map(wrap), ...(letter === null ? [] : [letter.context])],
+    notes,
     delivered: async () => {
       // Kept unless a look since has kept newer records: putting back the older ones would tell their change again.
       if (outside?.body != null)
@@ -115,9 +135,6 @@ export async function atPrompt(
         await forget(courier, settled)
         await restamp(courier, settled)
       }
-      await hint?.take()
-      for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
-      await letter?.delivered()
     },
   }
 }
@@ -129,7 +146,7 @@ export async function runEnded(courier: Courier): Promise<void> {
 
 // The records changed since the last look and what they are now, kept by `remember`; the first look finds nothing to
 // tell. A look that fails says nothing: it must never stand between the agent and its tool.
-async function look(courier: Courier, by: ChangedBy): Promise<{ body: string | null; seen: Seen } | null> {
+async function look(courier: RecordCourier, by: ChangedBy): Promise<{ body: string | null; seen: Seen } | null> {
   try {
     return await changedRecords(await courier.project(), (await courier.looks()).seen, by)
   } catch {
@@ -137,12 +154,12 @@ async function look(courier: Courier, by: ChangedBy): Promise<{ body: string | n
   }
 }
 
-async function remember(courier: Courier, seen: Seen): Promise<void> {
+async function remember(courier: RecordCourier, seen: Seen): Promise<void> {
   await courier.updateLooks(current => ({ ...current, seen }))
 }
 
 // A written file the docs follow is remembered for the next prompt; the map follows a document at once.
-async function follow(courier: Courier, file: string): Promise<void> {
+async function follow(courier: RecordCourier, file: string): Promise<void> {
   const path = await followWrite(await courier.project(), file).catch(() => null)
   if (path === null) return
   await courier.updateLooks(current =>
@@ -152,7 +169,9 @@ async function follow(courier: Courier, file: string): Promise<void> {
 
 // The files written since the last settling, settled now and forgotten once told; a settling that fails says nothing.
 // Nothing to tell is settled and forgotten at once: an adapter calls `delivered` only when a note goes.
-async function settle(courier: Courier): Promise<{ body: string; paths: readonly string[]; write(): Promise<readonly string[]> } | null> {
+async function settle(
+  courier: RecordCourier,
+): Promise<{ body: string; paths: readonly string[]; write(): Promise<readonly string[]> } | null> {
   const written = (await courier.looks()).written ?? []
   if (written.length === 0) return null
   const settled = await settleDocs(await courier.project(), written).catch(() => null)
@@ -167,7 +186,7 @@ async function settle(courier: Courier): Promise<{ body: string; paths: readonly
 
 // The documents changed since the last prompt that no write of the agent's tools named — a script, a command — are
 // taken as written, and the map follows them. The first look only remembers: there is nothing to compare with yet.
-async function scripted(courier: Courier): Promise<void> {
+async function scripted(courier: RecordCourier): Promise<void> {
   try {
     const project = await courier.project()
     const now = await docStamps(project)
@@ -189,7 +208,7 @@ async function scripted(courier: Courier): Promise<void> {
 }
 
 // A document settled is remembered as it is now, the toc the mod wrote included, so it is not taken for a script's change.
-async function restamp(courier: Courier, paths: readonly string[]): Promise<void> {
+async function restamp(courier: RecordCourier, paths: readonly string[]): Promise<void> {
   if (paths.length === 0) return
   const now = await docStamps(await courier.project()).catch(() => null)
   if (now === null) return
@@ -209,7 +228,7 @@ function same(a: Seen | null, b: Seen | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-async function forget(courier: Courier, paths: readonly string[]): Promise<void> {
+async function forget(courier: RecordCourier, paths: readonly string[]): Promise<void> {
   await courier.updateLooks(current => ({ ...current, written: (current.written ?? []).filter(path => !paths.includes(path)) }))
 }
 

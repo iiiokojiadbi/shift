@@ -32,6 +32,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$PLUGIN_ROOT/runtime.js\" hook",
+            "additionalContextLimit": 100000
+          }
+        ]
+      }
     ]
   }
 }

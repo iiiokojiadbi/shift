@@ -1,8 +1,8 @@
-import { open, readFile, rename, writeFile } from 'node:fs/promises'
+import { open } from 'node:fs/promises'
 import { FRESH_GAUGE, type Gauge, letGoGauge, type Reading, renderStatus, shiftHint } from '../../core/src'
 import { fields } from './protocol'
 
-type Sample = { gauge: Gauge; reading: Reading; offset: number }
+export type Sample = { gauge: Gauge; reading: Reading; offset: number }
 
 // Token events give usable capacity. Keep reminder targets separate from the unknown automatic threshold.
 function windowTargets(window: number) {
@@ -23,26 +23,17 @@ export function usageReading(previous: Reading, gauge: Gauge, tokens: number, wi
   return { reading, gauge: changed ? { ...gauge, hinted: null } : gauge }
 }
 
-async function saved(file: string): Promise<Sample> {
-  return readFile(file, 'utf8').then(
-    text => JSON.parse(text),
-    () => ({
-      gauge: FRESH_GAUGE,
-      reading: { tokens: undefined, window: 0, threshold: undefined },
-      offset: 0,
-    }),
-  )
+export function freshSample(): Sample {
+  return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 }
 }
 
-export async function status(file: string) {
-  const { gauge, reading } = await saved(file)
+export function status({ gauge, reading }: Sample) {
   return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) })
 }
 
 // Hook processes share only the latest reading and its byte offset. Long tool results are skipped by
 // seeking to the tail. An incomplete last record is picked up on the next call.
-export async function sample(file: string, transcript: string, reset: boolean) {
-  const state = await saved(file)
+export async function sample(state: Sample, transcript: string, reset: boolean) {
   const handle = await open(transcript, 'r').catch(() => null)
   if (!handle) return null
   let hint: string | null = null
@@ -76,10 +67,7 @@ export async function sample(file: string, transcript: string, reset: boolean) {
         }
       }
       state.offset = start + newline + 1
-    } else if (!reset) return null
-    const temporary = `${file}.${process.pid}.tmp`
-    await writeFile(temporary, JSON.stringify(state), { mode: 0o600 })
-    await rename(temporary, file)
+    }
   } finally {
     await handle.close()
   }

@@ -55,7 +55,7 @@ for (const mode of ['continue', 'wait'])
       const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
       await Promise.all([
         writeFile(join(records, 'board.md'), BOARD),
-        writeFile(join(records, 'letter.md'), LETTER),
+        writeFile(join(records, 'letter.md'), LETTER.replace('fixing tests', 'Unique fixture letter body')),
         writeFile(join(records, 'TASKS.md'), '# Tasks\n'),
         writeFile(join(records, 'OWNER.md'), 'none'),
         writeFile(join(records, 'settings.toml'), '[docs]\ndirs = ["docs"]\n'),
@@ -106,7 +106,7 @@ trust_level = "trusted"
         ws.send(JSON.stringify({ method: 'initialized' }))
         const inventory = await rpc.call('hooks/list', { cwds: [root] })
         const hooks = fields((inventory.data as unknown[])[0]).hooks as FieldsForHook[]
-        expect(hooks).toHaveLength(3)
+        expect(hooks).toHaveLength(4)
         // Review the fixture hooks in this disposable profile just as /hooks does.
         const value = Object.fromEntries(hooks.map(h => [h.key, { trusted_hash: h.currentHash }]))
         await rpc.call('config/batchWrite', { edits: [{ keyPath: 'hooks.state', value, mergeStrategy: 'upsert' }], reloadUserConfig: true })
@@ -131,9 +131,12 @@ trust_level = "trusted"
             throw new Error(`Received ${requests.length} model requests: ${requests[1]?.slice(-1100)}; ${notices.join('\n').slice(-900)}`)
           }),
         ])
-        expect(requests[0]).toContain('Acceptance marker')
+        expect(requests[0]?.split('Acceptance marker').length).toBe(2)
+        expect(requests[0]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[2]).toContain('HOLD-THIS')
-        expect(requests[3]).toContain('fixing tests')
+        expect(requests[3]?.split('Unique fixture letter body').length).toBe(2)
+        expect(requests[3]?.split('how the shift mod works:').length).toBe(2)
+        expect(requests[3]?.split('Acceptance marker').length).toBe(2)
         const [snapshot] = await readdir(join(records, 'shifts'))
         expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')
       } finally {

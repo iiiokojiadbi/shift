@@ -32,9 +32,11 @@ import {
   shownTools,
   startSession,
   tasksView,
+  waitingNote,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
 import { usageReading } from './gauge'
+import { type MapPrints, observeMap } from './map'
 import { deferred, type Fields, fields, type Request, textInput } from './protocol'
 
 export const namespace = 'shift'
@@ -77,6 +79,7 @@ export class Session {
   private gauge: Gauge = { ...FRESH_GAUGE }
   private reading: Reading = { tokens: undefined, window: 0, threshold: undefined }
   private looks: Looks = { ...FRESH_LOOKS }
+  private prints?: MapPrints
   private loaded: string | null = null
   private prepared = false
   private enabled = false
@@ -99,6 +102,7 @@ export class Session {
     private readonly path: string | undefined,
     private readonly request: Request,
     private readonly tell: (text: string) => void,
+    private readonly delivery: 'launcher' | 'hooks' = 'launcher',
   ) {
     this.loop = {
       read: async () => this.loopState,
@@ -127,6 +131,17 @@ export class Session {
   }
 
   async prompt(params: Fields, owner: boolean) {
+    if (this.delivery === 'hooks') {
+      const letter = owner ? await waitingNote(this.loop) : null
+      if (!letter) return { params, delivered: async () => {} }
+      return {
+        params: {
+          ...params,
+          additionalContext: { ...fields(params.additionalContext), shift: { kind: 'untrusted', value: letter.context } },
+        },
+        delivered: letter.delivered,
+      }
+    }
     await this.observation
     const project = await projectAt(this.root)
     this.enabled = project.settings.enabled
@@ -140,12 +155,10 @@ export class Session {
       this.looks.docs = await docStamps(project)
     }
     const notes = await atPrompt(this.courier, { runStarts: true, owner })
-    const block = renderSessionFiles(initialFiles ?? (await sessionFiles(project, { refresh: false })))
-    const parts = [
-      first ? sessionDoctrine(project.settings).doctrine : '',
-      first || this.loaded !== block ? block : '',
-      ...notes.notes,
-    ].filter(Boolean)
+    const files = initialFiles ?? (await sessionFiles(project, { refresh: false }))
+    const block = renderSessionFiles(files)
+    const changes = observeMap(project, this.prints, files)
+    const parts = [first ? sessionDoctrine(project.settings).doctrine : '', first ? block : changes.note, ...notes.notes].filter(Boolean)
     return {
       params: parts.length
         ? { ...params, additionalContext: { ...fields(params.additionalContext), shift: { kind: 'untrusted', value: parts.join('\n\n') } } }
@@ -154,6 +167,7 @@ export class Session {
         await notes.delivered()
         this.prepared = true
         this.loaded = block
+        this.prints = changes.prints
       },
     }
   }
@@ -313,7 +327,9 @@ export class Session {
           this.observe(async () => {
             const project = await projectAt(this.root)
             if (!project.settings.enabled) return
-            const block = renderSessionFiles(await sessionFiles(project))
+            const files = await sessionFiles(project)
+            const block = renderSessionFiles(files)
+            this.prints = observeMap(project, undefined, files).prints
             await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join('\n\n'))
             this.loaded = block
             this.prepared = true
@@ -340,6 +356,7 @@ export class Session {
         this.loop,
         {
           fill: async () => this.reading.tokens,
+          parkWait: this.delivery === 'hooks' ? note => this.inject(note.context) : undefined,
           letGo: async instructions => {
             await this.inject(instructions)
             const path = this.path ?? fields((await this.request('thread/read', { threadId: this.id })).thread).path

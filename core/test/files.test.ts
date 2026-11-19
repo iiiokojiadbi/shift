@@ -123,13 +123,13 @@ test('a folder with nothing to list is named as missing or empty; with no SHIFT.
 
 test('every session gets SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md, at the places the settings give', async () => {
   const store = memoryStore({
-    [`${R}/settings.toml`]: '[files]\nowner = "OWNER.md"\n[docs]\ndirs = ["notes"]',
+    [`${R}/settings.toml`]: '[files]\nowner = "OWNER.md"\nalways = ["OWNER.md", ".shift/TASKS.md"]\n[docs]\ndirs = ["notes"]',
     [`${ROOT}/OWNER.md`]: '# Owner decisions\n\nnone',
     [`${R}/TASKS.md`]: 'none',
     [`${ROOT}/notes/n.md`]: '---\ndescription: N\n---',
   })
   const block = renderSessionFiles(await sessionFiles(await at(store))) ?? ''
-  expect(block).toContain('<file path="OWNER.md">')
+  expect(block.split('<file path="OWNER.md">')).toHaveLength(2)
   expect(block).toContain('<file path=".shift/TASKS.md">')
   expect(block).toContain('`notes/n.md` — N')
   expect(await sessionFiles(await at(memoryStore({ [`${R}/settings.toml`]: 'enabled = false', [`${R}/TASKS.md`]: 'none' })))).toEqual([])

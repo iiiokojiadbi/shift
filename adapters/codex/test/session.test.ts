@@ -31,7 +31,7 @@ test('a scripted edit refreshes the configured map on the next owner turn, inclu
   await writeFile(file, '---\ndescription: Build procedure\n---\n# Build\n\n## Verify\n\n> [!IMPORTANT]\n> Inspect the produced binary.\n')
   await session.ownerRequest('turn/start', { input: [] })
   const context = fields(fields(calls[1]?.additionalContext).shift).value
-  expect(context).toContain('Keep knowledge in project docs.')
+  expect(context).not.toContain('Keep knowledge in project docs.')
   expect(context).toContain('Inspect the produced binary.')
   expect(context).toContain('Verify')
   expect(await readFile(join(root, 'MAP.md'), 'utf8')).toContain('Inspect the produced binary.')

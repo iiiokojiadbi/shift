@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -83,9 +83,15 @@ wire_api = "responses"
 trust_level = "trusted"
 `,
       )
+      const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
+      if (scenario === 'continue') {
+        const options = { cwd: project, env, stdio: 'pipe' as const }
+        execFileSync('codex', ['plugin', 'marketplace', 'add', join(import.meta.dir, '../../..')], options)
+        execFileSync('codex', ['plugin', 'add', 'shift@shift'], options)
+      }
       const child = spawn(process.execPath, [join(import.meta.dir, '../index.ts'), '--stdio'], {
         cwd: project,
-        env: { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' },
+        env,
         stdio: 'pipe',
       })
       const rpc = new Requests(packet => child.stdin.write(`${JSON.stringify(packet)}\n`))
@@ -105,6 +111,10 @@ trust_level = "trusted"
       try {
         await rpc.call('initialize', { clientInfo: { name: 'shift_test', version: '1' }, capabilities: { experimentalApi: true } })
         child.stdin.write('{"method":"initialized"}\n')
+        if (scenario === 'continue') {
+          const inventory = await rpc.call('hooks/list', { cwds: [project] })
+          expect(fields((inventory.data as unknown[])[0]).hooks).toEqual([])
+        }
         const started = await rpc.call('thread/start', { cwd: project, approvalPolicy: 'never' })
         const threadId = fields(started.thread).id
         const initial = await rpc.call('turn/start', { threadId, input: [textInput('Run the fixture.')] })

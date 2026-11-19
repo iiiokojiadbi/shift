@@ -207,6 +207,30 @@ test('a wake line that does not start the turn waits as the note, never the whol
   expect(note?.context).toBe(WAKE)
 })
 
+test('durable wait delivery is acknowledged before the waiting outcome is published', async () => {
+  const { project, loop, dir, kept } = await setUp('wait')
+  const about = () => project.store.read(`${dir}/about.md`)
+  const observed: string[] = []
+  const letters: string[] = []
+  await afterTurn(
+    project,
+    loop,
+    {
+      ...harness(digest),
+      parkWait: async note => {
+        observed.push((await about()) ?? '')
+        letters.push(note.context)
+      },
+    },
+    false,
+  )
+  expect(observed).toHaveLength(1)
+  expect(observed[0]).not.toContain('waiting for the owner')
+  expect(letters).toEqual([expect.stringContaining('HOLD-THIS')])
+  expect(await about()).toContain('waiting for the owner')
+  expect(kept.state.note).toBeNull()
+})
+
 test('a wait shift carries nothing: a harness is never asked to put the letter into the history', async () => {
   const { project, loop, kept } = await setUp('wait')
   const carries: (string | undefined)[] = []

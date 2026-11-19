@@ -1,52 +1,19 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { renderSessionFiles, sessionFiles, startSession, TOOLS } from '../../core/src'
+import { TOOLS } from '../../core/src'
 import { projectAt } from '../npm/store'
-import { sample, status } from './gauge'
+import { status } from './gauge'
+import { runHook, sessionState } from './hooks'
 import manifest from './plugin/.codex-plugin/plugin.json'
-import { deferred, type Fields, fields, type Packet, Requests } from './protocol'
+import { deferred, fields, type Packet, Requests } from './protocol'
 import { Session } from './session'
 
 function stateFile(id: string) {
   const dir = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'plugins', 'data', 'shift-sessions')
   if (!id) throw new Error('Missing plugin data directory or session identity.')
   return { dir, file: join(dir, `session-${createHash('sha256').update(id).digest('hex')}.json`) }
-}
-
-async function hook(input: Fields) {
-  const sessionId = String(input.session_id ?? '')
-  const { dir, file } = stateFile(sessionId)
-  const project = await projectAt(String(input.cwd))
-  if (input.hook_event_name === 'PostToolUse' && !project.settings.enabled) return {}
-  await mkdir(dir, { recursive: true })
-  const hint =
-    project.settings.enabled && typeof input.transcript_path === 'string'
-      ? await sample(`${file}.usage`, input.transcript_path, input.source === 'compact')
-      : null
-  if (input.hook_event_name === 'PostToolUse')
-    return hint ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: hint } } : {}
-  const previous = await readFile(file, 'utf8').then(
-    text => fields(JSON.parse(text)),
-    () => ({}) as Fields,
-  )
-  const start = await startSession(project)
-  const block = start.enabled ? (renderSessionFiles(await sessionFiles(project)) ?? '') : ''
-  const hash = createHash('sha256').update(block).digest('hex')
-  const temporary = `${file}.${process.pid}.tmp`
-  await writeFile(temporary, JSON.stringify({ root: project.root, hash }), { mode: 0o600 })
-  await rename(temporary, file)
-  if (!start.enabled) return {}
-  const fresh = input.hook_event_name === 'SessionStart'
-  const context = [
-    hint,
-    fresh ? start.doctrine : '',
-    fresh || previous.hash !== hash ? block : '',
-    ...start.rows.map(row => row.text),
-  ].filter(Boolean)
-  return context.length ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context.join('\n\n') } } : {}
 }
 
 class Daemon {
@@ -103,8 +70,13 @@ class Daemon {
     if (thread.cwd !== root || thread.parentThreadId || fields(thread.source).subAgent || fields(thread.status).type !== 'active')
       throw new Error('Only the active main thread on the local server can shift.')
     // Resuming a loaded thread subscribes this connection to its lifecycle.
-    const session = new Session(id, root, typeof thread.path === 'string' ? thread.path : undefined, this.rpc.call, text =>
-      console.error(text),
+    const session = new Session(
+      id,
+      root,
+      typeof thread.path === 'string' ? thread.path : undefined,
+      this.rpc.call,
+      text => console.error(text),
+      'hooks',
     )
     await this.rpc.call('thread/resume', { threadId: id, excludeTurns: true })
     this.sessions.set(id, session)
@@ -153,17 +125,13 @@ async function serve() {
           const meta = fields(params._meta)
           const id = String(meta.threadId ?? '')
           const { file } = stateFile(String(meta.sessionId ?? id))
-          const state = await readFile(file, 'utf8').then(
-            text => fields(JSON.parse(text)),
-            () => {
-              throw new Error('Enable the shift session hooks in /hooks, then start a new session.')
-            },
-          )
+          const state = await sessionState(file)
+          if (!state) throw new Error('Enable the shift session hooks in /hooks, then start a new session.')
           if (!id || typeof state.root !== 'string') throw new Error('Missing thread or project from the session hook.')
           const name = String(params.name)
           if (name === 'shift_status') {
             if (!(await projectAt(state.root)).settings.enabled) throw new Error('Shift is disabled in this project.')
-            return reply(packet.id, { content: [{ type: 'text', text: await status(`${file}.usage`) }] })
+            return reply(packet.id, { content: [{ type: 'text', text: status(state.usage) }] })
           }
           let session = daemon?.sessions.get(id) ?? sessions.get(id)
           let turn = ''
@@ -220,5 +188,8 @@ async function serve() {
   }
 }
 
-if (process.argv[2] === 'hook') console.log(JSON.stringify(await hook(await Bun.stdin.json())))
-else if (process.argv[2] === 'mcp') await serve()
+if (process.argv[2] === 'hook') {
+  const input = await Bun.stdin.json()
+  const { file, dir } = stateFile(String(input.session_id ?? ''))
+  console.log(JSON.stringify(await runHook(input, dir, file)))
+} else if (process.argv[2] === 'mcp') await serve()

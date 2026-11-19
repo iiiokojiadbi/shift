@@ -400,8 +400,15 @@ export function withMap(shift: string | null, map: string): string {
   if (shift === null) {
     return `# Shift\n\nHow this project keeps its knowledge. The rules are written on the owner's word; the map below is the mod's.\n\n${map}\n`
   }
-  // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
   const lines = shift.split('\n')
+  const { start, end } = mapBounds(lines)
+  if (end === -1) return `${shift.trimEnd()}\n\n${map}\n`
+
+  return [...lines.slice(0, start), map, ...lines.slice(end + 1)].join('\n')
+}
+
+function mapBounds(lines: readonly string[]) {
+  // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
   // The opener as any version of the mod wrote it: one comment, the whole line, that starts as the mod's does.
   const opener = `${MAP_START.slice(0, MAP_START.indexOf(' — '))} — `
   const start = lineOutside(lines, line => {
@@ -409,9 +416,25 @@ export function withMap(shift: string | null, map: string): string {
     return trimmed.startsWith(opener) && trimmed.indexOf('-->') === trimmed.length - 3
   })
   const end = start === -1 ? -1 : lineOutside(lines, line => line.trim() === MAP_END, start + 1)
-  if (end === -1) return `${shift.trimEnd()}\n\n${map}\n`
+  return { start, end }
+}
 
-  return [...lines.slice(0, start), map, ...lines.slice(end + 1)].join('\n')
+// Group the rendered map by its actual entries, including the sections and pins under each.
+// A reduced map uses folder entries. Rules and map-level notices can be refreshed by path.
+export function mapParts(text: string) {
+  const lines = text.split('\n')
+  const { start, end } = mapBounds(lines)
+  const entries = new Map<string, string>()
+  if (end < 0) return { other: '', entries }
+  const other: string[] = []
+  let key: string | undefined
+  for (const line of lines.slice(start + 1, end)) {
+    if (!line.trim() || line.startsWith('### ')) continue
+    if (!line.startsWith(' ')) key = /^- `([^`]+)`/.exec(line)?.[1]
+    if (!key) other.push(line)
+    else entries.set(key, entries.has(key) ? `${entries.get(key)}\n${line}` : line)
+  }
+  return { other: other.join('\n'), entries }
 }
 
 // Every document read once: its toc rewritten when the settings ask for one, then the map in SHIFT.md written when it

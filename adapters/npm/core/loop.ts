@@ -63,6 +63,8 @@ export type LetGoHarness = {
   continueWith(prompt: string, attachments?: readonly unknown[]): Promise<void>
   // What the harness refreshes once the history is let go, before the message after it.
   afterLetGo?(): Promise<void>
+  // Parks a wait letter in durable history before the waiting outcome is observable.
+  parkWait?(note: WaitNote): Promise<void>
 }
 
 export const FRESH_LOOP: LoopState = { pending: null, note: null }
@@ -142,6 +144,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
       {
         shift,
         messages: done.messages,
+        parkWait: harness.parkWait,
         before: done.before ?? before,
         after: done.after ?? (await harness.fill()),
       },
@@ -155,7 +158,8 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   }
   if (settled.after === 'wait') {
     loop.tell(settled.row, 'info')
-    await leave(loop, harness, settled.note)
+    if (harness.parkWait) await dropWaiting(loop)
+    else await leave(loop, harness, settled.note)
     return
   }
   loop.tell(settled.row, 'info')

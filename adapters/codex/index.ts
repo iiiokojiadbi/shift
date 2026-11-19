@@ -13,7 +13,9 @@ async function run(args: string[]) {
   await mkdir(base, { recursive: true })
   const dir = await mkdtemp(join(base, 'codex-'))
   const socket = join(dir, 'session.sock')
-  const child = spawn('codex', ['app-server', '--listen', 'stdio://'], { stdio: ['pipe', 'pipe', 'inherit'] })
+  const child = spawn('codex', ['app-server', '-c', 'plugins.shift@shift.enabled=false', '--listen', 'stdio://'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  })
   let ui: ReturnType<typeof spawn> | undefined
   let peer: Bun.ServerWebSocket<undefined> | undefined
   let listener: ReturnType<typeof Bun.serve<undefined>> | undefined
