@@ -388,7 +388,7 @@ export type LetGo = {
   // What the history was let go into, as the harness gives it back.
   messages: readonly { role: string; text: string }[]
   before: number | undefined
-  after: number
+  after: number | undefined
 }
 
 // After the let-go: the summary and the outcome on disk, then continue or wait, as the agent asked. `back` is what
@@ -398,7 +398,7 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
   const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
   await store.write(`${shift.dir}/${NAMES.summary}`, summary)
-  const shrank = `${formatK(before ?? 0)} → ${formatK(after)}`
+  const shrank = `${before === undefined ? '?' : formatK(before)} → ${after === undefined ? '?' : formatK(after)}`
   const outcome = (result: string) =>
     store.write(
       `${shift.dir}/${NAMES.about}`,

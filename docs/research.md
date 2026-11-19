@@ -11,7 +11,7 @@ description: What the design stands on from outside: similar mechanisms in other
 
 ## Similar things in other harnesses
 
-- **Codex** — the `new_context` tool: the model itself starts a new window; beside it `get_context_remaining` and a search over past windows. Behind the `token_budget` flag, in development, search only with the provider's own backend **[code]**. Out of scope here.
+- **Codex** — the `new_context` tool: the model itself starts a new window; beside it `get_context_remaining` and a search over past windows. Behind the `token_budget` flag, in development, search only with the provider's own backend **[code]**. The adapter uses the app server protocol independently of this flag.
 - **oh-my-pi** — `checkpoint(goal)` and `rewind(report)`: a point, work, then everything after the point folded into a report; the original branch stays in the session tree **[code]**. The tool texts are worth reading: `src/prompts/tools/checkpoint.md`, `rewind.md`.
 - **billion-context** — the model folds ranges into summaries, early context is kept in layers. The hint and doctrine techniques come from here; targeted folding does not — it is out of scope. The analysis and figures are in `docs/archive/fold-mod-brief.md`.
 

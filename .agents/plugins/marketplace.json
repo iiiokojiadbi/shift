@@ -1,0 +1,4 @@
+{
+  "name": "shift",
+  "plugins": [{ "name": "shift", "source": { "source": "local", "path": "./adapters/codex/plugin" } }]
+}

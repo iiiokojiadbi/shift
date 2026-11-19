@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$PLUGIN_ROOT/runtime.js\" hook",
+            "additionalContextLimit": 100000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$PLUGIN_ROOT/runtime.js\" hook",
+            "additionalContextLimit": 100000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$PLUGIN_ROOT/runtime.js\" hook",
+            "additionalContextLimit": 100000
+          }
+        ]
+      }
+    ]
+  }
+}

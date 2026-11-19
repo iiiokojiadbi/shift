@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/*.md", "!**/.claude-plugin/types", "!adapters/*/hooks/core", "!adapters/npm/core"]
+    "includes": [
+      "**",
+      "!**/*.md",
+      "!**/.claude-plugin/types",
+      "!adapters/*/hooks/core",
+      "!adapters/npm/core",
+      "!adapters/codex/plugin/runtime.js"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

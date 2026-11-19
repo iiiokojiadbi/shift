@@ -1,0 +1,5 @@
+{
+  "extends": "../../core/tsconfig.json",
+  "compilerOptions": { "types": ["bun"], "lib": ["es2023", "dom"] },
+  "include": ["*.ts", "test"]
+}

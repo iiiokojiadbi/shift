@@ -1,0 +1,7 @@
+{
+  "name": "shift",
+  "version": "0.1.0",
+  "description": "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./mcp-servers.json"
+}

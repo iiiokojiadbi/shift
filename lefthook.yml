@@ -36,3 +36,6 @@ pre-commit:
     - name: npm tests
       glob: "{adapters/npm/**,core/src/**}"
       run: bash -o pipefail -c "bun run test:npm 2>&1 | grep -v '^(pass) '"
+    - name: app server adapter
+      glob: "{adapters/codex/**,adapters/npm/store.ts,core/src/**}"
+      run: bun run build:codex --check && bun run types:codex && bun run test:codex

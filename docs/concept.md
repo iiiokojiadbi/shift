@@ -35,7 +35,6 @@ Roles: the harness's digest answers "what was", the letter "what next", the boar
 ## Out of scope
 
 - folding an arbitrary range, restoring a folded part, a hierarchy of folds;
-- Codex;
 - transport and communication between sessions;
 - writing knowledge or the owner's decisions automatically: the agent writes them, the mod only checks.
 

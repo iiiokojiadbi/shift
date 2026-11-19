@@ -12,21 +12,22 @@ description: Working on the repo: tooling, the commands and what each checks, th
 - Release
   - Claude Code
   - npm: pi and opencode
+  - Codex marketplace
 <!-- /toc -->
 
 ## Tooling
 
-Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome lints and formats; its findings are fixed, never silenced. TypeScript is checked per package: the core, the core's tests, the Claude Code plugin, the npm package for pi and opencode and its test.
+Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome lints and formats; its findings are fixed, never silenced. TypeScript is checked per package: the core, the core's tests, the Claude Code plugin, the npm package for pi and opencode and its test, and the Codex adapter.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `bun run sync-core` | copies `core/src/` into each adapter's `core/`, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it; `--check` fails on a stale copy on disk, `--staged` on one in git's index — what the commit takes — and a source folder that cannot be read, or a missing `core/test/data.ts`, stops it rather than empty the copies |
+| `bun run sync-core` | copies `core/src/` into the two packaged adapters, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it; `--check` fails on a stale copy on disk, `--staged` on one in git's index — what the commit takes — and a source folder that cannot be read, or a missing `core/test/data.ts`, stops it rather than empty the copies |
 | `bun run check` | fails on a stale core copy, then biome |
 | `bun run fix` | biome with fixes |
-| `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:npm` |
-| `bun run test` | every package's tests: `test:core`, `test:npm` (`bun test`), `test:claude-code` (`claude plugin test`) |
+| `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:npm`, `types:codex` |
+| `bun run test` | every package's tests: `test:codex`, `test:core`, `test:npm` (`bun test`), `test:claude-code` (`claude plugin test`) |
 | `bun run validate` | `claude plugin validate` of the Claude Code plugin: the hooks module and its state contract |
 
 The pre-commit hook runs, by the files staged, the same scripts per package — a command is written once, in `package.json`: the copy check against the index (`sync-core --staged`: a source staged without its copies fails), biome (it stages its own fixes), the core's types and tests, the plugin's validation, types and tests, the npm package's types and tests. Each job prints one line when it passes and its whole output when it fails.
@@ -37,7 +38,11 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 - **Claude Code** — `adapters/claude-code/tests/shift.test.ts`, the wiring only, over `tests/data.ts` — GENERATED from `core/test/data.ts`, never edit. `stubSession` fakes `$.fs`, `$.process`, the session and the UI over a map; `on('session.id')` may be registered once per test, so a test that changes the session passes it as the last argument.
 - **pi** — `adapters/npm/test/pi.test.ts`: the extension loaded over a stand-in of `ExtensionAPI` in a temporary project. A test that needs real files takes its folder from `scratch()` in `adapters/npm/test/scratch.ts` — under `shift/tests/` in the system's temporary folder — and the file's `afterAll(cleanup)` removes them; a bare `mkdtemp` in `/tmp` was left behind by every run. opencode's entry has no test of its own yet: it is checked live.
 
+- **Codex** — `bun run test:codex` starts an isolated installed CLI with a loopback fixture model. It checks the actual model inputs, the wait and continue transitions, owner input arriving during a shift and the stored digest. The integration cases skip when the CLI is absent.
+
 ## Installing for development
+
+- Codex from this checkout requires Bun and Codex CLI (tested with 0.170.0). In the project to work on, run `bun /path/to/shift/adapters/codex/index.ts`. Inside this repository, `bun run shift:codex` does the same. For a JSON-RPC client, pass `--stdio` as the first argument and negotiate the experimental API. For a marketplace installation from this checkout, use `codex plugin marketplace add .` followed by `codex plugin add shift@shift`. Build the installed runtime with `bun run build:codex` after changing its source. The ordinary `check` command verifies its contents.
 
 - Claude Code from the catalog: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install shift@iiiokojiadbi`.
 - Claude Code in place: `claude plugin marketplace add <path to this repo>` and `claude plugin install shift@shift`; edits apply on `/reload-plugins`. Do not have both installed at once.
@@ -69,3 +74,8 @@ The package `@iiiokojiadbi/shift` is `adapters/npm`, one for both harnesses, pub
 2. `bun run release:npm` — the dry run: the checks, the tarball file by file against what may ship (both entries, the store, every module of the core copy, the README, the license) and its size, and whether the version is free: it is not in the package's `versions`, or npm's `E404` says there is no package yet.
 3. With the owner's word: `bun run release:npm --publish`, with `--otp <code>` when the account asks for one. It refuses an uncommitted tree or a HEAD not on `origin/main`, publishes with `--access public`, waits up to five minutes for `latest` to show the version — a 404 right after the upload is the registry catching up, never a reason to publish again — and pushes the tag `shift-npm--v<version>` (`shift-pi--v<version>` up to 0.30.0) on the commit it checked; a tree changed while it checked — another HEAD, uncommitted changes — stops it before the upload, since npm packs the folder as it is. A run that uploaded and stopped before its tag is finished by running it again: the version found in the registry without its tag on `origin`, it tags the commit npm recorded (`gitHead`), moving a local tag a failed push left, and stops.
 4. `pi update npm:@iiiokojiadbi/shift` and `opencode plugin update`, or the first install; the owner restarts both. opencode asks its running server, which checks npm itself and may answer "No plugin updates available" for a few minutes after the upload — `opencode plugin check` shows when it sees the version. The update installs a new generation under opencode's npm cache; the server loads it only when it starts again, so `opencode plugin list` shows the old version until then.
+
+
+### Codex marketplace
+
+The repository itself is the marketplace. Its index in `.agents/plugins/marketplace.json` selects `adapters/codex/plugin/`. That directory ships the manifest, hooks, MCP declaration, license and standalone Bun entry. Each marketplace version gets a matching manifest version, changelog entry and `shift-codex--v<version>` tag. Build the runtime, run the repository checks and verify the tagged Git source in a clean profile before announcing the release. The Claude Code and npm release gates are independent of a marketplace-only release.

@@ -1,6 +1,12 @@
 # Changelog
 
-What changed in each release of the Claude Code plugin and the npm package `@iiiokojiadbi/shift`, which share one version. Newest first.
+What changed in each release of the Claude Code plugin and the npm package `@iiiokojiadbi/shift`, which share one version, and the independently versioned Codex plugin. Newest first.
+
+## Codex plugin 0.1.0
+
+- Install `shift@shift` from the tagged Git marketplace and launch the standard CLI with `codex`.
+- Load SHIFT.md and the documentation map at session start, refresh changed documents, and use the shared work record tools.
+- Request a shift in the current thread, continue from the letter or wait for the owner using the local app server.
 
 ## 0.36.1
 
