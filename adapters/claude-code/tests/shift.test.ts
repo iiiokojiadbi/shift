@@ -692,3 +692,56 @@ test("a resumed or cleared session reads the session's files again; shift_setup 
   session = 'two'
   expect(await compose()).toContain('NEW RULE')
 })
+
+test('a restored chat gets one section delta, the writer stays quiet, and replacement refreshes the system block', async ($, on) => {
+  const files = project()
+  const path = '/proj/docs/api.md'
+  const body = '---\ndescription: API guide\n---\n# API\n## Slots\none\n## Stable\ntwo\n'
+  files.set(path, body)
+  let id = 'reader'
+  stubSession(
+    on,
+    files,
+    [],
+    () => 50000,
+    0,
+    [{ role: 'user', content: 'previous turn' }],
+    () => id,
+  )
+  mock.store(on)
+  on('tool.register', () => ({ value: undefined as never }))
+  on('command.register', () => ({ value: undefined as never }))
+  on('session.start', (_$, e) => e as never)
+  on('prompt.compose', () => ({ sections: [] }))
+  on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'digest', toolUses: [] }] }))
+  on('tool.call', { tool: 'Write' }, (_$, e) => {
+    files.set(e.file_path, e.content)
+    return { result: 'written' } as never
+  })
+  const start = () => $.session.start({ cwd: '/proj', surface: null } as never)
+  const full = async () =>
+    (
+      await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as never)
+    ).sections.find(s => s.id === 'shift:files')?.text
+  const prompt = async () => JSON.stringify(await $.prompt.submit({ text: 'go', origin: { kind: 'composer' }, wait: false }))
+  await start()
+  const first = await full()
+  expect(first).toContain('Slots · Stable')
+  id = 'writer'
+  await start()
+  const written = body.replace('one', 'different body').replace('## Stable', '## Changed')
+  const own = await $.tool.call({ tool: 'Write', file_path: path, content: written } as never)
+  expect(String(own.context)).not.toContain('Slots (changed)')
+  expect(await prompt()).not.toContain('Slots (changed)')
+  id = 'reader'
+  await start()
+  expect(await full()).toBe(first)
+  const result = await prompt()
+  expect(result).toContain('Slots (changed)')
+  expect(result).toContain('Changed (new)')
+  expect(result).toContain('Stable (deleted)')
+  expect(await prompt()).not.toContain('Slots (changed)')
+  await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
+  expect(await full()).toContain('Slots · Changed')
+})

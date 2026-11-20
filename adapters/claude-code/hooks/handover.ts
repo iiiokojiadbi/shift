@@ -1,12 +1,12 @@
 import type { EngineInterface, PromptSubmitArgs } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { LetGoDone } from '../types/index'
-import { afterTurn, FRESH_LOOP, type Loop, type Project, renderSessionFiles, sessionDoctrine, sessionFiles } from './core/index'
+import { loadFiles } from './context'
+import { afterTurn, FRESH_LOOP, type Loop, type Project, sessionDoctrine } from './core/index'
 import { projectOf } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
 const loop = atom({ plugin: 'shift', key: 'loop' } as const, FRESH_LOOP)
-const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 const doctrineText = atom({ plugin: 'shift', key: 'doctrine' } as const, null)
 // The message the compaction's replacement history takes, and what that compaction gave back: the compact hook reads
 // the first and writes the second while this let-go runs.
@@ -97,7 +97,6 @@ async function compactWithMessage($: EngineInterface, instructions: string, mess
 // is exposed to queued turns, and again once the shift settled.
 async function refresh($: EngineInterface, project: Project): Promise<void> {
   // The tocs are not refreshed here: a document a script changed gets its toc with the next prompt's note.
-  const loaded = renderSessionFiles(await sessionFiles(project, { refresh: false }))
-  await update($, files, () => loaded)
+  await loadFiles($, project, false)
   await update($, doctrineText, () => sessionDoctrine(project.settings).doctrine)
 }

@@ -31,7 +31,7 @@ import {
 import { projectAt } from '../npm/store'
 import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
-import { type MapPrints, observeMap, sameDocumentStamps } from './map'
+import { type MapPrints, mapAtTool, observeMap } from './map'
 import { type Fields, fields } from './protocol'
 
 type ContextReceipt = { offset: number; length: number; hash: string }
@@ -44,6 +44,7 @@ type HookState = {
   editOffset?: number
   context?: ContextReceipt
   doctrineHash?: string
+  shells?: string[]
   turn?: string
   map?: MapPrints
   docsSettings?: string
@@ -95,10 +96,11 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   const edits = await recentEdits(project, input, state.editOffset)
   const recordOffset = state.editOffset
   // The map observes a longer interval than record checks, including an entire tool call.
+  let nextMapOffset = edits.offset
   async function mapEdits() {
     const found = state.mapOffset === recordOffset ? edits : await recentEdits(project, input, state.mapOffset)
-    state.mapOffset = found.offset
-    return found.confirmed
+    nextMapOffset = found.offset
+    return found
   }
   const courier: RecordCourier = {
     confirmedEdit: edits.confirmed,
@@ -110,6 +112,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   }
   const sameTurn = typeof input.turn_id === 'string' && input.turn_id === state.turn
   if (!sameTurn && typeof input.turn_id === 'string') {
+    state.shells = []
     state.turn = input.turn_id
     state.looks.running = 0
   }
@@ -118,18 +121,22 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   if (state.looks.running === 0 || event === 'PostToolUse') state.editOffset = edits.offset
   if (event === 'PreToolUse' || event === 'PostToolUse') {
     let mapNote = ''
-    if (event === 'PreToolUse' && state.looks.running === 0 && state.map?.documents) {
-      const stamps = await docStamps(project)
-      const changed = !sameDocumentStamps(state.map.documents, stamps)
-      if (changed && !(await staleLayout(project))) {
-        await refreshDocs(project, { tocs: false })
-        const path = project.settings.files.shift
-        const text = await project.store.read(`${project.root}/${path}`)
-        const files = text === null ? [] : [{ path, text }]
-        const update = await observeMap(project, state.map, files, stamps, await mapEdits())
-        state.map = update.prints
-        mapNote = update.note
-      } else if (!changed) state.mapOffset = edits.offset
+    const before = event === 'PreToolUse'
+    const shell = input.tool_name === 'Bash' && typeof input.tool_use_id === 'string' ? input.tool_use_id : undefined
+    const matched = shell !== undefined && state.shells?.includes(shell)
+    if (
+      state.map?.documents &&
+      ((before && state.looks.running === 0 && !state.shells?.length) ||
+        (!before && matched && (!edits.readOnlyShell || state.shells?.length === 1)))
+    ) {
+      const update = await mapAtTool(project, state.map, mapEdits, !before && !edits.readOnlyShell)
+      state.map = update.prints
+      mapNote = update.note
+      state.mapOffset = nextMapOffset
+    }
+    if (shell !== undefined) {
+      if (before && !matched) state.shells = [...(state.shells ?? []), shell]
+      if (!before && matched) state.shells = state.shells?.filter(id => id !== shell)
     }
     const shiftTool = TOOLS.find(tool => input.tool_name === `mcp__shift__${tool.name}`)
     const outside = !!edits.confirmed || state.looks.running === 0 || (shiftTool?.writes === false && state.looks.running === 1)
@@ -144,6 +151,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
     if (!problem || notes.some(note => note.body.includes(problem))) state.reportedProblem = problem
     return [mapNote, ...notes.map(wrap)]
   }
+  state.shells = []
   const start = await startSession(project)
   const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
   const resume = event === 'SessionStart' && input.source === 'resume'
@@ -174,7 +182,8 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
   state.reportedProblem = problem
   const files = await sessionFiles(project, { refresh: false })
-  const confirmed = await mapEdits()
+  const { confirmed } = await mapEdits()
+  state.mapOffset = nextMapOffset
   const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps)
   await records.delivered()
   state.map = changes.prints

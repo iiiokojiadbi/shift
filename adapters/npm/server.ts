@@ -22,6 +22,7 @@ import {
   atPrompt,
   awaitShift,
   beforeTool,
+  checkpointChanged,
   compactInstructions,
   contentChars,
   countGrowth,
@@ -31,10 +32,13 @@ import {
   FRESH_LOOP,
   gaugeStatus,
   HELD_NOTE,
+  initialMap,
   letGoGauge,
   MOD,
+  mapCheckpoint,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
+  refreshDocs,
   renderSessionFiles,
   resumeShift,
   runEnded,
@@ -45,6 +49,7 @@ import {
   sessionFiles,
   shiftBase,
   shiftNow,
+  staleLayout,
   startSession,
   TASKS_COMMAND,
   TASKS_DESCRIPTION,
@@ -126,6 +131,9 @@ const plugin: Definition = {
       const note = ((await ctx.storage.get(waitKey(sessionID))) ?? null) as WaitNote | null
       // A shift accepted before the plugin reloaded lets go at the next run's end.
       const pending = ((await ctx.storage.get(pendingKey(sessionID))) ?? null) as PendingShift | null
+      const saved = (await ctx.storage.get(`context:${sessionID}`)) as
+        | { block: Session['block']; checkpoint: ReturnType<typeof mapCheckpoint> }
+        | undefined
       const begun = await startSession(await project())
       const fresh: Session = {
         enabled: begun.enabled,
@@ -134,14 +142,14 @@ const plugin: Definition = {
         updating: Promise.resolve(),
         prompting: Promise.resolve(),
         gauge: FRESH_GAUGE,
-        looks: FRESH_LOOKS,
+        looks: { ...FRESH_LOOKS, ...saved?.checkpoint },
         fill: undefined,
         busy: false,
         hold: undefined,
         letGo: undefined,
         letGoID: undefined,
         runs: 0,
-        block: undefined,
+        block: saved?.block && { ...saved.block, doctrine: sessionDoctrine((await project()).settings).doctrine },
       }
       sessions.set(sessionID, sessions.get(sessionID) ?? fresh)
 
@@ -230,9 +238,18 @@ const plugin: Definition = {
         looks: async () => (await state(sessionID)).looks,
         updateLooks: async change => {
           const session = await state(sessionID)
-          session.looks = change(session.looks)
+          const previous = session.looks
+          session.looks = change(previous)
+          if (session.block && checkpointChanged(previous, session.looks)) await saveContext(sessionID, session)
         },
       }
+    }
+
+    async function saveContext(sessionID: string, session: Session) {
+      const value = session.block && { block: session.block, checkpoint: mapCheckpoint(session.looks) }
+      const saving = session.updating.then(() => keep(`context:${sessionID}`, value ?? null))
+      session.updating = saving.catch(() => undefined)
+      await saving
     }
 
     // The gauge in the plugin's memory; the history and the base read from the session.
@@ -311,8 +328,11 @@ const plugin: Definition = {
       for (const row of session.rows.splice(0)) await tell(event.sessionID, row.text, row.level)
       if (session.block === undefined) {
         const project = await projectAt(root)
-        const files = renderSessionFiles(await sessionFiles(project, { refresh: false }))
-        session.block = { doctrine: sessionDoctrine(project.settings).doctrine, files }
+        if (project.settings.enabled && !(await staleLayout(project))) await refreshDocs(project, { tocs: false })
+        const files = await sessionFiles(project, { refresh: false })
+        session.block = { doctrine: sessionDoctrine(project.settings).doctrine, files: renderSessionFiles(files) }
+        session.looks = { ...session.looks, map: await initialMap(project, files), mapNotes: [] }
+        await saveContext(event.sessionID, session)
       }
       event.system.push({ type: 'text', text: session.block.doctrine })
       if (session.block.files !== null) event.system.push({ type: 'text', text: session.block.files })
@@ -382,9 +402,19 @@ const plugin: Definition = {
       if (!(await state(sessionID)).enabled) return
       const courier = courierOf(sessionID)
       if (done !== null) await countGrowth(courier.gauge, event.tool, contentChars(done.content))
+      const matched = outside.has(event.id)
       const before = outside.get(event.id) ?? []
       outside.delete(event.id)
-      const end = done === null ? null : { own: OURS.has(event.tool), readOnly: READING.has(event.tool), written }
+      const end =
+        done === null
+          ? null
+          : {
+              own: OURS.has(event.tool),
+              readOnly: READING.has(event.tool),
+              written,
+              shellWrite: matched && event.tool === 'shell',
+              content: event.tool === 'write' ? (event.input as { content?: string }).content : undefined,
+            }
       const added = await afterTool(courier, before, end)
       if (done === null || added.length === 0) return
       const blocks = added.map(text => ({ type: 'text' as const, text }))
@@ -486,7 +516,14 @@ const plugin: Definition = {
           session.gauge = letGoGauge(data.reason === 'auto')
           session.fill = undefined
           session.block = undefined
+          session.looks = { ...session.looks, map: undefined, mapNotes: [] }
+          await saveContext(data.sessionID, session)
           if (data.reason !== 'auto') session.letGo?.({ text: data.text ?? '' })
+          return
+        case 'session.revert.committed':
+          session.block = undefined
+          session.looks = FRESH_LOOKS
+          await saveContext(data.sessionID, session)
           return
         case 'session.compaction.failed':
           if (data.reason !== 'auto') session.letGo?.({ error: `the harness did not let the history go: ${errorText(data.error)}` })

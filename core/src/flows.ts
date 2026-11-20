@@ -78,7 +78,7 @@ export function recordFingerprint(project: Project, path: string, text: string):
   let observed = text
   if (path === project.settings.files.shift) observed = withMap(text, '').trim()
   else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs)) observed = withToc(text) ?? text
-  return String(fingerprint(observed))
+  return String(textFingerprint(observed))
 }
 
 export async function changedRecords(
@@ -169,7 +169,7 @@ async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
 }
 
 // FNV-1a over the text: whether a file restamped really changed, without keeping its text.
-function fingerprint(text: string): number {
+export function textFingerprint(text: string): number {
   let hash = 0x811c9dc5
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
 

@@ -4,6 +4,8 @@ import { type ChangedBy, type ConfirmedEdit, changedRecords, type Seen } from '.
 import type { GaugeKeeper } from './hint'
 import { DIR, MOD } from './layout'
 import { type Loop, loopHint, loopOffer, waitingNote } from './loop'
+import { currentMap, type MapPrints } from './map'
+import { fromRoot } from './paths'
 import type { Project } from './project'
 import { noteLinks } from './records'
 import { readTask } from './store'
@@ -21,12 +23,26 @@ import { TOLD } from './texts/rows'
 export type Looks = {
   seen: Seen | null
   running: number
+  map?: MapPrints
+  mapNotes?: string[]
   pendingLinks?: readonly string[]
   written?: readonly string[]
   docs?: Record<string, string>
 }
 
 export const FRESH_LOOKS: Looks = { seen: null, running: 0 }
+
+// Save only observations that need to survive reattachment. Running tools belong to the old process.
+export type MapCheckpoint = Pick<Looks, 'map' | 'mapNotes' | 'seen' | 'docs'>
+
+export function mapCheckpoint(looks: Looks): MapCheckpoint {
+  const { map, mapNotes, seen, docs } = looks
+  return { map, mapNotes, seen, docs }
+}
+
+export function checkpointChanged(before: Looks, after: Looks): boolean {
+  return before.map !== after.map || before.mapNotes !== after.mapNotes || !same(before.seen, after.seen)
+}
 
 export type RecordCourier = {
   confirmedEdit?: ConfirmedEdit
@@ -51,6 +67,10 @@ export type ToolEnd = {
   readOnly: boolean
   // The file it wrote, absolute, when it wrote one and did not fail: the docs follow it, settled with the next prompt.
   written?: string
+  // A matched shell tool may write arbitrary paths.
+  shellWrite?: boolean
+  // Full-file write input, when the host supplies it.
+  content?: string
 }
 
 // Before a tool of the main agent: what changed since the last look is someone else's — the owner's hand, another
@@ -65,6 +85,7 @@ export async function beforeTool(courier: RecordCourier): Promise<Note[]> {
     return { ...current, running: current.running + 1 }
   })
   if (claim.first !== true) return []
+  await checkMap(courier)
   const outside = await look(courier, 'other')
   if (outside === null) return []
   await remember(courier, outside.seen)
@@ -91,6 +112,15 @@ export async function afterToolRecords(courier: RecordCourier, before: readonly 
   if (own !== null) await remember(courier, own.seen)
   if (own?.body != null && !done.own) notes.push({ kind: 'records', body: own.body })
   if (done.written !== undefined) await follow(courier, done.written)
+  if (done.written || done.shellWrite) await checkMap(courier, done)
+  if ((await courier.looks()).mapNotes?.length) {
+    let claimed: readonly string[] = []
+    await courier.updateLooks(current => {
+      claimed = current.running ? [] : (current.mapNotes ?? [])
+      return claimed.length ? { ...current, mapNotes: [] } : current
+    })
+    notes.push(...claimed.map(body => ({ kind: 'map' as const, body })))
+  }
   return notes
 }
 
@@ -118,7 +148,7 @@ export async function atPrompt(
     delivered: async () => {
       await records.delivered()
       await hint?.take()
-      for (const note of notes) courier.loop.tell(TOLD(note.body), 'info')
+      for (const note of notes) if (note.kind !== 'map') courier.loop.tell(TOLD(note.body), 'info')
       await letter?.delivered()
     },
   }
@@ -140,12 +170,16 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean) 
     if (body) notes.push({ kind: 'records', body })
     else await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
   }
+  if (running === 0) await checkMap(courier)
+  const mapNotes = running === 0 ? ((await courier.looks()).mapNotes ?? []) : []
+  notes.push(...mapNotes.map(body => ({ kind: 'map' as const, body })))
   if (running === 0) await scripted(courier)
   const docs = running === 0 ? await settle(courier) : null
   if (docs !== null) notes.push({ kind: 'docs', body: docs.body })
   return {
     notes,
     delivered: async () => {
+      if (mapNotes.length) await takeMapNotes(courier, mapNotes)
       if (pending.length)
         await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
       // Kept unless a look since has kept newer records: putting back the older ones would tell their change again.
@@ -164,6 +198,43 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean) 
 // The run is over: no tool of it runs any more, whatever a process that ended mid-tool left counted.
 export async function runEnded(courier: Courier): Promise<void> {
   await courier.updateLooks(current => (current.running === 0 ? current : { ...current, running: 0 }))
+}
+
+// Advance this observer only. Queue external changes until a successful tool result or prompt can carry them.
+async function checkMap(courier: RecordCourier, done?: ToolEnd): Promise<void> {
+  const previous = (await courier.looks()).map
+  if (!previous) return
+  const project = await courier.project()
+  const file = done?.written && fromRoot(project.root, done.written)
+  let confirmedFile = false
+  const changed = await currentMap(project, previous, (path, text) => {
+    if (path === file && (done?.content === undefined || done.content === text)) confirmedFile = true
+    return done?.shellWrite === true || (path === file && confirmedFile)
+  }).catch(() => null)
+  if (!changed || changed.prints === previous) return
+  await courier.updateLooks(current => {
+    // A parallel writer may have completed another file already. Only acknowledge this tool's path.
+    // The first idle observation checks every remaining path against its own previous contents.
+    if (file && done && !done.shellWrite) {
+      const next = changed.prints.documents?.[file]
+      const map = current.map
+      if (!confirmedFile || !next || !map?.documents || map.documents[file]?.stamp !== previous.documents?.[file]?.stamp) return current
+      return {
+        ...current,
+        map: { ...map, documents: { ...map.documents, [file]: next }, map: { ...map.map, [file]: changed.prints.map[file] ?? '' } },
+      }
+    }
+    if (JSON.stringify(previous) !== JSON.stringify(current.map)) return current
+    const body = done?.shellWrite ? '' : changed.note
+    return { ...current, map: changed.prints, mapNotes: body ? [...(current.mapNotes ?? []), body] : current.mapNotes }
+  })
+}
+
+async function takeMapNotes(courier: RecordCourier, delivered: readonly string[]): Promise<void> {
+  await courier.updateLooks(current => {
+    const pending = current.mapNotes ?? []
+    return delivered.every((body, index) => pending[index] === body) ? { ...current, mapNotes: pending.slice(delivered.length) } : current
+  })
 }
 
 // The records changed since the last look and what they are now, kept by `remember`; the first look finds nothing to
@@ -260,7 +331,7 @@ async function forget(courier: RecordCourier, paths: readonly string[]): Promise
 }
 
 function deliver(loop: Loop, notes: readonly Note[]): string[] {
-  for (const note of notes) loop.tell(TOLD(note.body), 'info')
+  for (const note of notes) if (note.kind !== 'map') loop.tell(TOLD(note.body), 'info')
 
   return notes.map(wrap)
 }

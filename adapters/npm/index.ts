@@ -9,7 +9,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import { estimateTokens, findCutPoint, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type { TSchema } from 'typebox'
-import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, Project, WaitNote } from './core/index'
+import type { Courier, Gauge, GaugeKeeper, LetGoHarness, Looks, Loop, LoopState, Note, Project, SessionFile, WaitNote } from './core/index'
 import {
   addGrowth,
   afterTool,
@@ -17,6 +17,7 @@ import {
   afterWrite,
   atPrompt,
   beforeTool,
+  checkpointChanged,
   contentChars,
   countGrowth,
   dropWaiting,
@@ -27,10 +28,13 @@ import {
   gaugeStatus,
   HELD,
   holdOwner,
+  initialMap,
   letGoGauge,
   MOD,
+  mapCheckpoint,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
+  renderSessionFiles,
   resumeShift,
   SETTINGS,
   SHIFT_COMMAND,
@@ -63,7 +67,27 @@ export default function shift(pi: ExtensionAPI): void {
   // false when the project's settings turn the mod off; read at each session start.
   let enabled = true
   // The documents' tocs and the map are refreshed at the first run of a session, before anything looks at them.
-  let refreshed = false
+  let mapFile: SessionFile | null | undefined
+  let loadedBlock: string | null = null
+  const mapEntry = `${MOD}:map`
+  const fileEntry = `${MOD}:map-file`
+
+  function restoreBranch(ctx: ExtensionContext) {
+    looks = FRESH_LOOKS
+    mapFile = undefined
+    loadedBlock = null
+    outside.clear()
+    for (const entry of ctx.sessionManager.getBranch().toReversed()) {
+      if (entry.type === 'compaction') break
+      if (entry.type !== 'custom') continue
+      if (entry.customType === mapEntry && !looks.map) looks = { ...looks, ...(entry.data as ReturnType<typeof mapCheckpoint>) }
+      if (entry.customType === fileEntry) {
+        mapFile = entry.data as SessionFile | null
+        break
+      }
+    }
+    if (!looks.map) mapFile = undefined
+  }
   // The records as last seen and the agent's tools running now; what changed before each tool began, by its call.
   let looks: Looks = FRESH_LOOKS
   const outside = new Map<string, Note[]>()
@@ -86,8 +110,7 @@ export default function shift(pi: ExtensionAPI): void {
           now: async () => Date.now(),
           subagent: false,
           loop: loopOf(ctx),
-          // pi reads the session's files anew before every run, so its copy is never older than them.
-          loaded: async () => null,
+          loaded: async () => loadedBlock,
           status: () => gaugeStatus(keeperOf(ctx, () => projectAt(ctx.cwd))),
           cannotLetGo: async () => cannotLetGo(ctx),
         })
@@ -139,7 +162,7 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('session_start', async (_event, ctx) => {
     const start = await startSession(await projectAt(ctx.cwd))
     enabled = start.enabled
-    refreshed = false
+    restoreBranch(ctx)
     for (const row of start.rows) tell(ctx, row.text, row.level)
     const shown = start.tools.map(tool => tool.name)
     pi.setActiveTools([...pi.getActiveTools().filter(name => !OURS.has(name)), ...shown])
@@ -153,6 +176,7 @@ export default function shift(pi: ExtensionAPI): void {
     if (!enabled) return
     loop = { ...loop, note: branchNote(ctx) }
     gauge = FRESH_GAUGE
+    restoreBranch(ctx)
   })
 
   // The owner's own input: only a message that starts a run takes the waiting letter with it. An extension's message
@@ -176,24 +200,31 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
     const project = once(ctx)
-    const loading = project()
+    const loadedProject = await project()
     // The doctrine at the settings' places: a shift may have moved a record.
-    event.systemPromptOptions.sections[MOD] = sessionDoctrine((await loading).settings).doctrineBody
+    event.systemPromptOptions.sections[MOD] = sessionDoctrine(loadedProject.settings).doctrineBody
     // A session's first run refreshes the tocs and the map before the documents' stamps are first looked at.
-    if (!refreshed) await sessionFiles(await loading)
-    refreshed = true
+    if (mapFile === undefined) {
+      const files = await sessionFiles(loadedProject)
+      mapFile = files.find(file => file.path === loadedProject.settings.files.shift) ?? null
+      looks = { ...looks, map: await initialMap(loadedProject, files), mapNotes: [] }
+      pi.appendEntry(fileEntry, mapFile)
+      pi.appendEntry(mapEntry, mapCheckpoint(looks))
+    }
+    if (mapFile) event.systemPromptOptions.sections.shift_map = renderSessionFiles([mapFile]) ?? ''
     // Records changed between runs — by the owner's hand or another session — a hint, and after a wait the letter.
     const owner = event.messageType === 'user' && ownerTyped
     if (owner) ownerTyped = false
     const told = await atPrompt(courierOf(ctx, project), { runStarts: true, owner })
     if (told.notes.length > 0) await told.delivered()
-    // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md go where pi puts AGENTS.md; the same paths are replaced, not added
-    // twice. Read after the notes: a toc a script left stale is written with its note, never silently before it.
-    const loaded = await sessionFiles(await loading, { refresh: false })
+    // The other records go where pi puts AGENTS.md. Keep the map in its own stable section. Read after the notes: a toc a script left stale is written with its note, never silently before it.
+    const loaded = await sessionFiles(loadedProject, { refresh: false })
+    const others = loaded.filter(file => file.path !== loadedProject.settings.files.shift)
+    loadedBlock = renderSessionFiles(mapFile ? [mapFile, ...others] : others)
     const ours = new Set(loaded.map(file => file.path))
     event.systemPromptOptions.contextFiles = [
       ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
-      ...loaded.map(file => ({ path: file.path, content: file.text })),
+      ...others.map(file => ({ path: file.path, content: file.text })),
     ]
     if (told.notes.length === 0) return
 
@@ -228,9 +259,16 @@ export default function shift(pi: ExtensionAPI): void {
       if (written !== undefined) await afterWrite(courier, written)
       return
     }
+    const matched = outside.has(event.toolCallId)
     const before = outside.get(event.toolCallId) ?? []
     outside.delete(event.toolCallId)
-    const added = await afterTool(courier, before, { own: OURS.has(event.toolName), readOnly: READING.has(event.toolName), written })
+    const added = await afterTool(courier, before, {
+      own: OURS.has(event.toolName),
+      readOnly: READING.has(event.toolName),
+      written,
+      content: typeof event.input.content === 'string' ? event.input.content : undefined,
+      shellWrite: matched && event.toolName === 'bash' && !event.isError,
+    })
     if (added.length === 0) return
 
     return {
@@ -264,6 +302,8 @@ export default function shift(pi: ExtensionAPI): void {
   // Any compaction starts a new stretch; one the agent did not ask for is told to it at its next look.
   pi.on('session_compact', event => {
     gauge = letGoGauge(event.reason !== 'manual')
+    mapFile = undefined
+    looks = { ...looks, map: undefined, mapNotes: [] }
   })
 
   // The notes to the agent over the extension's runtime: the looks at the records, the loop and the gauge.
@@ -274,7 +314,9 @@ export default function shift(pi: ExtensionAPI): void {
       project,
       looks: async () => looks,
       updateLooks: async change => {
-        looks = change(looks)
+        const previous = looks
+        looks = change(previous)
+        if (looks.map && checkpointChanged(previous, looks)) pi.appendEntry(mapEntry, mapCheckpoint(looks))
       },
     }
   }

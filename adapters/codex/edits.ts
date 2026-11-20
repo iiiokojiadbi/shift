@@ -4,13 +4,24 @@ import { applyPatch, parsePatch, reversePatch } from 'diff'
 import { type ConfirmedEdit, type Project, recordFingerprint } from '../../core/src'
 import { type Fields, fields } from './protocol'
 
+export function readOnlyActions(actions: unknown) {
+  return (
+    Array.isArray(actions) &&
+    actions.length > 0 &&
+    actions.every(action => ['read', 'list_files', 'listFiles', 'search'].includes(String(fields(action).type)))
+  )
+}
+
+export type EditEvidence = {
+  offset?: number
+  confirmed?: ConfirmedEdit
+  hasPatch?: (path: string) => boolean
+  readOnlyShell?: boolean
+}
+
 // Replay only completed file changes since the previous observation. Reversing the recorded
 // edits must recover the previous fingerprint, including any text outside the diff hunks.
-export async function recentEdits(
-  project: Project,
-  input: Fields,
-  offset?: number,
-): Promise<{ offset?: number; confirmed?: ConfirmedEdit }> {
+export async function recentEdits(project: Project, input: Fields, offset?: number): Promise<EditEvidence> {
   if (typeof input.transcript_path !== 'string') return {}
   const handle = await open(input.transcript_path, 'r').catch(() => null)
   if (!handle) return {}
@@ -21,20 +32,17 @@ export async function recentEdits(
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset)
     const end = bytes.subarray(0, bytesRead).lastIndexOf(10) + 1
     const edits = new Map<string, Fields[]>()
+    let readOnlyShell = false
+    const shell = input.hook_event_name === 'PostToolUse' && input.tool_name === 'Bash'
     for (const line of bytes.toString('utf8', 0, end).split('\n')) {
-      if (!line.includes('"FileChange"')) continue
+      if (!line.includes('"FileChange"') && !(shell && line.includes('"CommandExecution"'))) continue
       try {
         const row = JSON.parse(line)
         const event = fields(row.payload)
         const item = fields(event.item)
-        if (
-          row.type !== 'event_msg' ||
-          event.thread_id !== input.session_id ||
-          event.type !== 'item_completed' ||
-          item.type !== 'FileChange' ||
-          item.status !== 'completed'
-        )
-          continue
+        if (row.type !== 'event_msg' || event.thread_id !== input.session_id || event.type !== 'item_completed') continue
+        if (shell && item.type === 'CommandExecution' && item.id === input.tool_use_id) readOnlyShell = readOnlyActions(item.parsed_cmd)
+        if (item.type !== 'FileChange' || item.status !== 'completed') continue
         for (const [file, change] of Object.entries(fields(item.changes))) {
           const path = resolve(project.root, file)
           const changes = edits.get(path) ?? []
@@ -66,7 +74,12 @@ export async function recentEdits(
       }
       return text === null ? previous === undefined : previous === recordFingerprint(project, path, text)
     }
-    return { offset: offset + end, confirmed: edits.size ? confirmed : undefined }
+    return {
+      offset: offset + end,
+      readOnlyShell,
+      confirmed: edits.size ? confirmed : undefined,
+      hasPatch: path => edits.has(resolve(project.root, path)),
+    }
   } finally {
     await handle.close()
   }

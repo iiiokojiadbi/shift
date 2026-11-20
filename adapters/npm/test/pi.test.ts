@@ -39,6 +39,7 @@ function branch(chars: number) {
 }
 
 function load(root: string, chars = 200_000, entries?: () => unknown[]) {
+  const saved: unknown[] = []
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
   const notes: string[] = []
@@ -57,7 +58,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
     },
     sendMessage: (message: { content: string }) => sent.push(message.content),
     sendUserMessage: () => {},
-    appendEntry: () => {},
+    appendEntry: (customType: string, data: unknown) => saved.push({ type: 'custom', customType, data }),
   }
   shift(pi as never)
   const ctx = {
@@ -84,7 +85,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
   const call = async (name: string, params: Record<string, unknown> = {}) =>
     (await tools.get(name)?.execute('1', params, undefined, undefined, ctx))?.content[0]?.text
 
-  return { tools, notes, sent, on, call, active: () => active }
+  return { tools, notes, sent, on, call, saved, active: () => active }
 }
 
 test('a project without docs shows no docs tools, neither as tools nor in the doctrine; the tools run over the records', async () => {
@@ -241,4 +242,39 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   await told.on('session_start')
   await told.on('input', { text: 'hi', source: 'interactive' })
   expect(await told.on('before_agent_start', run())).toBeUndefined()
+})
+
+test('branch checkpoints keep a stable map for two observers, a resumed observer and a fresh stretch', async () => {
+  const path = 'docs/api.md'
+  const body = '---\ndescription: API guide\n---\n# API\n## Slots\none\n## Stable\ntwo\n'
+  const root = await project({ [path]: body })
+  const writer = load(root)
+  const reader = load(root)
+  const run = async (session: ReturnType<typeof load>) => {
+    const event = { systemPromptOptions: { sections: {} as Record<string, string>, contextFiles: [] }, messageType: 'user' }
+    const message = await session.on('before_agent_start', event)
+    expect(JSON.stringify(event.systemPromptOptions.contextFiles)).not.toContain('API guide')
+    return { block: event.systemPromptOptions.sections.shift_map, message: JSON.stringify(message ?? '') }
+  }
+  await writer.on('session_start')
+  await reader.on('session_start')
+  const first = await run(reader)
+  expect(first.block).toContain('Slots · Stable')
+  expect((await run(writer)).block).toBe(first.block)
+  const content = body.replace('one', 'new body').replace('## Stable', '## Revised')
+  const call = { toolCallId: 'write1', toolName: 'write', input: { path, content } }
+  await writer.on('tool_call', call)
+  await writeFile(join(root, path), content)
+  expect(JSON.stringify((await writer.on('tool_result', { ...call, content: [] })) ?? '')).not.toContain('(changed)')
+  expect((await run(writer)).message).not.toContain('Slots (changed)')
+  const resumed = load(root, 200_000, () => reader.saved)
+  await resumed.on('session_start')
+  const after = await run(resumed)
+  expect(after.block).toBe(first.block)
+  expect(after.message).toContain('Slots (changed)')
+  expect(after.message).toContain('Stable (deleted)')
+  expect(after.message).not.toContain('API guide')
+  expect((await run(resumed)).message).not.toContain('(changed)')
+  await resumed.on('session_compact', { reason: 'manual' })
+  expect((await run(resumed)).block).toContain('Slots · Revised')
 })

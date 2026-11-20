@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test'
 import { afterTool, afterWrite, atPrompt, beforeTool, type Courier, FRESH_LOOKS, type Looks, runEnded } from '../src/delivery'
+import { sessionFiles } from '../src/flows'
 import type { GaugeKeeper } from '../src/hint'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
+import { initialMap } from '../src/map'
 import type { Gauge, Reading } from '../src/types'
 import { BOARD, LIST, OWNER, R, ROOT, TRACK, taskMd } from './fixtures'
 import { memoryProject } from './memory'
@@ -90,6 +92,29 @@ test("a change between tools is someone else's, one while a tool runs is the too
   await beforeTool(courier)
   expect(await afterTool(courier, [], TOOL)).toEqual([])
   expect(kept.looks.running).toBe(0)
+})
+
+test('parallel named writes acknowledge their own files and retain an external section until a prompt takes it', async () => {
+  const { project, courier, kept } = await setUp()
+  const paths = ['a', 'b', 'c'].map(name => `${ROOT}/docs/${name}.md`)
+  const body = (section: string) => `---\ndescription: Guide\n---\n# Guide\n## ${section}\nBefore\n`
+  for (const path of paths) await project.store.write(path, body('Usage'))
+  kept.looks = { ...kept.looks, map: await initialMap(project, await sessionFiles(project)) }
+  await Promise.all([beforeTool(courier), beforeTool(courier)])
+  const content = body('Usage').replace('Before', 'After')
+  for (const path of paths) await project.store.write(path, content)
+  const notes = await Promise.all(paths.slice(0, 2).map(written => afterTool(courier, [], { ...TOOL, written, content })))
+  expect(notes.flat()).toEqual([])
+  const prompt = () => atPrompt(courier, { runStarts: true, owner: true })
+  const dropped = await prompt()
+  const retry = await prompt()
+  const deltas = retry.notes.filter(note => note.includes('Usage (changed)'))
+  expect(deltas).toHaveLength(1)
+  expect(deltas[0]).toContain('docs/c.md')
+  expect(deltas[0]).not.toMatch(/docs\/[ab]\.md/)
+  expect(retry.notes).toEqual(dropped.notes)
+  await retry.delivered()
+  expect((await prompt()).notes.join('\n')).not.toContain('Usage (changed)')
 })
 
 test('a tool that threw is only counted down; a run that ended clears what a dead process left counted', async () => {

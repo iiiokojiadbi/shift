@@ -1,30 +1,29 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { LetGoDone } from '../types/index'
+import { loadFiles, persistMap, sessionKey } from './context'
 import {
   afterTool,
   afterWrite,
   atPrompt,
   beforeTool,
   type Courier,
+  checkpointChanged,
   dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
   HELD,
   holdOwner,
   letGoGauge,
-  type Project,
   RESUME_COMMAND,
   RESUME_DESCRIPTION,
   RESUME_GO,
-  renderSessionFiles,
   resumeShift,
   runEnded,
   SHIFT_COMMAND,
   SHIFT_NOW_DESCRIPTION,
   SOURCES,
   sessionDoctrine,
-  sessionFiles,
   shiftNow,
   startSession,
   TASKS_COMMAND,
@@ -120,6 +119,8 @@ export const register: Register = on => {
           // A subagent's tool writes as the agent's own: the call that ran it is never read-only.
           readOnly: done.isReadOnly === true && !SPAWNS.has(e.tool),
           written,
+          content: e.tool === 'Write' && 'content' in e && typeof e.content === 'string' ? e.content : undefined,
+          shellWrite: e.tool === 'Bash' && done.deny === undefined && done.isError !== true && done.isReadOnly !== true,
         })
       : []
     if (notes.length === 0) return done
@@ -251,6 +252,7 @@ export const register: Register = on => {
     const done = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && done.messages !== undefined) {
       await update($, gauge, () => letGoGauge(e.trigger === 'auto'))
+      if (await read($, enabled)) await loadFiles($, await projectOf($), false)
     }
     if ('skip' in done) return done
     // Only the compaction this let-go asked for, of the main history: an auto, precompute or subagent one, or another
@@ -315,11 +317,6 @@ async function submitShift($: EngineInterface, now: { text: string; delivered: (
   if (!('drop' in submitted)) await now.delivered()
 }
 
-// The session and the project it runs in: the block is read again when either changes.
-async function sessionKey($: EngineInterface): Promise<string> {
-  return `${await $.session.id()} ${await $.session.root()}`
-}
-
 // The turn after a bare /unshift, unless the owner's own message already started one.
 async function kick($: EngineInterface): Promise<void> {
   if (!(await read($, resumeKick))) return
@@ -335,15 +332,13 @@ function courierOf($: EngineInterface): Courier {
     project: () => projectOf($),
     looks: () => read($, looks),
     updateLooks: async change => {
-      await update($, looks, change)
+      let dirty = false
+      await update($, looks, current => {
+        const next = change(current)
+        dirty = !!next.map && checkpointChanged(current, next)
+        return next
+      })
+      if (dirty) await persistMap($)
     },
   }
-}
-
-// SHIFT.md, OWNER.md, GLOSSARY.md, TASKS.md and the owner's own files, read for the session that runs now.
-async function loadFiles($: EngineInterface, project: Project): Promise<void> {
-  const loaded = renderSessionFiles(await sessionFiles(project))
-  const session = await sessionKey($)
-  await update($, files, () => loaded)
-  await update($, filesSession, () => session)
 }

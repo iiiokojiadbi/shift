@@ -35,9 +35,9 @@ import {
   waitingNote,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
-import { recentEdits } from './edits'
+import { readOnlyActions, recentEdits } from './edits'
 import { usageReading } from './gauge'
-import { type MapPrints, observeMap } from './map'
+import { type MapPrints, mapAtTool, observeMap } from './map'
 import { deferred, type Fields, fields, type Request, textInput } from './protocol'
 
 export const namespace = 'shift'
@@ -86,6 +86,7 @@ export class Session {
   private prepared = false
   private enabled = false
   private observation = Promise.resolve()
+  private readonly shells = new Set<string>()
   private readonly startedTools = new Map<string, Note[]>()
   private activeTurn?: string
   private turnEnd = deferred<void>()
@@ -262,12 +263,24 @@ export class Session {
     this.observation = this.observation.then(work).catch(error => this.tell(String(error)))
   }
 
+  private async checkMap(shellWrite: boolean) {
+    if (!this.prints?.documents) return
+    const project = await projectAt(this.root)
+    const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset)
+    const update = await mapAtTool(project, this.prints, async () => edits, shellWrite)
+    if (update.note) await this.inject(update.note)
+    this.prints = update.prints
+    this.mapOffset = edits.offset
+  }
+
   private toolEvent(method: string, item: Fields) {
     const kind = String(item.type)
     const id = String(item.id)
     if (!['dynamicToolCall', 'mcpToolCall', 'commandExecution', 'fileChange', 'collabAgentToolCall', 'webSearch'].includes(kind)) return
     if (method === 'item/started') {
       this.observe(async () => {
+        if (!this.startedTools.size) await this.checkMap(false)
+        if (kind === 'commandExecution') this.shells.add(id)
         this.startedTools.set(id, await beforeTool(this.courier))
       })
     } else if (method === 'item/completed') {
@@ -275,6 +288,8 @@ export class Session {
         const notes = this.startedTools.get(id)
         if (!notes) return
         this.startedTools.delete(id)
+        if (this.shells.delete(id) && (!this.shells.size || !readOnlyActions(item.commandActions)))
+          await this.checkMap(!readOnlyActions(item.commandActions))
         if (kind === 'fileChange' && item.status === 'completed' && Array.isArray(item.changes)) {
           for (const change of item.changes) {
             const path = fields(change).path

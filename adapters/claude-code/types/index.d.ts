@@ -16,7 +16,26 @@ export type PendingShift = {
   focus?: string[]
 }
 
-export type Looks = { seen: Record<string, string> | null; running: number; written?: readonly string[]; docs?: Record<string, string> }
+export type Part = { name: string; hash: string }
+export type DocumentPrint = {
+  stamp: string
+  archived: boolean
+  header: string
+  content: string
+  intro: string
+  sections: Part[]
+  pins: Part[]
+}
+export type MapPrints = { text: string; map: Record<string, string>; notices: string; documents?: Record<string, DocumentPrint> }
+
+export type Looks = {
+  seen: Record<string, string> | null
+  running: number
+  map?: MapPrints
+  mapNotes?: string[]
+  written?: readonly string[]
+  docs?: Record<string, string>
+}
 
 // An owner's message held back while a shift is under way, with what it carried besides the text.
 export type HeldMessage = { text: string; attachments?: readonly unknown[] }

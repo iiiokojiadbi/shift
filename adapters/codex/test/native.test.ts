@@ -196,6 +196,7 @@ test.skipIf(!Bun.which('codex'))(
     const root = await scratch('resume-project')
     const home = await scratch('resume-profile')
     const requests: { input: unknown[]; prompt_cache_key?: string; instructions: string; tools: unknown[] }[] = []
+    let shellWrite = false
     const mock = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -203,11 +204,21 @@ test.skipIf(!Bun.which('codex'))(
         if (request.method !== 'POST') return Response.json({ data: [] })
         requests.push(await request.json())
         const id = `response${requests.length}`
+        const item = shellWrite
+          ? {
+              type: 'function_call',
+              name: 'exec_command',
+              namespace: 'functions',
+              call_id: 'write-map-doc',
+              arguments: JSON.stringify({ cmd: "printf '\\n## Own script heading\\n' >> docs/behavior.md" }),
+            }
+          : { type: 'message', role: 'assistant', id, content: [{ type: 'output_text', text: 'Done.' }] }
+        shellWrite = false
         const events = [
           { type: 'response.created', response: { id } },
           {
             type: 'response.output_item.done',
-            item: { type: 'message', role: 'assistant', id, content: [{ type: 'output_text', text: 'Done.' }] },
+            item,
           },
           { type: 'response.completed', response: { id, usage: { input_tokens: 200, output_tokens: 1, total_tokens: 201 } } },
         ]
@@ -233,6 +244,7 @@ test.skipIf(!Bun.which('codex'))(
         join(home, 'config.toml'),
         `model = "fixture"
 model_provider = "fixture"
+sandbox_mode = "workspace-write"
 [features]
 untrusted_as_tool_output = true
 [model_providers.fixture]
@@ -248,25 +260,26 @@ trust_level = "trusted"
         ['plugin', 'add', 'shift@shift'],
       ])
         execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })
-      for (const args of [[], ['resume', '--last'], ['resume', '--last']]) {
-        if (requests.length === 2) {
-          await writeFile(owner, 'Updated fixture decision.')
-          await writeFile(doc, document.replace('One check.', 'Two checks.'))
-        }
+      const nextTurn = async (resume = true) => {
         const child = Bun.spawn(
           [
             'codex',
             'exec',
-            ...args,
+            ...(resume ? ['resume', '--last'] : []),
             '--dangerously-bypass-hook-trust',
             '--skip-git-repo-check',
-            args.length ? 'Read the fixture.' : '$shift:unshift Review this project.',
+            resume ? 'Read the fixture.' : '$shift:unshift Review this project.',
           ],
           { cwd: root, env, stdout: 'ignore', stderr: 'pipe' },
         )
         const [code, errors] = await Promise.all([child.exited, new Response(child.stderr).text()])
         if (code) throw new Error(errors)
       }
+      await nextTurn(false)
+      await nextTurn()
+      await writeFile(owner, 'Updated fixture decision.')
+      await writeFile(doc, document.replace('One check.', 'Two checks.'))
+      await nextTurn()
       expect(requests).toHaveLength(3)
       const [first, resumed, changed] = requests
       if (!first || !resumed || !changed) throw new Error('Missing model request')
@@ -291,9 +304,17 @@ trust_level = "trusted"
       expect(appended.split('Verification (changed)')).toHaveLength(2)
       expect(appended).not.toContain('Stable neighbor')
       expect(appended).not.toContain('Project procedures')
+      shellWrite = true
+      await nextTurn()
+      expect(await readFile(doc, 'utf8')).toContain('## Own script heading')
+      await nextTurn()
+      expect(requests).toHaveLength(6)
+      const next = JSON.stringify(requests.at(-1)?.input)
+      expect(next).not.toContain('Own script heading (new)')
+      expect(next).not.toContain('Own script heading (changed)')
     } finally {
       mock.stop(true)
     }
   },
-  20000,
+  30000,
 )

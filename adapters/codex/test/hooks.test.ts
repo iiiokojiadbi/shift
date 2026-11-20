@@ -345,3 +345,61 @@ test('archived body changes stay compact and removing a pin leaves its sibling o
   expect(body).not.toContain('Original proposal')
   expect(await hook('UserPromptSubmit')).toBe('')
 })
+
+test('a shell write advances the baseline silently and later external edits in that file survive resume', async () => {
+  const { doc, hook, transcript } = await fixture()
+  const shell = { tool_name: 'Bash', tool_use_id: 'shell-1', turn_id: 't' }
+  const initial = await hook('SessionStart')
+  await appendFile(
+    transcript,
+    `${JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ text: initial }] } })}\n`,
+  )
+  await appendFile(doc, 'Edited before the command.\n')
+  expect(await hook('PreToolUse', shell)).toContain('Setup (changed)')
+  await appendFile(doc, '\n## From script\nOwn text.\n')
+  expect(await hook('PostToolUse', shell)).toBe('')
+  const prompt = await hook('UserPromptSubmit')
+  expect(prompt).not.toContain('From script')
+  expect(await hook('SessionStart', { source: 'resume' })).toBe('')
+  await appendFile(doc, '\nExternal text.\n')
+  const resumed = await hook('SessionStart', { source: 'resume' })
+  expect(resumed).toContain('From script (changed)')
+  expect(resumed).not.toContain('Setup')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('edits during a read-only command or a completion without a matching start stay visible', async () => {
+  const { hook, doc, transcript } = await fixture()
+  const shell = { tool_name: 'Bash', tool_use_id: 'read' }
+  await hook('SessionStart')
+  await hook('PreToolUse', shell)
+  await appendFile(doc, 'External text.\n')
+  const item = { type: 'CommandExecution', id: 'read', parsed_cmd: [{ type: 'read' }] }
+  await appendFile(transcript, `${JSON.stringify({ type: 'event_msg', payload: { thread_id: 'scope', type: 'item_completed', item } })}\n`)
+  expect(await hook('PostToolUse', shell)).toContain('Setup (changed)')
+  expect(await hook('UserPromptSubmit')).toBe('')
+  await appendFile(doc, 'More external text.\n')
+  await hook('PostToolUse', shell)
+  expect(await hook('UserPromptSubmit')).toContain('Setup (changed)')
+})
+
+test('two threads sharing a document notify each other and silently accept their own edits', async () => {
+  const { doc, hook } = await fixture()
+  const first = (event: string, extra = {}) => hook(event, { session_id: 'editor-a', ...extra })
+  const other = (event: string, extra = {}) => hook(event, { session_id: 'editor-b', ...extra })
+  const shell = { tool_name: 'Bash', tool_use_id: 'edit' }
+  expect(await first('SessionStart')).toContain('sections: Setup')
+  expect(await other('SessionStart')).toContain('sections: Setup')
+  await first('PreToolUse', shell)
+  await appendFile(doc, 'Added by the first thread.\n')
+  expect(await first('PostToolUse', shell)).toBe('')
+  expect(await first('UserPromptSubmit')).toBe('')
+  expect(await other('PreToolUse', shell)).toContain('Setup (changed)')
+  await appendFile(doc, 'Added by the other thread.\n')
+  expect(await other('PostToolUse', shell)).toBe('')
+  expect(await other('UserPromptSubmit')).toBe('')
+  expect(await first('UserPromptSubmit')).toContain('Setup (changed)')
+  expect(await first('UserPromptSubmit')).toBe('')
+  expect(await other('SessionStart', { source: 'compact' })).toContain('sections: Setup')
+  expect(await first('UserPromptSubmit')).toBe('')
+})

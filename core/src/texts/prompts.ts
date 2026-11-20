@@ -34,6 +34,7 @@ import type { HandedBack, PendingShift, Recent, SessionFile, ShiftAfter, Stuck, 
 export const NOTE_KINDS = {
   hint: 'a hint from the mod, not part of what it came with',
   records: "the mod's check of the records just changed",
+  map: 'changes to the documentation map',
   docs: "the mod's check of the files written in the last run",
 } as const
 

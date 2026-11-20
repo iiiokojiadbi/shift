@@ -1452,6 +1452,7 @@ function recentShifts(project) {
 var NOTE_KINDS = {
   hint: "a hint from the mod, not part of what it came with",
   records: "the mod's check of the records just changed",
+  map: "changes to the documentation map",
   docs: "the mod's check of the files written in the last run"
 };
 var OPENED = (name, line, track) => `Opened ${TASKS}/${name}/ with ${NAMES.task} and ${NAMES.track}, and its line in ${TASK_LIST}:
@@ -1794,7 +1795,7 @@ function recordFingerprint(project, path, text) {
     observed = withMap(text, "").trim();
   else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs))
     observed = withToc(text) ?? text;
-  return String(fingerprint(observed));
+  return String(textFingerprint(observed));
 }
 async function changedRecords(project, seen, by, confirmed, deferLinks) {
   if (!project.settings.enabled)
@@ -1868,7 +1869,7 @@ async function recordStamps({ store, root, settings }) {
   ]);
   return Object.assign({}, ...parts);
 }
-function fingerprint(text) {
+function textFingerprint(text) {
   let hash = 2166136261;
   for (let i = 0;i < text.length; i++)
     hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
@@ -2514,6 +2515,176 @@ function sameNote(a, b) {
   return a !== null && a.dir === b.dir && a.context === b.context;
 }
 
+// core/src/map.ts
+function sameDocumentStamps(documents, stamps) {
+  return Object.keys(stamps).length === Object.keys(documents).length && Object.entries(stamps).every(([path, stamp]) => documents[path]?.stamp === stamp);
+}
+function documentParts(project, path, text, stamp, entry, fingerprint) {
+  const lines = text.split(`
+`);
+  const start = lineOutside(lines, (line) => line.trim() === TOC_START);
+  const end = start < 0 ? -1 : lineOutside(lines, (line) => line.trim() === TOC_END, start + 1);
+  if (end >= 0) {
+    const from = start > 0 && !lines[start - 1]?.trim() ? start - 1 : start;
+    lines.splice(from, end - from + 1);
+  }
+  const source = lines.join(`
+`);
+  const marks = headings(source).filter((h) => h.level === 2);
+  const archived = frontmatter(source).get("archived") === "true";
+  const front = lines[0]?.trimEnd() === "---" ? lines.findIndex((line, i) => i > 0 && line.trimEnd() === "---") : -1;
+  const intro = lines.slice(front + 1, archived ? undefined : (marks[0]?.line ?? lines.length + 1) - 1);
+  const sections = archived ? [] : marks.map((mark, i) => ({
+    name: mark.title,
+    hash: fingerprint(lines.slice(mark.line, (marks[i + 1]?.line ?? lines.length + 1) - 1).join(`
+`).trim())
+  }));
+  const pins = pinned(source).map((pin) => ({ name: pin.section ?? "", hash: fingerprint(pin.text), text: pin.text }));
+  const print = {
+    stamp,
+    archived,
+    header: fingerprint(entry.split(`
+`, 1)[0] ?? ""),
+    content: recordFingerprint(project, path, text),
+    intro: fingerprint(intro.join(`
+`).trim()),
+    sections,
+    pins: pins.map(({ name, hash }) => ({ name, hash }))
+  };
+  return { print, pins };
+}
+function compareParts(before, after) {
+  const used = new Set;
+  const matches = after.map((part) => {
+    const index = before.findIndex((p, i) => p.name === part.name && p.hash === part.hash && !used.has(i));
+    if (index >= 0)
+      used.add(index);
+    return index;
+  });
+  let last = -1;
+  const changes = [];
+  for (const [index, part] of after.entries()) {
+    const match = matches[index] ?? -1;
+    const old = match >= 0 ? match : before.findIndex((p, i) => p.name === part.name && !used.has(i));
+    const status = old < 0 ? "new" : before[old]?.hash !== part.hash || old < last ? "changed" : "";
+    if (old >= 0) {
+      used.add(old);
+      last = Math.max(old, last);
+    }
+    if (status)
+      changes.push({ name: part.name, status, index });
+  }
+  for (const [i, part] of before.entries())
+    if (!used.has(i))
+      changes.push({ name: part.name, status: "deleted", index: -1 });
+  return changes;
+}
+function documentDelta(label, entry, old, current) {
+  const detail = [];
+  const first = entry.split(`
+`, 1)[0] ?? label;
+  if (old.header !== current.print.header)
+    detail.push(`description (changed): ${first.slice(label.length + " \u2014 ".length)}`);
+  const sections = current.print.archived ? [] : compareParts(old.sections, current.print.sections);
+  if (sections.length)
+    detail.push(`sections: ${sections.map((s) => `${s.name} (${s.status})`).join(" \xB7 ")}`);
+  if (old.archived === current.print.archived && old.intro !== current.print.intro)
+    detail.push(current.print.sections.length ? "Introduction (changed)" : "Text (changed)");
+  for (const pin of compareParts(old.pins, current.print.pins)) {
+    const value = current.pins[pin.index]?.text;
+    detail.push(`pinned${pin.name ? ` (${pin.name})` : ""} (${pin.status})${value ? `:
+    ${value.replaceAll(`
+`, `
+    `)}` : ""}`);
+  }
+  return detail.length ? `${label} (changed)
+  ${detail.join(`
+  `)}` : "";
+}
+async function observeMap(project, previous, files, stamps, confirmed, legacyStamps, fingerprint = (text) => String(textFingerprint(text))) {
+  const path = project.settings.files.shift;
+  const mapFile = files.find((file) => file.path === path);
+  const text = fingerprint(mapFile?.text ?? "");
+  if (previous?.text === text && previous.documents && sameDocumentStamps(previous.documents, stamps))
+    return { prints: previous, note: "" };
+  const { other, entries } = mapParts(mapFile?.text ?? "");
+  const documents = Object.create(null);
+  const changes = [];
+  const notices = other.split(`
+`).filter((line) => /^(Pinned:|off:)/.test(line)).join(`
+`);
+  const prints = { text, map: Object.create(null), notices: fingerprint(notices), documents };
+  if (previous && prints.notices !== previous.notices && (previous.documents || fingerprint(other) !== previous.notices)) {
+    if (notices)
+      changes.push(notices);
+    else if (previous.documents)
+      changes.push("Documentation map notices cleared.");
+  }
+  for (const [key, entry] of entries) {
+    const hash = fingerprint(entry);
+    prints.map[key] = hash;
+    const was = previous?.map[key];
+    const old = previous?.documents?.[key];
+    const stamp = stamps[key];
+    if (old && old.stamp === stamp && was === hash) {
+      documents[key] = old;
+      continue;
+    }
+    const body = stamp === undefined ? null : await project.store.read(`${project.root}/${key}`);
+    if (stamp !== undefined && body === null) {
+      if (old)
+        documents[key] = old;
+      if (was !== undefined)
+        prints.map[key] = was;
+      else
+        delete prints.map[key];
+      continue;
+    }
+    const current = body === null || stamp === undefined ? undefined : documentParts(project, key, body, stamp, entry, fingerprint);
+    if (current)
+      documents[key] = current.print;
+    if (!previous || confirmed?.(key, body, old?.content))
+      continue;
+    const label = `- \`${key}\``;
+    if (!current && old) {
+      changes.push(`${label} (deleted)`);
+      continue;
+    }
+    if (!was || current && !old && previous.documents) {
+      if (current)
+        changes.push(entry.replace(label, () => `${label} (new)`));
+      else if (!entry.endsWith(" \u2014 no documents") || !Object.keys(previous.documents ?? {}).some((path) => path.startsWith(key)))
+        changes.push(entry);
+      continue;
+    }
+    if (!old || !current) {
+      if (was !== hash)
+        changes.push(entry.replace(label, () => `${label} (changed)`));
+      else if (!previous.documents && legacyStamps?.[key] && legacyStamps[key] !== stamp)
+        changes.push(`${label} (changed)`);
+      continue;
+    }
+    const delta = documentDelta(label, entry, old, current);
+    if (delta)
+      changes.push(delta);
+  }
+  for (const key of Object.keys(previous?.map ?? {})) {
+    if ((!previous?.documents || previous.documents[key]) && !Object.hasOwn(prints.map, key) && !confirmed?.(key, null, previous?.documents?.[key]?.content))
+      changes.push(`- \`${key}\` (deleted)`);
+  }
+  return { prints, note: changes.join(`
+`) };
+}
+async function currentMap(project, previous, confirmed) {
+  const stamps = await docStamps(project);
+  if (previous.documents && sameDocumentStamps(previous.documents, stamps) || await staleLayout(project))
+    return { prints: previous, note: "" };
+  await refreshDocs(project, { tocs: false });
+  const path = project.settings.files.shift;
+  const text = await project.store.read(`${project.root}/${path}`);
+  return observeMap(project, previous, text === null ? [] : [{ path, text }], stamps, confirmed);
+}
+
 // core/src/delivery.ts
 var FRESH_LOOKS = { seen: null, running: 0 };
 async function beforeTool(courier) {
@@ -2524,6 +2695,7 @@ async function beforeTool(courier) {
   });
   if (claim.first !== true)
     return [];
+  await checkMap(courier);
   const outside = await look(courier, "other");
   if (outside === null)
     return [];
@@ -2551,6 +2723,16 @@ async function afterToolRecords(courier, before, done) {
     notes.push({ kind: "records", body: own.body });
   if (done.written !== undefined)
     await follow(courier, done.written);
+  if (done.written || done.shellWrite)
+    await checkMap(courier, done);
+  if ((await courier.looks()).mapNotes?.length) {
+    let claimed = [];
+    await courier.updateLooks((current) => {
+      claimed = current.running ? [] : current.mapNotes ?? [];
+      return claimed.length ? { ...current, mapNotes: [] } : current;
+    });
+    notes.push(...claimed.map((body) => ({ kind: "map", body })));
+  }
   return notes;
 }
 async function afterWrite(courier, file) {
@@ -2569,7 +2751,8 @@ async function atPrompt(courier, { runStarts, owner }) {
       await records.delivered();
       await hint?.take();
       for (const note of notes)
-        courier.loop.tell(TOLD(note.body), "info");
+        if (note.kind !== "map")
+          courier.loop.tell(TOLD(note.body), "info");
       await letter?.delivered();
     }
   };
@@ -2597,6 +2780,10 @@ async function promptRecords(courier, runStarts) {
       await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
   }
   if (running === 0)
+    await checkMap(courier);
+  const mapNotes = running === 0 ? (await courier.looks()).mapNotes ?? [] : [];
+  notes.push(...mapNotes.map((body) => ({ kind: "map", body })));
+  if (running === 0)
     await scripted(courier);
   const docs = running === 0 ? await settle(courier) : null;
   if (docs !== null)
@@ -2604,6 +2791,8 @@ async function promptRecords(courier, runStarts) {
   return {
     notes,
     delivered: async () => {
+      if (mapNotes.length)
+        await takeMapNotes(courier, mapNotes);
       if (pending.length)
         await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
       if (outside?.body != null)
@@ -2616,6 +2805,43 @@ async function promptRecords(courier, runStarts) {
       }
     }
   };
+}
+async function checkMap(courier, done) {
+  const previous = (await courier.looks()).map;
+  if (!previous)
+    return;
+  const project = await courier.project();
+  const file = done?.written && fromRoot(project.root, done.written);
+  let confirmedFile = false;
+  const changed = await currentMap(project, previous, (path, text) => {
+    if (path === file && (done?.content === undefined || done.content === text))
+      confirmedFile = true;
+    return done?.shellWrite === true || path === file && confirmedFile;
+  }).catch(() => null);
+  if (!changed || changed.prints === previous)
+    return;
+  await courier.updateLooks((current) => {
+    if (file && done && !done.shellWrite) {
+      const next = changed.prints.documents?.[file];
+      const map = current.map;
+      if (!confirmedFile || !next || !map?.documents || map.documents[file]?.stamp !== previous.documents?.[file]?.stamp)
+        return current;
+      return {
+        ...current,
+        map: { ...map, documents: { ...map.documents, [file]: next }, map: { ...map.map, [file]: changed.prints.map[file] ?? "" } }
+      };
+    }
+    if (JSON.stringify(previous) !== JSON.stringify(current.map))
+      return current;
+    const body = done?.shellWrite ? "" : changed.note;
+    return { ...current, map: changed.prints, mapNotes: body ? [...current.mapNotes ?? [], body] : current.mapNotes };
+  });
+}
+async function takeMapNotes(courier, delivered) {
+  await courier.updateLooks((current) => {
+    const pending = current.mapNotes ?? [];
+    return delivered.every((body, index) => pending[index] === body) ? { ...current, mapNotes: pending.slice(delivered.length) } : current;
+  });
 }
 async function look(courier, by) {
   try {
@@ -2695,7 +2921,8 @@ async function forget(courier, paths) {
 }
 function deliver(loop, notes) {
   for (const note of notes)
-    loop.tell(TOLD(note.body), "info");
+    if (note.kind !== "map")
+      loop.tell(TOLD(note.body), "info");
   return notes.map(wrap);
 }
 function wrap({ kind, body }) {
@@ -4433,6 +4660,9 @@ function reversePatch(structuredPatch) {
   }) });
 }
 // adapters/codex/edits.ts
+function readOnlyActions(actions) {
+  return Array.isArray(actions) && actions.length > 0 && actions.every((action) => ["read", "list_files", "listFiles", "search"].includes(String(fields(action).type)));
+}
 async function recentEdits(project, input, offset) {
   if (typeof input.transcript_path !== "string")
     return {};
@@ -4447,15 +4677,21 @@ async function recentEdits(project, input, offset) {
     const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset);
     const end = bytes.subarray(0, bytesRead).lastIndexOf(10) + 1;
     const edits = new Map;
+    let readOnlyShell = false;
+    const shell = input.hook_event_name === "PostToolUse" && input.tool_name === "Bash";
     for (const line of bytes.toString("utf8", 0, end).split(`
 `)) {
-      if (!line.includes('"FileChange"'))
+      if (!line.includes('"FileChange"') && !(shell && line.includes('"CommandExecution"')))
         continue;
       try {
         const row = JSON.parse(line);
         const event = fields(row.payload);
         const item = fields(event.item);
-        if (row.type !== "event_msg" || event.thread_id !== input.session_id || event.type !== "item_completed" || item.type !== "FileChange" || item.status !== "completed")
+        if (row.type !== "event_msg" || event.thread_id !== input.session_id || event.type !== "item_completed")
+          continue;
+        if (shell && item.type === "CommandExecution" && item.id === input.tool_use_id)
+          readOnlyShell = readOnlyActions(item.parsed_cmd);
+        if (item.type !== "FileChange" || item.status !== "completed")
           continue;
         for (const [file, change] of Object.entries(fields(item.changes))) {
           const path = resolve2(project.root, file);
@@ -4492,7 +4728,12 @@ async function recentEdits(project, input, offset) {
       }
       return text === null ? previous === undefined : previous === recordFingerprint(project, path, text);
     };
-    return { offset: offset + end, confirmed: edits.size ? confirmed : undefined };
+    return {
+      offset: offset + end,
+      readOnlyShell,
+      confirmed: edits.size ? confirmed : undefined,
+      hasPatch: (path) => edits.has(resolve2(project.root, path))
+    };
   } finally {
     await handle.close();
   }
@@ -4500,169 +4741,25 @@ async function recentEdits(project, input, offset) {
 
 // adapters/codex/map.ts
 import { createHash } from "crypto";
-var fingerprint2 = (text) => createHash("sha256").update(text).digest("hex");
-function sameDocumentStamps(documents, stamps) {
-  return Object.keys(stamps).length === Object.keys(documents).length && Object.entries(stamps).every(([path, stamp]) => documents[path]?.stamp === stamp);
+async function observeMap2(project, previous, files, stamps, confirmed, legacyStamps) {
+  const update = await observeMap(project, previous, files, stamps, confirmed, legacyStamps, (text) => createHash("sha256").update(text).digest("hex"));
+  return { prints: update.prints, note: update.note && wrap({ kind: "map", body: update.note }) };
 }
-function documentParts(project, path, text, stamp, entry) {
-  const lines = text.split(`
-`);
-  const start = lineOutside(lines, (line) => line.trim() === TOC_START);
-  const end = start < 0 ? -1 : lineOutside(lines, (line) => line.trim() === TOC_END, start + 1);
-  if (end >= 0) {
-    const from = start > 0 && !lines[start - 1]?.trim() ? start - 1 : start;
-    lines.splice(from, end - from + 1);
-  }
-  const source = lines.join(`
-`);
-  const marks = headings(source).filter((h) => h.level === 2);
-  const archived = frontmatter(source).get("archived") === "true";
-  const front = lines[0]?.trimEnd() === "---" ? lines.findIndex((line, i) => i > 0 && line.trimEnd() === "---") : -1;
-  const intro = lines.slice(front + 1, archived ? undefined : (marks[0]?.line ?? lines.length + 1) - 1);
-  const sections = archived ? [] : marks.map((mark, i) => ({
-    name: mark.title,
-    hash: fingerprint2(lines.slice(mark.line, (marks[i + 1]?.line ?? lines.length + 1) - 1).join(`
-`).trim())
-  }));
-  const pins = pinned(source).map((pin) => ({ name: pin.section ?? "", hash: fingerprint2(pin.text), text: pin.text }));
-  const print = {
-    stamp,
-    archived,
-    header: fingerprint2(entry.split(`
-`, 1)[0] ?? ""),
-    content: recordFingerprint(project, path, text),
-    intro: fingerprint2(intro.join(`
-`).trim()),
-    sections,
-    pins: pins.map(({ name, hash }) => ({ name, hash }))
-  };
-  return { print, pins };
-}
-function compareParts(before, after) {
-  const used = new Set;
-  const matches = after.map((part) => {
-    const index = before.findIndex((p, i) => p.name === part.name && p.hash === part.hash && !used.has(i));
-    if (index >= 0)
-      used.add(index);
-    return index;
-  });
-  let last = -1;
-  const changes = [];
-  for (const [index, part] of after.entries()) {
-    const match = matches[index] ?? -1;
-    const old = match >= 0 ? match : before.findIndex((p, i) => p.name === part.name && !used.has(i));
-    const status = old < 0 ? "new" : before[old]?.hash !== part.hash || old < last ? "changed" : "";
-    if (old >= 0) {
-      used.add(old);
-      last = Math.max(old, last);
-    }
-    if (status)
-      changes.push({ name: part.name, status, index });
-  }
-  for (const [i, part] of before.entries())
-    if (!used.has(i))
-      changes.push({ name: part.name, status: "deleted", index: -1 });
-  return changes;
-}
-function documentDelta(label, entry, old, current) {
-  const detail = [];
-  const first = entry.split(`
-`, 1)[0] ?? label;
-  if (old.header !== current.print.header)
-    detail.push(`description (changed): ${first.slice(label.length + " \u2014 ".length)}`);
-  const sections = current.print.archived ? [] : compareParts(old.sections, current.print.sections);
-  if (sections.length)
-    detail.push(`sections: ${sections.map((s) => `${s.name} (${s.status})`).join(" \xB7 ")}`);
-  if (old.archived === current.print.archived && old.intro !== current.print.intro)
-    detail.push(current.print.sections.length ? "Introduction (changed)" : "Text (changed)");
-  for (const pin of compareParts(old.pins, current.print.pins)) {
-    const value = current.pins[pin.index]?.text;
-    detail.push(`pinned${pin.name ? ` (${pin.name})` : ""} (${pin.status})${value ? `:
-    ${value.replaceAll(`
-`, `
-    `)}` : ""}`);
-  }
-  return detail.length ? `${label} (changed)
-  ${detail.join(`
-  `)}` : "";
-}
-async function observeMap(project, previous, files, stamps, confirmed, legacyStamps) {
-  const path = project.settings.files.shift;
-  const mapFile = files.find((file) => file.path === path);
-  const text = fingerprint2(mapFile?.text ?? "");
-  if (previous?.text === text && previous.documents && sameDocumentStamps(previous.documents, stamps))
+async function mapAtTool(project, previous, edits, shellWrite) {
+  const stamps = await docStamps(project);
+  if (!previous.documents || sameDocumentStamps(previous.documents, stamps) || await staleLayout(project))
     return { prints: previous, note: "" };
-  const { other, entries } = mapParts(mapFile?.text ?? "");
-  const documents = Object.create(null);
-  const changes = [];
-  const notices = other.split(`
-`).filter((line) => /^(Pinned:|off:)/.test(line)).join(`
-`);
-  const prints = { text, map: Object.create(null), notices: fingerprint2(notices), documents };
-  if (previous && prints.notices !== previous.notices && (previous.documents || fingerprint2(other) !== previous.notices)) {
-    if (notices)
-      changes.push(notices);
-    else if (previous.documents)
-      changes.push("Documentation map notices cleared.");
-  }
-  for (const [key, entry] of entries) {
-    const hash = fingerprint2(entry);
-    prints.map[key] = hash;
-    const was = previous?.map[key];
-    const old = previous?.documents?.[key];
-    const stamp = stamps[key];
-    if (old && old.stamp === stamp && was === hash) {
-      documents[key] = old;
-      continue;
-    }
-    const body = stamp === undefined ? null : await project.store.read(`${project.root}/${key}`);
-    if (stamp !== undefined && body === null) {
-      if (old)
-        documents[key] = old;
-      if (was !== undefined)
-        prints.map[key] = was;
-      else
-        delete prints.map[key];
-      continue;
-    }
-    const current = body === null || stamp === undefined ? undefined : documentParts(project, key, body, stamp, entry);
-    if (current)
-      documents[key] = current.print;
-    if (!previous || confirmed?.(key, body, old?.content))
-      continue;
-    const label = `- \`${key}\``;
-    if (!current && old) {
-      changes.push(`${label} (deleted)`);
-      continue;
-    }
-    if (!was || current && !old && previous.documents) {
-      if (current)
-        changes.push(entry.replace(label, () => `${label} (new)`));
-      else if (!entry.endsWith(" \u2014 no documents") || !Object.keys(previous.documents ?? {}).some((path) => path.startsWith(key)))
-        changes.push(entry);
-      continue;
-    }
-    if (!old || !current) {
-      if (was !== hash)
-        changes.push(entry.replace(label, () => `${label} (changed)`));
-      else if (!previous.documents && legacyStamps?.[key] && legacyStamps[key] !== stamp)
-        changes.push(`${label} (changed)`);
-      continue;
-    }
-    const delta = documentDelta(label, entry, old, current);
-    if (delta)
-      changes.push(delta);
-  }
-  for (const key of Object.keys(previous?.map ?? {})) {
-    if ((!previous?.documents || previous.documents[key]) && !Object.hasOwn(prints.map, key) && !confirmed?.(key, null, previous?.documents?.[key]?.content))
-      changes.push(`- \`${key}\` (deleted)`);
-  }
-  return { prints, note: changes.length ? wrap({ kind: "docs", body: changes.join(`
-`) }) : "" };
+  await refreshDocs(project, { tocs: false });
+  const path = project.settings.files.shift;
+  const text = await project.store.read(`${project.root}/${path}`);
+  const evidence = await edits();
+  const known = (file, body, prior) => shellWrite && !evidence.hasPatch?.(file) || !!evidence.confirmed?.(file, body, prior);
+  const update = await observeMap2(project, previous, text === null ? [] : [{ path, text }], stamps, known);
+  return shellWrite && !evidence.confirmed ? { prints: update.prints, note: "" } : update;
 }
 
 // adapters/codex/hooks.ts
-var fingerprint3 = (text) => createHash2("sha256").update(text).digest("hex");
+var fingerprint = (text) => createHash2("sha256").update(text).digest("hex");
 async function retainedContext(path, receipt, marker) {
   const stream = createReadStream(path, { start: receipt.offset, encoding: "utf8" });
   const escapedMarker = JSON.stringify(marker).slice(1, -1);
@@ -4682,7 +4779,7 @@ async function retainedContext(path, receipt, marker) {
         retained = false;
       if (row.type === "response_item" && item.type === "message" && item.role === "developer" && Array.isArray(item.content) && item.content.some((part) => {
         const text = fields(part).text;
-        return typeof text === "string" && text.startsWith(marker) && fingerprint3(text.slice(0, receipt.length)) === receipt.hash;
+        return typeof text === "string" && text.startsWith(marker) && fingerprint(text.slice(0, receipt.length)) === receipt.hash;
       }))
         retained = true;
     }
@@ -4698,10 +4795,11 @@ async function contextFor(input, project, state) {
   const event = input.hook_event_name;
   const edits = await recentEdits(project, input, state.editOffset);
   const recordOffset = state.editOffset;
+  let nextMapOffset = edits.offset;
   async function mapEdits() {
     const found = state.mapOffset === recordOffset ? edits : await recentEdits(project, input, state.mapOffset);
-    state.mapOffset = found.offset;
-    return found.confirmed;
+    nextMapOffset = found.offset;
+    return found;
   }
   const courier = {
     confirmedEdit: edits.confirmed,
@@ -4713,6 +4811,7 @@ async function contextFor(input, project, state) {
   };
   const sameTurn = typeof input.turn_id === "string" && input.turn_id === state.turn;
   if (!sameTurn && typeof input.turn_id === "string") {
+    state.shells = [];
     state.turn = input.turn_id;
     state.looks.running = 0;
   }
@@ -4722,19 +4821,20 @@ async function contextFor(input, project, state) {
     state.editOffset = edits.offset;
   if (event === "PreToolUse" || event === "PostToolUse") {
     let mapNote = "";
-    if (event === "PreToolUse" && state.looks.running === 0 && state.map?.documents) {
-      const stamps = await docStamps(project);
-      const changed = !sameDocumentStamps(state.map.documents, stamps);
-      if (changed && !await staleLayout(project)) {
-        await refreshDocs(project, { tocs: false });
-        const path = project.settings.files.shift;
-        const text = await project.store.read(`${project.root}/${path}`);
-        const files = text === null ? [] : [{ path, text }];
-        const update = await observeMap(project, state.map, files, stamps, await mapEdits());
-        state.map = update.prints;
-        mapNote = update.note;
-      } else if (!changed)
-        state.mapOffset = edits.offset;
+    const before = event === "PreToolUse";
+    const shell = input.tool_name === "Bash" && typeof input.tool_use_id === "string" ? input.tool_use_id : undefined;
+    const matched = shell !== undefined && state.shells?.includes(shell);
+    if (state.map?.documents && (before && state.looks.running === 0 && !state.shells?.length || !before && matched && (!edits.readOnlyShell || state.shells?.length === 1))) {
+      const update = await mapAtTool(project, state.map, mapEdits, !before && !edits.readOnlyShell);
+      state.map = update.prints;
+      mapNote = update.note;
+      state.mapOffset = nextMapOffset;
+    }
+    if (shell !== undefined) {
+      if (before && !matched)
+        state.shells = [...state.shells ?? [], shell];
+      if (!before && matched)
+        state.shells = state.shells?.filter((id) => id !== shell);
     }
     const shiftTool = TOOLS.find((tool) => input.tool_name === `mcp__shift__${tool.name}`);
     const outside = !!edits.confirmed || state.looks.running === 0 || shiftTool?.writes === false && state.looks.running === 1;
@@ -4747,13 +4847,14 @@ async function contextFor(input, project, state) {
       state.reportedProblem = problem;
     return [mapNote, ...notes.map(wrap)];
   }
+  state.shells = [];
   const start = await startSession(project);
   const transcript = typeof input.transcript_path === "string" ? input.transcript_path : undefined;
   const resume = event === "SessionStart" && input.source === "resume";
   const kept = resume && transcript && state.context && await retainedContext(transcript, state.context, start.doctrine.slice(0, start.doctrine.indexOf(`
 `)));
   const fresh = !state.map || event === "SessionStart" && !kept;
-  const doctrineHash = fingerprint3(start.doctrine);
+  const doctrineHash = fingerprint(start.doctrine);
   const warnings = start.rows.map((row) => row.text);
   const changedWarnings = warnings.filter((row) => fresh || !state.warnings?.includes(row));
   state.warnings = warnings;
@@ -4775,8 +4876,9 @@ async function contextFor(input, project, state) {
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
   state.reportedProblem = problem;
   const files = await sessionFiles(project, { refresh: false });
-  const confirmed = await mapEdits();
-  const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps);
+  const { confirmed } = await mapEdits();
+  state.mapOffset = nextMapOffset;
+  const changes = await observeMap2(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps);
   await records.delivered();
   state.map = changes.prints;
   if (fresh) {
@@ -4786,7 +4888,7 @@ async function contextFor(input, project, state) {
     const offset = transcript ? await stat2(transcript).then((s) => s.size, () => {
       return;
     }) : undefined;
-    state.context = offset === undefined ? undefined : { offset, length: block.length, hash: fingerprint3(block) };
+    state.context = offset === undefined ? undefined : { offset, length: block.length, hash: fingerprint(block) };
     notes.unshift(block);
   } else {
     if (state.doctrineHash !== undefined && state.doctrineHash !== doctrineHash)
@@ -4929,6 +5031,7 @@ class Session {
   prepared = false;
   enabled = false;
   observation = Promise.resolve();
+  shells = new Set;
   startedTools = new Map;
   activeTurn;
   turnEnd = deferred();
@@ -5003,7 +5106,7 @@ class Session {
     const files = initialFiles ?? await sessionFiles(project, { refresh: false });
     const block = renderSessionFiles(files);
     const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset);
-    const changes = await observeMap(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed);
+    const changes = await observeMap2(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed);
     const parts = [first ? sessionDoctrine(project.settings).doctrine : "", first ? block : changes.note, ...notes.notes].filter(Boolean);
     return {
       params: parts.length ? { ...params, additionalContext: { ...fields(params.additionalContext), shift: { kind: "untrusted", value: parts.join(`
@@ -5107,6 +5210,17 @@ class Session {
   observe(work) {
     this.observation = this.observation.then(work).catch((error) => this.tell(String(error)));
   }
+  async checkMap(shellWrite) {
+    if (!this.prints?.documents)
+      return;
+    const project = await projectAt(this.root);
+    const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset);
+    const update = await mapAtTool(project, this.prints, async () => edits, shellWrite);
+    if (update.note)
+      await this.inject(update.note);
+    this.prints = update.prints;
+    this.mapOffset = edits.offset;
+  }
   toolEvent(method, item) {
     const kind = String(item.type);
     const id = String(item.id);
@@ -5114,6 +5228,10 @@ class Session {
       return;
     if (method === "item/started") {
       this.observe(async () => {
+        if (!this.startedTools.size)
+          await this.checkMap(false);
+        if (kind === "commandExecution")
+          this.shells.add(id);
         this.startedTools.set(id, await beforeTool(this.courier));
       });
     } else if (method === "item/completed") {
@@ -5122,6 +5240,8 @@ class Session {
         if (!notes)
           return;
         this.startedTools.delete(id);
+        if (this.shells.delete(id) && (!this.shells.size || !readOnlyActions(item.commandActions)))
+          await this.checkMap(!readOnlyActions(item.commandActions));
         if (kind === "fileChange" && item.status === "completed" && Array.isArray(item.changes)) {
           for (const change of item.changes) {
             const path = fields(change).path;
@@ -5186,7 +5306,7 @@ class Session {
               return;
             const files = await sessionFiles(project);
             const block = renderSessionFiles(files);
-            this.prints = (await observeMap(project, undefined, files, await docStamps(project))).prints;
+            this.prints = (await observeMap2(project, undefined, files, await docStamps(project))).prints;
             this.mapOffset = undefined;
             await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join(`
 
