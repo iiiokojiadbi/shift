@@ -2,6 +2,12 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.38.1
+
+### Fixed
+
+- Type `$shift` in the Codex terminal to choose from four actions. Select `unshift` to restore the latest letter with your request, or `shift` to start a shift. The `sizes` and `tasks` entries display their reports without a model call. The typed double-slash aliases still work.
+
 ## 0.38.0
 
 ### Added

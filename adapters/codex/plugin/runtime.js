@@ -4665,22 +4665,28 @@ async function sessionState(file) {
     db.close();
   }
 }
+var pickerCommands = new Map([
+  ["$shift:shift", SHIFT_COMMAND],
+  ["$shift:unshift", RESUME_COMMAND],
+  ["$shift:sizes", SIZES_TOOL],
+  ["$shift:tasks", TASKS_COMMAND]
+]);
 async function runHook(input, dir, file) {
   const project = await projectAt(String(input.cwd));
   const prompt = input.hook_event_name === "UserPromptSubmit" && typeof input.prompt === "string" ? input.prompt.trim() : "";
-  const match = /^\/\/?([^/\s]+)(?=\s|$)/.exec(prompt);
-  const command = match?.[1];
+  const token = prompt.split(/\s/, 1)[0] ?? "";
+  const command = pickerCommands.get(token) ?? /^\/\/?([^/\s]+)$/.exec(token)?.[1];
   if (!project.settings.enabled && [SHIFT_COMMAND, RESUME_COMMAND, SIZES_TOOL, TASKS_COMMAND].some((name) => name === command))
     return { continue: false, stopReason: "Shift is disabled in this project." };
   if (command === SIZES_TOOL || command === TASKS_COMMAND) {
     let report;
     try {
-      if (match?.[0] !== prompt)
-        report = `Usage: //${command}`;
+      if (token !== prompt)
+        report = `Usage: ${token}`;
       else
         report = command === SIZES_TOOL ? await sizeReport(project) : await tasksView(project);
     } catch (error) {
-      report = `Could not display //${command}: ${String(error)}`;
+      report = `Could not display ${token}: ${String(error)}`;
     }
     return { continue: false, stopReason: report };
   }
@@ -4721,8 +4727,9 @@ async function runHook(input, dir, file) {
 // adapters/codex/plugin/.codex-plugin/plugin.json
 var plugin_default = {
   name: "shift",
-  version: "0.38.0",
+  version: "0.38.1",
   description: "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
+  skills: "./skills/",
   hooks: "./hooks/hooks.json",
   mcpServers: "./mcp-servers.json"
 };

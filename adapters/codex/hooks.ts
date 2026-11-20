@@ -198,24 +198,30 @@ export async function sessionState(file: string) {
   }
 }
 
+const pickerCommands = new Map([
+  ['$shift:shift', SHIFT_COMMAND],
+  ['$shift:unshift', RESUME_COMMAND],
+  ['$shift:sizes', SIZES_TOOL],
+  ['$shift:tasks', TASKS_COMMAND],
+])
+
 // Hook processes for one thread can overlap. A SQLite writer transaction covers the observation,
 // the decision to deliver and its checkpoint. The OS releases the lock if the hook is killed.
 export async function runHook(input: Fields, dir: string, file: string) {
   const project = await projectAt(String(input.cwd))
-  // The terminal reserves single-slash names. A double slash arrives as ordinary user input.
   const prompt = input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' ? input.prompt.trim() : ''
-  const match = /^\/\/?([^/\s]+)(?=\s|$)/.exec(prompt)
-  const command = match?.[1]
+  const token = prompt.split(/\s/, 1)[0] ?? ''
+  const command = pickerCommands.get(token) ?? /^\/\/?([^/\s]+)$/.exec(token)?.[1]
   if (!project.settings.enabled && [SHIFT_COMMAND, RESUME_COMMAND, SIZES_TOOL, TASKS_COMMAND].some(name => name === command))
     return { continue: false, stopReason: 'Shift is disabled in this project.' }
   if (command === SIZES_TOOL || command === TASKS_COMMAND) {
     // Stop before observing a turn, so a display-only command cannot consume a pending note or hint.
     let report: string
     try {
-      if (match?.[0] !== prompt) report = `Usage: //${command}`
+      if (token !== prompt) report = `Usage: ${token}`
       else report = command === SIZES_TOOL ? await sizeReport(project) : await tasksView(project)
     } catch (error) {
-      report = `Could not display //${command}: ${String(error)}`
+      report = `Could not display ${token}: ${String(error)}`
     }
     return { continue: false, stopReason: report }
   }

@@ -103,11 +103,11 @@ trust_level = "trusted"
         if (!ws) throw new Error('The stock server did not start.')
         const rpc = new Requests(packet => ws?.send(JSON.stringify(packet)))
         const notices: string[] = []
-        const sizeTurnDone = deferred<void>()
+        const reportDone = deferred<void>()
         ws.onmessage = e => {
           const packet: Packet = JSON.parse(String(e.data))
           if (rpc.take(packet)) return
-          if (packet.method === 'turn/completed') sizeTurnDone.resolve()
+          if (packet.method === 'turn/completed') reportDone.resolve()
           if (packet.id !== undefined && packet.method === 'mcpServer/elicitation/request' && packet.params?.serverName === 'shift') {
             ws?.send(JSON.stringify({ id: packet.id, result: { action: 'accept', content: {}, _meta: null } }))
             return
@@ -126,11 +126,22 @@ trust_level = "trusted"
         await rpc.call('config/batchWrite', { edits: [{ keyPath: 'hooks.state', value, mergeStrategy: 'upsert' }], reloadUserConfig: true })
         const started = await rpc.call('thread/start', { cwd: root, approvalPolicy: 'on-request' })
         const threadId = fields(started.thread).id
-        await rpc.call('turn/start', { threadId, input: [textInput('//shift_sizes')] })
-        await sizeTurnDone.promise
+        const catalog = await rpc.call('skills/list', { cwds: [root] })
+        const skills = (fields((catalog.data as unknown[])[0]).skills as { name: string; path: string; enabled: boolean }[]).filter(
+          skill => skill.enabled && skill.name.startsWith('shift:'),
+        )
+        expect(skills.map(skill => skill.name).sort()).toEqual(['shift:shift', 'shift:sizes', 'shift:tasks', 'shift:unshift'])
+        const pick = (action: string) => {
+          const skill = skills.find(skill => skill.name === `shift:${action}`)
+          if (!skill) throw new Error(`Missing skill: ${action}`)
+          return [textInput(`$${skill.name}`), { type: 'skill', name: skill.name, path: skill.path }]
+        }
+        const sizes = mode === 'continue'
+        await rpc.call('turn/start', { threadId, input: pick(sizes ? 'sizes' : 'tasks') })
+        await reportDone.promise
         expect(requests).toHaveLength(0)
-        expect(notices.join('\n')).toContain('Session + continue')
-        await rpc.call('turn/start', { threadId, input: [textInput('//shift')] })
+        expect(notices.join('\n')).toContain(sizes ? 'Session + continue' : 'no open tasks')
+        await rpc.call('turn/start', { threadId, input: pick('shift') })
         if (mode === 'wait') {
           const deadline = Date.now() + 6000
           let waiting = false
@@ -157,6 +168,7 @@ trust_level = "trusted"
         ])
         expect(requests[0]).toContain('The owner asks you to shift now')
         expect(requests[0]).not.toContain('Estimated text tokens (4 characters per token).')
+        expect(requests[0]).not.toContain('no open tasks in .shift/TASKS.md')
         expect(requests[0]?.split('Acceptance marker').length).toBe(2)
         expect(requests[0]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[2]).toContain('HOLD-THIS')
@@ -240,7 +252,7 @@ trust_level = "trusted"
             ...args,
             '--dangerously-bypass-hook-trust',
             '--skip-git-repo-check',
-            args.length ? 'Read the fixture.' : '//unshift Review this project.',
+            args.length ? 'Read the fixture.' : '$shift:unshift Review this project.',
           ],
           { cwd: root, env, stdout: 'ignore', stderr: 'pipe' },
         )

@@ -27,7 +27,7 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 Requires Bun on PATH and Codex CLI (tested with 0.171.0). Install the tagged plugin from the repository's marketplace:
 
 ```sh
-codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.38.0
+codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.38.1
 codex plugin add shift@shift
 ```
 
@@ -58,16 +58,16 @@ The same npm package as pi's; opencode 2.x.
 
 ## Commands
 
-**Codex terminal.** Type these in the message box after trusting the plugin hooks. CLI 0.171.0 reserves the single-slash menu for built-in commands. Two slashes send the input to the plugin.
+**Codex terminal.** In the message box, type `$shift` and choose an action with the arrow keys and Tab. Add your request if needed, then press Enter. The plugin hooks must be trusted in `/hooks`.
 
-| Input | Result |
+| Selected action | Result |
 |---|---|
-| `//unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board and active tasks in the same turn. Omit the request to continue from the letter. |
-| `//shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `//shift continue`. |
-| `//shift_sizes` | Prints estimated token counts by entity and for up to three saved letters. |
-| `//shift-tasks` | Prints the current tasks. |
+| `$shift:unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board and active tasks in the same turn. Omit the request to continue from the letter. |
+| `$shift:shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `continue`. |
+| `$shift:sizes` | Prints estimated token counts by entity and for up to three saved letters. |
+| `$shift:tasks` | Prints the current tasks. |
 
-Both reports appear under **Hook stopped**, before any model call. The regular single-slash spelling also works if you type a space before the slash.
+Both reports appear under **Hook stopped**, before any model call. The typed aliases `//unshift`, `//shift`, `//shift_sizes` and `//shift-tasks` also work.
 
 **Claude Code, pi and opencode**
 
