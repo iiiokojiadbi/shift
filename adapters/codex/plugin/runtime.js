@@ -397,6 +397,16 @@ One line per archived task: outcome, title, what it was and how it ended.
 ` : ""}${line}
 `;
 }
+// core/src/beads.ts
+function beadsExecutable(platform, arch) {
+  const system = platform.toLowerCase();
+  const os = system === "windows_nt" || system === "win32" ? "windows" : system;
+  const machine = arch.toLowerCase();
+  const cpu = ["amd64", "x64", "x86_64"].includes(machine) ? "amd64" : ["aarch64", "arm64"].includes(machine) ? "arm64" : null;
+  if (!cpu || os !== "linux" && os !== "darwin" && !(os === "windows" && cpu === "amd64"))
+    return null;
+  return `shift-bd-${os}_${cpu}${os === "windows" ? ".exe" : ""}`;
+}
 // core/src/paths.ts
 function dirname(path) {
   const at = path.lastIndexOf("/");
@@ -3503,9 +3513,9 @@ var TOOL_TEXTS = {
   },
   [SETUP_TOOL]: {
     label: "Shift setup",
-    description: SETUP_DESCRIPTION,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled task executable.`,
     brief: "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: SETUP_SCHEMA
+    schema: { type: "object", properties: { section: { type: "string", enum: ["runtime"] } } }
   },
   [OUTLINE_TOOL]: {
     label: "Document outline",
@@ -3974,7 +3984,23 @@ var ROWS = [
   },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
-  { name: SETUP_TOOL, run: async (_raw, call) => ({ result: await setupReport(await call.project(), await call.loaded()) }) },
+  {
+    name: SETUP_TOOL,
+    run: async (raw, call) => {
+      const project = await call.project();
+      if (raw.section === undefined)
+        return { result: await setupReport(project, await call.loaded()) };
+      if (raw.section !== "runtime")
+        return { deny: "Expected section runtime." };
+      if (!project.store.beads)
+        return { deny: "This adapter has no private task runtime." };
+      try {
+        return { result: (await project.store.beads(project.root, ["version"])).trim() };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
   {
     name: OUTLINE_TOOL,
     docs: true,
@@ -4110,8 +4136,19 @@ function tomlKey(key) {
 import { execFile } from "child_process";
 import { access, chmod, mkdir, readdir, readFile, readlink, realpath, rename, stat, unlink, writeFile } from "fs/promises";
 import { basename as basename2, dirname as dirname2, resolve } from "path";
+import { promisify } from "util";
 var writes = 0;
 var nodeStore = {
+  beads: async (root, args) => {
+    const executable = beadsExecutable(process.platform, process.arch);
+    if (!executable)
+      throw new Error(`No embedded Beads build for ${process.platform}/${process.arch}.`);
+    let path;
+    if (true) {
+      path = resolve(import.meta.dirname, "vendor", executable);
+    }
+    return (await promisify(execFile)(path, [root, ...args], { timeout: 30000, maxBuffer: 4 * 1024 * 1024 })).stdout;
+  },
   read: (path) => readFile(path, "utf8").catch(() => null),
   list: async (path, kind) => {
     const entries = await kinds(path);

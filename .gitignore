@@ -2,3 +2,4 @@ node_modules/
 .claude/
 .shift/
 .claude-plugin/types/
+beads-packages/

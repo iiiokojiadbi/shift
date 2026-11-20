@@ -7,6 +7,7 @@ const output = resolve(root, 'adapters/codex/plugin/runtime.js')
 const build = await Bun.build({
   entrypoints: [resolve(root, 'adapters/codex/native.ts')],
   target: 'bun',
+  define: { SHIFT_MARKETPLACE: 'true' },
   plugins: [
     {
       name: 'shared node store',

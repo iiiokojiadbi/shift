@@ -5,8 +5,8 @@ import { createReadStream } from 'node:fs'
 import { copyFile, lstat, mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 
-const version = '1.3.4'
-const checksums = new Map([
+export const version = '1.3.4'
+export const checksums = new Map([
   ['android_arm64', '8787357172f90a240ee42f3704a0776ceccfa773f1b16b8e47c0c1933e9949cf'],
   ['darwin_amd64', '05e713a2da8eeaba40b924184735d9a34d2da8669e4d3ac50cc716605ba10640'],
   ['darwin_arm64', 'b08a9c15bff80c42235f32946f94a6566a7d90944fe8afe45f3fd2f350596cdb'],
@@ -17,7 +17,7 @@ const checksums = new Map([
   ['windows_arm64', '51de3ebe5b60e7dc6d4fe2817c7085cd593a33ad78d8dae9ce0f054457d80547'],
 ])
 
-async function sha256(path: string) {
+export async function sha256(path: string) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest('hex')
@@ -39,7 +39,7 @@ async function matchesPayload(payload: string, destination: string) {
   return true
 }
 
-async function stage(archive: string, output: string) {
+export async function stage(archive: string, output: string) {
   const file = basename(archive)
   const target = [...checksums.keys()].find(key => file === `beads_${version}_${key}.${key.startsWith('windows_') ? 'zip' : 'tar.gz'}`)
   if (!target) throw new Error(`Expected an official Beads ${version} platform archive, got ${file}.`)
@@ -74,6 +74,8 @@ async function stage(archive: string, output: string) {
   }
 }
 
-const [archive, output, ...extra] = process.argv.slice(2)
-if (!archive || !output || extra.length > 0) throw new Error('Usage: bun run beads:stage <release-archive> <output-root>')
-console.log(await stage(archive, output))
+if (import.meta.main) {
+  const [archive, output, ...extra] = process.argv.slice(2)
+  if (!archive || !output || extra.length > 0) throw new Error('Usage: bun run beads:stage <release-archive> <output-root>')
+  console.log(await stage(archive, output))
+}

@@ -51,5 +51,12 @@
     "typebox": {
       "optional": true
     }
+  },
+  "optionalDependencies": {
+    "@iiiokojiadbi/shift-beads-linux-x64": "0.40.0",
+    "@iiiokojiadbi/shift-beads-linux-arm64": "0.40.0",
+    "@iiiokojiadbi/shift-beads-darwin-x64": "0.40.0",
+    "@iiiokojiadbi/shift-beads-darwin-arm64": "0.40.0",
+    "@iiiokojiadbi/shift-beads-win32-x64": "0.40.0"
   }
 }

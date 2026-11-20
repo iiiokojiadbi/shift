@@ -237,10 +237,10 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   },
   [SETUP_TOOL]: {
     label: 'Shift setup',
-    description: SETUP_DESCRIPTION,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled task executable.`,
     brief:
       "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: SETUP_SCHEMA,
+    schema: { type: 'object', properties: { section: { type: 'string', enum: ['runtime'] } } },
   },
   [OUTLINE_TOOL]: {
     label: 'Document outline',

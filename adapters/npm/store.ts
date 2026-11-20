@@ -1,14 +1,36 @@
 import { execFile } from 'node:child_process'
 import type { Stats } from 'node:fs'
 import { access, chmod, mkdir, readdir, readFile, readlink, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { basename, dirname, resolve } from 'node:path'
-import { loadProject, type Project, type Store } from './core/index'
+import { promisify } from 'node:util'
+import { beadsExecutable, loadProject, type Project, type Store } from './core/index'
+
+declare const SHIFT_MARKETPLACE: boolean
 
 let writes = 0
 
 // The core's store over node's files and processes: pi runs an extension in its own node process, opencode a plugin
 // in its server under Bun.
 export const nodeStore: Store = {
+  beads: async (root, args) => {
+    const executable = beadsExecutable(process.platform, process.arch)
+    if (!executable) throw new Error(`No embedded Beads build for ${process.platform}/${process.arch}.`)
+    let path: string
+    if (typeof SHIFT_MARKETPLACE !== 'undefined' && SHIFT_MARKETPLACE) {
+      path = resolve(import.meta.dirname, 'vendor', executable)
+    } else {
+      const name = `@iiiokojiadbi/shift-beads-${process.platform}-${process.arch}`
+      const require = createRequire(import.meta.url)
+      const own = require('./package.json')
+      const native = require.resolve(`${name}/package.json`)
+      const installed = JSON.parse(await readFile(native, 'utf8'))
+      if (installed.name !== name || installed.version !== own.optionalDependencies?.[name])
+        throw new Error(`Bundled task package ${name} does not match the installed Shift version.`)
+      path = resolve(dirname(native), executable)
+    }
+    return (await promisify(execFile)(path, [root, ...args], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })).stdout
+  },
   read: path => readFile(path, 'utf8').catch(() => null),
   list: async (path, kind) => {
     const entries = await kinds(path)

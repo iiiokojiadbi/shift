@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "beads:bundle": "bun scripts/bundle-beads.ts",
     "beads:check": "bun scripts/check-beads.ts",
     "beads:stage": "bun scripts/stage-beads.ts",
     "sync-core": "bun scripts/sync-core.ts",

@@ -127,7 +127,20 @@ const ROWS: readonly Row[] = [
   },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
-  { name: SETUP_TOOL, run: async (_raw, call) => ({ result: await setupReport(await call.project(), await call.loaded()) }) },
+  {
+    name: SETUP_TOOL,
+    run: async (raw, call) => {
+      const project = await call.project()
+      if (raw.section === undefined) return { result: await setupReport(project, await call.loaded()) }
+      if (raw.section !== 'runtime') return { deny: 'Expected section runtime.' }
+      if (!project.store.beads) return { deny: 'This adapter has no private task runtime.' }
+      try {
+        return { result: (await project.store.beads(project.root, ['version'])).trim() }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
   {
     name: OUTLINE_TOOL,
     docs: true,

@@ -4,6 +4,8 @@ import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } f
 
 // The files the mod works on, as a harness gives them; paths are absolute.
 export type Store = {
+  // The installed adapter owns the executable and the child process environment.
+  beads?(root: string, args: readonly string[]): Promise<string>
   // The file's text; null when it is missing or unreadable.
   read(path: string): Promise<string | null>
   // Names of the folders or files right under `path`, sorted; none when it is missing.
