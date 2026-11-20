@@ -63,12 +63,19 @@ const BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: 'the current purpose of the project in a sentence or two',
-  Decisions: 'yours, for the whole project, with the reason; a decision may name what it turned down: `rejected: <option> — <why>`',
-  'Dead ends': 'approaches tried and ruled out for the whole project, and why',
+  Goal: 'who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Milestones and next steps belong to tasks',
+  Decisions:
+    'one line per choice other tasks still depend on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> — <why>`',
+  'Dead ends':
+    'one line per failed approach another task might try again. State what was tried, what happened and under which condition. Revisit when that condition changes',
 })}
 
-A decision or dead end goes on the board only if it outlives any one task; otherwise it belongs to the task. A rejected option is not a dead end: it was weighed, not tried.`
+Example from a stocktaking project:
+- Goal: Let warehouse staff record counts offline and sync them when connectivity returns.
+- Decisions: Assign each count an ID on the device so retrying a sync cannot count it twice.
+- Dead ends: Deduplicating by timestamp merged distinct counts on devices with identical clocks. Keep this warning while old devices send timestamps alone.
+
+When taking over an existing board or closing a task, ask of each affected line: what would another task do differently after reading this? Keep that instruction short. Put single-task findings with the task. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`
 
 const LIST_RULES = `\`${TASK_LIST}\` lists every open task, one line each, and under it the links to other tasks:
 
@@ -152,7 +159,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the current Goal and only Decisions and Dead ends another task still needs after a shift. Remove entries covered by a mapped document once its reasoning is preserved there. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -184,7 +191,7 @@ A soft hint leaves the timing to you. At the final hint, start the steps below i
 
 ## How to shift
 
-1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, decisions recorded where they belong, finished tasks archived.
+1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, finished tasks archived. Check that the goal still fits and the board lines touched in this stretch still guide other work.
 2. The letter — by its sections below.
 3. Call \`${TOOL}\`:
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;
@@ -310,7 +317,7 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 - \`outcome\` — \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
 - \`about\` — one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
 
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Keep a decision on the board only while other work needs it after a shift.
+The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Review board entries affected by the closed task. Keep only the choices and failed approaches other tasks still need.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
 

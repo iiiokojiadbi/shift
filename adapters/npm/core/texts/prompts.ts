@@ -45,7 +45,7 @@ export const OPENED = (name: string, line: string, track: string) =>
   `Opened ${TASKS}/${name}/ with ${NAMES.task} and ${NAMES.track}, and its line in ${TASK_LIST}:\n${line}\n${track === '' ? '' : `Its items, each changed with ${TRACK_TOOL} by its id:\n${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
 
 export const ARCHIVED = (name: string) =>
-  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Keep a decision on the board only while other work needs it after a shift.`
+  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Review board entries affected by this task. Keep only the choices and failed approaches other tasks still need.`
 
 // What the engine's summarizer is told; the model never sees this framing.
 export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir' | 'focus'>): string {
