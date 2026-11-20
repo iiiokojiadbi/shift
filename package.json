@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "beads:check": "bun scripts/check-beads.ts",
+    "beads:stage": "bun scripts/stage-beads.ts",
     "sync-core": "bun scripts/sync-core.ts",
     "check": "bun scripts/sync-core.ts --check && bun run build:codex --check && biome check .",
     "fix": "biome check --write .",

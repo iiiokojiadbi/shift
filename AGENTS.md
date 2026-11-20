@@ -22,6 +22,7 @@ The documents live in `docs/` and this file; the mod keeps them — a toc in eac
 
 - `docs/concept.md` — the idea, the loop, how the model sees it, open questions;
 - `docs/records.md` — what the agent keeps in `.shift/` and why;
+- [Task storage and shift history roadmap](docs/beads-roadmap.md) — the planned move to private Beads tasks, independent shift snapshots and guided migration. Open before changing either storage path.
 - `docs/hints.md` — when the mod hints a shift, the gauge;
 - `docs/architecture.md` — the core's modules, the ports, where a change goes;
 - `docs/adapters.md` — each harness's slots and the facts about it;

@@ -31,6 +31,10 @@ Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome
 | `bun run test` | every package's tests: `test:codex`, `test:core`, `test:npm` (`bun test`), `test:claude-code` (`claude plugin test`) |
 | `bun run validate` | `claude plugin validate` of the Claude Code plugin: the hooks module and its state contract |
 
+For the first [storage roadmap](beads-roadmap.md) check, download the target archive from the [Beads 1.3.4 release](https://github.com/gastownhall/beads/releases/tag/v1.3.4). On a POSIX build host, run `bun run beads:stage <release-archive> <output-root>`. It checks the pinned SHA-256, unpacks the full release with tar or unzip, and prints the executable path under `<output-root>/1.3.4/<platform_arch>/`. Repeating the command verifies and reuses the published contents. A different nonempty payload at that location fails the build.
+
+Run `bun run beads:check <staged-bd>` on a compatible POSIX host. It starts independent writers against an embedded database in a disposable Git project, reopens it and checks that the neighboring tracker retains its original issue. This is a build check. Shipping the staged runtime through the package and marketplace installers remains a separate integration step.
+
 The pre-commit hook runs, by the files staged, the same scripts per package — a command is written once, in `package.json`: the copy check against the index (`sync-core --staged`: a source staged without its copies fails), biome (it stages its own fixes), the core's types and tests, the plugin's validation, types and tests, the npm package's types and tests. Each job prints one line when it passes and its whole output when it fails.
 
 ## Tests

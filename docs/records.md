@@ -20,6 +20,8 @@ The rules as the model reads them live in one place, `core/src/texts/doctrine.ts
 
 ## Layout
 
+This layout describes the current file-backed implementation. The planned storage update preserves editable project records and separates live tasks from historical shifts. For the target layout and the manual transfer of open tasks, see the [implementation roadmap](beads-roadmap.md).
+
 ```
 .shift/
 ├── board.md          the goal, project-wide decisions and dead ends

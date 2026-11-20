@@ -23,7 +23,7 @@ The project is narrow: only this loop. Not a transport between sessions, not orc
 4. **Let-go.** After the turn ends the mod asks the harness to let the history go, with the letter's "Hold" as what to keep, the tasks in progress and their items in progress named so the reasoning around them is kept fuller, and a direction to preserve reasoning while the board, current task state and letter return from disk. No harness lets a model let its own history go in the middle of a turn: it is done by something that outlives the turn.
 5. **Next stretch.** With `continue` the letter and the records start the next turn; with `wait` they ride with the owner's next message. There is no cap on `continue` in a row: the agent goes on through as many stretches as the work takes, each in a history that is not overfull. The owner sees a row for each: done and continuing, waiting, what went with their message, or why a shift was not made.
 
-Roles: the harness's digest answers "what was", the letter "what next", the board and the tasks "where the work stands". All of it stays on disk in the shift's folder.
+The digest preserves the thread of thought, the letter explains what comes next, and the board and tasks describe where the work stands. Today the shift folder includes a snapshot of those tasks. The planned continuation pairs the saved letter with the chat's current work, so a blocker resolved during its absence is already reflected when it resumes. [Implementation roadmap](beads-roadmap.md)
 
 ## How the model sees it
 

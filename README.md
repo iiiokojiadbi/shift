@@ -112,6 +112,8 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 ## Documentation
 
+The planned storage update will let each chat pick up its current tasks from a private Beads workspace while keeping shift history independently. The roadmap describes the implementation stages and migration checks. [Task storage and shift history roadmap](docs/beads-roadmap.md)
+
 - [docs/concept.md](docs/concept.md): the idea, the loop, how the model sees it.
 - [docs/records.md](docs/records.md): what the agent keeps in `.shift/` and why.
 - [docs/hints.md](docs/hints.md): when the mod hints a shift.
