@@ -224,6 +224,11 @@ test.skipIf(!Bun.which('codex'))(
       await writeFile(join(folder, 'letter.md'), LETTER.replace('fixing tests', body))
       const owner = join(root, '.shift/OWNER.md')
       await writeFile(owner, 'Session fixture marker.')
+      const doc = join(root, 'docs/behavior.md')
+      await mkdir(join(root, 'docs'))
+      await writeFile(join(root, '.shift/settings.toml'), '[docs]\ndirs = ["docs"]\n')
+      const document = '---\ndescription: Project procedures\n---\n# Work\n\n## Stable neighbor\n\n## Verification\nOne check.\n'
+      await writeFile(doc, document)
       await writeFile(
         join(home, 'config.toml'),
         `model = "fixture"
@@ -244,7 +249,10 @@ trust_level = "trusted"
       ])
         execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })
       for (const args of [[], ['resume', '--last'], ['resume', '--last']]) {
-        if (requests.length === 2) await writeFile(owner, 'Updated fixture decision.')
+        if (requests.length === 2) {
+          await writeFile(owner, 'Updated fixture decision.')
+          await writeFile(doc, document.replace('One check.', 'Two checks.'))
+        }
         const child = Bun.spawn(
           [
             'codex',
@@ -278,7 +286,11 @@ trust_level = "trusted"
         expect(after.input.slice(0, before.input.length)).toEqual(before.input)
         expect(JSON.stringify(after.input).split('Session fixture marker.')).toHaveLength(2)
       }
-      expect(JSON.stringify(changed.input.slice(resumed.input.length))).toContain('OWNER.md` changed outside your tools')
+      const appended = JSON.stringify(changed.input.slice(resumed.input.length))
+      expect(appended).toContain('OWNER.md` changed outside your tools')
+      expect(appended.split('Verification (changed)')).toHaveLength(2)
+      expect(appended).not.toContain('Stable neighbor')
+      expect(appended).not.toContain('Project procedures')
     } finally {
       mock.stop(true)
     }

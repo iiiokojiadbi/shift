@@ -31,7 +31,7 @@ import {
 import { projectAt } from '../npm/store'
 import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
-import { type MapPrints, observeMap } from './map'
+import { type MapPrints, observeMap, sameDocumentStamps } from './map'
 import { type Fields, fields } from './protocol'
 
 type ContextReceipt = { offset: number; length: number; hash: string }
@@ -40,6 +40,7 @@ const fingerprint = (text: string) => createHash('sha256').update(text).digest('
 type HookState = {
   root: string
   looks: Looks
+  mapOffset?: number
   editOffset?: number
   context?: ContextReceipt
   doctrineHash?: string
@@ -92,6 +93,13 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   const problem = project.problem
   const event = input.hook_event_name
   const edits = await recentEdits(project, input, state.editOffset)
+  const recordOffset = state.editOffset
+  // The map observes a longer interval than record checks, including an entire tool call.
+  async function mapEdits() {
+    const found = state.mapOffset === recordOffset ? edits : await recentEdits(project, input, state.mapOffset)
+    state.mapOffset = found.offset
+    return found.confirmed
+  }
   const courier: RecordCourier = {
     confirmedEdit: edits.confirmed,
     project: async () => project,
@@ -109,6 +117,20 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   if (event === 'UserPromptSubmit' && sameTurn && state.looks.running > 0) return []
   if (state.looks.running === 0 || event === 'PostToolUse') state.editOffset = edits.offset
   if (event === 'PreToolUse' || event === 'PostToolUse') {
+    let mapNote = ''
+    if (event === 'PreToolUse' && state.looks.running === 0 && state.map?.documents) {
+      const stamps = await docStamps(project)
+      const changed = !sameDocumentStamps(state.map.documents, stamps)
+      if (changed && !(await staleLayout(project))) {
+        await refreshDocs(project, { tocs: false })
+        const path = project.settings.files.shift
+        const text = await project.store.read(`${project.root}/${path}`)
+        const files = text === null ? [] : [{ path, text }]
+        const update = await observeMap(project, state.map, files, stamps, await mapEdits())
+        state.map = update.prints
+        mapNote = update.note
+      } else if (!changed) state.mapOffset = edits.offset
+    }
     const shiftTool = TOOLS.find(tool => input.tool_name === `mcp__shift__${tool.name}`)
     const outside = !!edits.confirmed || state.looks.running === 0 || (shiftTool?.writes === false && state.looks.running === 1)
     const notes =
@@ -120,7 +142,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
             readOnly: false,
           })
     if (!problem || notes.some(note => note.body.includes(problem))) state.reportedProblem = problem
-    return notes.map(wrap)
+    return [mapNote, ...notes.map(wrap)]
   }
   const start = await startSession(project)
   const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
@@ -145,14 +167,16 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
     if (!(await staleLayout(project))) await refreshDocs(project, { tocs: false })
   }
   state.docsSettings = docsSettings
+  const legacyStamps = state.looks.docs
   const records = await promptRecords(courier, true)
   const recordNotes = records.notes.map(wrap)
-  await records.delivered()
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
   state.reportedProblem = problem
   const files = await sessionFiles(project, { refresh: false })
-  const changes = observeMap(project, state.map, files)
+  const confirmed = await mapEdits()
+  const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps)
+  await records.delivered()
   state.map = changes.prints
   if (fresh) {
     const block = [start.doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n')

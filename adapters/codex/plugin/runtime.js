@@ -4501,25 +4501,162 @@ async function recentEdits(project, input, offset) {
 // adapters/codex/map.ts
 import { createHash } from "crypto";
 var fingerprint2 = (text) => createHash("sha256").update(text).digest("hex");
-function observeMap(project, previous, files) {
+function sameDocumentStamps(documents, stamps) {
+  return Object.keys(stamps).length === Object.keys(documents).length && Object.entries(stamps).every(([path, stamp]) => documents[path]?.stamp === stamp);
+}
+function documentParts(project, path, text, stamp, entry) {
+  const lines = text.split(`
+`);
+  const start = lineOutside(lines, (line) => line.trim() === TOC_START);
+  const end = start < 0 ? -1 : lineOutside(lines, (line) => line.trim() === TOC_END, start + 1);
+  if (end >= 0) {
+    const from = start > 0 && !lines[start - 1]?.trim() ? start - 1 : start;
+    lines.splice(from, end - from + 1);
+  }
+  const source = lines.join(`
+`);
+  const marks = headings(source).filter((h) => h.level === 2);
+  const archived = frontmatter(source).get("archived") === "true";
+  const front = lines[0]?.trimEnd() === "---" ? lines.findIndex((line, i) => i > 0 && line.trimEnd() === "---") : -1;
+  const intro = lines.slice(front + 1, archived ? undefined : (marks[0]?.line ?? lines.length + 1) - 1);
+  const sections = archived ? [] : marks.map((mark, i) => ({
+    name: mark.title,
+    hash: fingerprint2(lines.slice(mark.line, (marks[i + 1]?.line ?? lines.length + 1) - 1).join(`
+`).trim())
+  }));
+  const pins = pinned(source).map((pin) => ({ name: pin.section ?? "", hash: fingerprint2(pin.text), text: pin.text }));
+  const print = {
+    stamp,
+    archived,
+    header: fingerprint2(entry.split(`
+`, 1)[0] ?? ""),
+    content: recordFingerprint(project, path, text),
+    intro: fingerprint2(intro.join(`
+`).trim()),
+    sections,
+    pins: pins.map(({ name, hash }) => ({ name, hash }))
+  };
+  return { print, pins };
+}
+function compareParts(before, after) {
+  const used = new Set;
+  const matches = after.map((part) => {
+    const index = before.findIndex((p, i) => p.name === part.name && p.hash === part.hash && !used.has(i));
+    if (index >= 0)
+      used.add(index);
+    return index;
+  });
+  let last = -1;
+  const changes = [];
+  for (const [index, part] of after.entries()) {
+    const match = matches[index] ?? -1;
+    const old = match >= 0 ? match : before.findIndex((p, i) => p.name === part.name && !used.has(i));
+    const status = old < 0 ? "new" : before[old]?.hash !== part.hash || old < last ? "changed" : "";
+    if (old >= 0) {
+      used.add(old);
+      last = Math.max(old, last);
+    }
+    if (status)
+      changes.push({ name: part.name, status, index });
+  }
+  for (const [i, part] of before.entries())
+    if (!used.has(i))
+      changes.push({ name: part.name, status: "deleted", index: -1 });
+  return changes;
+}
+function documentDelta(label, entry, old, current) {
+  const detail = [];
+  const first = entry.split(`
+`, 1)[0] ?? label;
+  if (old.header !== current.print.header)
+    detail.push(`description (changed): ${first.slice(label.length + " \u2014 ".length)}`);
+  const sections = current.print.archived ? [] : compareParts(old.sections, current.print.sections);
+  if (sections.length)
+    detail.push(`sections: ${sections.map((s) => `${s.name} (${s.status})`).join(" \xB7 ")}`);
+  if (old.archived === current.print.archived && old.intro !== current.print.intro)
+    detail.push(current.print.sections.length ? "Introduction (changed)" : "Text (changed)");
+  for (const pin of compareParts(old.pins, current.print.pins)) {
+    const value = current.pins[pin.index]?.text;
+    detail.push(`pinned${pin.name ? ` (${pin.name})` : ""} (${pin.status})${value ? `:
+    ${value.replaceAll(`
+`, `
+    `)}` : ""}`);
+  }
+  return detail.length ? `${label} (changed)
+  ${detail.join(`
+  `)}` : "";
+}
+async function observeMap(project, previous, files, stamps, confirmed, legacyStamps) {
   const path = project.settings.files.shift;
   const mapFile = files.find((file) => file.path === path);
   const text = fingerprint2(mapFile?.text ?? "");
-  if (previous?.text === text)
+  if (previous?.text === text && previous.documents && sameDocumentStamps(previous.documents, stamps))
     return { prints: previous, note: "" };
   const { other, entries } = mapParts(mapFile?.text ?? "");
-  const prints = { text, map: Object.create(null), notices: fingerprint2(other) };
+  const documents = Object.create(null);
   const changes = [];
-  if (mapFile && previous && previous.notices !== prints.notices)
-    changes.push(`Map notices changed in ${path}. Read the current file.`);
-  for (const [key, entry] of entries) {
-    prints.map[key] = fingerprint2(entry);
-    if (previous && previous.map[key] !== prints.map[key])
-      changes.push(entry);
+  const notices = other.split(`
+`).filter((line) => /^(Pinned:|off:)/.test(line)).join(`
+`);
+  const prints = { text, map: Object.create(null), notices: fingerprint2(notices), documents };
+  if (previous && prints.notices !== previous.notices && (previous.documents || fingerprint2(other) !== previous.notices)) {
+    if (notices)
+      changes.push(notices);
+    else if (previous.documents)
+      changes.push("Documentation map notices cleared.");
   }
-  for (const key of Object.keys(previous?.map ?? {}))
-    if (!Object.hasOwn(prints.map, key))
-      changes.push(`Removed from the documentation map: ${key}`);
+  for (const [key, entry] of entries) {
+    const hash = fingerprint2(entry);
+    prints.map[key] = hash;
+    const was = previous?.map[key];
+    const old = previous?.documents?.[key];
+    const stamp = stamps[key];
+    if (old && old.stamp === stamp && was === hash) {
+      documents[key] = old;
+      continue;
+    }
+    const body = stamp === undefined ? null : await project.store.read(`${project.root}/${key}`);
+    if (stamp !== undefined && body === null) {
+      if (old)
+        documents[key] = old;
+      if (was !== undefined)
+        prints.map[key] = was;
+      else
+        delete prints.map[key];
+      continue;
+    }
+    const current = body === null || stamp === undefined ? undefined : documentParts(project, key, body, stamp, entry);
+    if (current)
+      documents[key] = current.print;
+    if (!previous || confirmed?.(key, body, old?.content))
+      continue;
+    const label = `- \`${key}\``;
+    if (!current && old) {
+      changes.push(`${label} (deleted)`);
+      continue;
+    }
+    if (!was || current && !old && previous.documents) {
+      if (current)
+        changes.push(entry.replace(label, () => `${label} (new)`));
+      else if (!entry.endsWith(" \u2014 no documents") || !Object.keys(previous.documents ?? {}).some((path) => path.startsWith(key)))
+        changes.push(entry);
+      continue;
+    }
+    if (!old || !current) {
+      if (was !== hash)
+        changes.push(entry.replace(label, () => `${label} (changed)`));
+      else if (!previous.documents && legacyStamps?.[key] && legacyStamps[key] !== stamp)
+        changes.push(`${label} (changed)`);
+      continue;
+    }
+    const delta = documentDelta(label, entry, old, current);
+    if (delta)
+      changes.push(delta);
+  }
+  for (const key of Object.keys(previous?.map ?? {})) {
+    if ((!previous?.documents || previous.documents[key]) && !Object.hasOwn(prints.map, key) && !confirmed?.(key, null, previous?.documents?.[key]?.content))
+      changes.push(`- \`${key}\` (deleted)`);
+  }
   return { prints, note: changes.length ? wrap({ kind: "docs", body: changes.join(`
 `) }) : "" };
 }
@@ -4560,6 +4697,12 @@ async function contextFor(input, project, state) {
   const problem = project.problem;
   const event = input.hook_event_name;
   const edits = await recentEdits(project, input, state.editOffset);
+  const recordOffset = state.editOffset;
+  async function mapEdits() {
+    const found = state.mapOffset === recordOffset ? edits : await recentEdits(project, input, state.mapOffset);
+    state.mapOffset = found.offset;
+    return found.confirmed;
+  }
   const courier = {
     confirmedEdit: edits.confirmed,
     project: async () => project,
@@ -4578,6 +4721,21 @@ async function contextFor(input, project, state) {
   if (state.looks.running === 0 || event === "PostToolUse")
     state.editOffset = edits.offset;
   if (event === "PreToolUse" || event === "PostToolUse") {
+    let mapNote = "";
+    if (event === "PreToolUse" && state.looks.running === 0 && state.map?.documents) {
+      const stamps = await docStamps(project);
+      const changed = !sameDocumentStamps(state.map.documents, stamps);
+      if (changed && !await staleLayout(project)) {
+        await refreshDocs(project, { tocs: false });
+        const path = project.settings.files.shift;
+        const text = await project.store.read(`${project.root}/${path}`);
+        const files = text === null ? [] : [{ path, text }];
+        const update = await observeMap(project, state.map, files, stamps, await mapEdits());
+        state.map = update.prints;
+        mapNote = update.note;
+      } else if (!changed)
+        state.mapOffset = edits.offset;
+    }
     const shiftTool = TOOLS.find((tool) => input.tool_name === `mcp__shift__${tool.name}`);
     const outside = !!edits.confirmed || state.looks.running === 0 || shiftTool?.writes === false && state.looks.running === 1;
     const notes = event === "PreToolUse" ? await beforeTool(courier) : await afterToolRecords(courier, [], {
@@ -4587,7 +4745,7 @@ async function contextFor(input, project, state) {
     });
     if (!problem || notes.some((note) => note.body.includes(problem)))
       state.reportedProblem = problem;
-    return notes.map(wrap);
+    return [mapNote, ...notes.map(wrap)];
   }
   const start = await startSession(project);
   const transcript = typeof input.transcript_path === "string" ? input.transcript_path : undefined;
@@ -4610,14 +4768,16 @@ async function contextFor(input, project, state) {
       await refreshDocs(project, { tocs: false });
   }
   state.docsSettings = docsSettings;
+  const legacyStamps = state.looks.docs;
   const records = await promptRecords(courier, true);
   const recordNotes = records.notes.map(wrap);
-  await records.delivered();
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
   state.reportedProblem = problem;
   const files = await sessionFiles(project, { refresh: false });
-  const changes = observeMap(project, state.map, files);
+  const confirmed = await mapEdits();
+  const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps);
+  await records.delivered();
   state.map = changes.prints;
   if (fresh) {
     const block = [start.doctrine, renderSessionFiles(files)].filter(Boolean).join(`
@@ -4764,6 +4924,7 @@ class Session {
   reading = { tokens: undefined, window: 0, threshold: undefined };
   looks = { ...FRESH_LOOKS };
   prints;
+  mapOffset;
   loaded = null;
   prepared = false;
   enabled = false;
@@ -4841,7 +5002,8 @@ class Session {
     const notes = await atPrompt(this.courier, { runStarts: true, owner });
     const files = initialFiles ?? await sessionFiles(project, { refresh: false });
     const block = renderSessionFiles(files);
-    const changes = observeMap(project, this.prints, files);
+    const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset);
+    const changes = await observeMap(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed);
     const parts = [first ? sessionDoctrine(project.settings).doctrine : "", first ? block : changes.note, ...notes.notes].filter(Boolean);
     return {
       params: parts.length ? { ...params, additionalContext: { ...fields(params.additionalContext), shift: { kind: "untrusted", value: parts.join(`
@@ -4852,6 +5014,7 @@ class Session {
         this.prepared = true;
         this.loaded = block;
         this.prints = changes.prints;
+        this.mapOffset = edits.offset;
       }
     };
   }
@@ -5023,7 +5186,8 @@ class Session {
               return;
             const files = await sessionFiles(project);
             const block = renderSessionFiles(files);
-            this.prints = observeMap(project, undefined, files).prints;
+            this.prints = (await observeMap(project, undefined, files, await docStamps(project))).prints;
+            this.mapOffset = undefined;
             await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join(`
 
 `));

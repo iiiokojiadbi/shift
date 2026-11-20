@@ -1,6 +1,7 @@
+import { Database } from 'bun:sqlite'
 import { afterAll, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { BOARD } from '../../../core/test/data'
 import { cleanup, scratch } from '../../npm/test/scratch'
@@ -69,6 +70,7 @@ test('installed hooks send targeted changes and actionable diagnostics once', as
   await appendFile(doc, '\nNew paragraph.\n')
   await appendFile(join(root, 'details.txt'), ' Own update.')
   expect(await hook('PostToolUse')).toBe('')
+  expect(await hook('UserPromptSubmit')).toContain('Setup (changed)')
   expect(await hook('UserPromptSubmit')).toBe('')
   await hook('PreToolUse')
   await appendFile(doc, '\n## Verify\nSee [missing](gone.md).\n')
@@ -240,5 +242,106 @@ test('the two sides of an agent note link settle at the next prompt', async () =
   expect(changed).not.toContain('notes/missing.md')
   expect(await hook('PostToolUse')).toBe('')
   expect((await hook('UserPromptSubmit')).match(/notes\/missing\.md/g)).toHaveLength(1)
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('a live map change reports only affected fields, and compact restores a complete current map', async () => {
+  const { root, doc, hook } = await fixture()
+  const original = '---\ndescription: Procedures\n---\n# Work\n\n## Untouched\n\n## Build\nOld body.\n\n## Remove\n'
+  await writeFile(doc, original)
+  await hook('SessionStart')
+  const updated = original.replace('Old body.', 'Revised body.').replace('## Remove', '## Install')
+  await writeFile(doc, updated)
+  const extra = join(root, 'docs/more.md')
+  await writeFile(extra, '---\ndescription: Reference material\n---\n# More\n\n## Check\n')
+  const live = await hook('PreToolUse')
+  for (const part of [
+    'Build (changed)',
+    'Remove (deleted)',
+    'Install (new)',
+    'docs/more.md` (new)',
+    'Reference material',
+    'sections: Check',
+  ])
+    expect(live).toContain(part)
+  for (const part of ['Untouched', 'Procedures', 'Revised body.', 'Unrelated decision marker']) expect(live).not.toContain(part)
+  await hook('PostToolUse')
+  expect(await hook('UserPromptSubmit')).not.toContain('Build (changed)')
+  expect(await hook('UserPromptSubmit')).toBe('')
+  await unlink(extra)
+  await writeFile(doc, updated.replace('Procedures', 'Build manual').replace('Revised body.', '> [!IMPORTANT]\n> Use the lockfile.'))
+  const fields = await hook('UserPromptSubmit')
+  for (const part of ['description (changed): Build manual', 'pinned (Build) (new)', 'Use the lockfile.', 'docs/more.md` (deleted)'])
+    expect(fields).toContain(part)
+  for (const part of ['Untouched', 'Reference material', 'Install (new)']) expect(fields).not.toContain(part)
+  expect(await hook('UserPromptSubmit')).toBe('')
+  const complete = await hook('SessionStart', { source: 'compact' })
+  expect(complete.split('sections: Untouched · Build · Install')).toHaveLength(2)
+  expect(complete).toContain('Unrelated decision marker')
+  expect(complete).not.toContain('(changed)')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('only a matching file receipt suppresses a map delta across tool hooks', async () => {
+  const { doc, transcript, hook } = await fixture()
+  await appendFile(doc, 'Initial.\n\n## Second\nOriginal second.\n')
+  await hook('SessionStart')
+  await hook('PreToolUse')
+  const before = await readFile(doc, 'utf8')
+  await writeFile(doc, before.replace('Initial.', 'Mine.'))
+  await recordPatch(transcript, doc, '@@ -1 +1 @@\n-Initial.\n+Mine.\n')
+  await hook('PostToolUse')
+  expect(await hook('PreToolUse')).toBe('')
+  await hook('PostToolUse')
+  expect(await hook('UserPromptSubmit')).toBe('')
+  await writeFile(doc, before.replace('Initial.', 'Mixed.').replace('Original second.', 'Someone else.'))
+  await recordPatch(transcript, doc, '@@ -1 +1 @@\n-Mine.\n+Mixed.\n')
+  expect(await hook('UserPromptSubmit')).toContain('Second (changed)')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('a legacy entry-only checkpoint upgrades without repeating the session map', async () => {
+  const { doc, home, hook } = await fixture()
+  await hook('SessionStart')
+  const db = new Database(
+    join(home, 'plugins/data/shift-sessions', `session-${createHash('sha256').update('scope').digest('hex')}.json.sqlite`),
+  )
+  try {
+    const row = db.query<{ state: string }, []>('SELECT state FROM checkpoint').get()
+    if (!row) throw new Error('Missing checkpoint')
+    const state = JSON.parse(row.state)
+    delete state.map.documents
+    delete state.mapOffset
+    db.query('UPDATE checkpoint SET state = ?').run(JSON.stringify(state))
+  } finally {
+    db.close()
+  }
+  await appendFile(doc, '\nDetached edit.\n')
+  const migrated = await hook('UserPromptSubmit')
+  expect(migrated).toContain('docs/example.md` (changed)')
+  expect(migrated).not.toContain('sections:')
+  expect(migrated).not.toContain('Unrelated decision marker')
+  await appendFile(doc, '\nSecond edit.\n')
+  expect(await hook('UserPromptSubmit')).toContain('Setup (changed)')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('archived body changes stay compact and removing a pin leaves its sibling out', async () => {
+  const { doc, hook } = await fixture()
+  const header = '---\ndescription: Old design\narchived: true\n---\n# Design\n\n## Original proposal\n'
+  const first = '\n> [!IMPORTANT]\n> First caveat.\n'
+  const second = '\n> [!IMPORTANT]\n> Second caveat.\n'
+  await writeFile(doc, header + first + second)
+  await hook('SessionStart')
+  await writeFile(doc, header + second)
+  const change = await hook('PreToolUse')
+  expect(change).toContain('pinned (Original proposal) (deleted)')
+  expect(change).not.toContain('Second caveat.')
+  expect(change).not.toContain('sections:')
+  await hook('PostToolUse')
+  await appendFile(doc, '\nExtra detail.\n')
+  const body = await hook('UserPromptSubmit')
+  expect(body).toContain('Text (changed)')
+  expect(body).not.toContain('Original proposal')
   expect(await hook('UserPromptSubmit')).toBe('')
 })

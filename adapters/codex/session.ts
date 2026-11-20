@@ -35,6 +35,7 @@ import {
   waitingNote,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
+import { recentEdits } from './edits'
 import { usageReading } from './gauge'
 import { type MapPrints, observeMap } from './map'
 import { deferred, type Fields, fields, type Request, textInput } from './protocol'
@@ -80,6 +81,7 @@ export class Session {
   private reading: Reading = { tokens: undefined, window: 0, threshold: undefined }
   private looks: Looks = { ...FRESH_LOOKS }
   private prints?: MapPrints
+  private mapOffset?: number
   private loaded: string | null = null
   private prepared = false
   private enabled = false
@@ -157,7 +159,8 @@ export class Session {
     const notes = await atPrompt(this.courier, { runStarts: true, owner })
     const files = initialFiles ?? (await sessionFiles(project, { refresh: false }))
     const block = renderSessionFiles(files)
-    const changes = observeMap(project, this.prints, files)
+    const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset)
+    const changes = await observeMap(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed)
     const parts = [first ? sessionDoctrine(project.settings).doctrine : '', first ? block : changes.note, ...notes.notes].filter(Boolean)
     return {
       params: parts.length
@@ -168,6 +171,7 @@ export class Session {
         this.prepared = true
         this.loaded = block
         this.prints = changes.prints
+        this.mapOffset = edits.offset
       },
     }
   }
@@ -329,7 +333,8 @@ export class Session {
             if (!project.settings.enabled) return
             const files = await sessionFiles(project)
             const block = renderSessionFiles(files)
-            this.prints = observeMap(project, undefined, files).prints
+            this.prints = (await observeMap(project, undefined, files, await docStamps(project))).prints
+            this.mapOffset = undefined
             await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join('\n\n'))
             this.loaded = block
             this.prepared = true
