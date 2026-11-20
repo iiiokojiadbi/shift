@@ -8,7 +8,7 @@ export type Sample = { gauge: Gauge; reading: Reading; offset: number }
 function windowTargets(window: number) {
   switch (window) {
     case 258_400:
-      return { soft: null, final: 184_800 }
+      return { soft: null, final: 205_632 }
     case 475_000:
       return { soft: 300_000, final: 410_000 }
     default:
@@ -20,7 +20,12 @@ export function usageReading(previous: Reading, gauge: Gauge, tokens: number, wi
   const reading: Reading = { tokens, window, threshold: undefined, hintTargets: windowTargets(window) }
   // A soft hint in a larger window must not count as the final hint in a smaller one.
   const changed = previous.window > 0 && previous.window !== window
-  return { reading, gauge: changed ? { ...gauge, hinted: null } : gauge }
+  if (changed) return { reading, gauge: { ...gauge, hinted: null } }
+  // A saved stretch with a single final hint may have claimed it at the previous release's lower target.
+  const targets = reading.hintTargets
+  if (targets?.soft === null && gauge.hinted !== null && gauge.hinted < targets.final && tokens >= targets.final)
+    return { reading, gauge: { ...gauge, hinted: targets.final } }
+  return { reading, gauge }
 }
 
 export function freshSample(): Sample {

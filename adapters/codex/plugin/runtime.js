@@ -4234,7 +4234,7 @@ class Requests {
 function windowTargets(window) {
   switch (window) {
     case 258400:
-      return { soft: null, final: 184800 };
+      return { soft: null, final: 205632 };
     case 475000:
       return { soft: 300000, final: 410000 };
     default:
@@ -4244,7 +4244,12 @@ function windowTargets(window) {
 function usageReading(previous, gauge, tokens, window) {
   const reading = { tokens, window, threshold: undefined, hintTargets: windowTargets(window) };
   const changed = previous.window > 0 && previous.window !== window;
-  return { reading, gauge: changed ? { ...gauge, hinted: null } : gauge };
+  if (changed)
+    return { reading, gauge: { ...gauge, hinted: null } };
+  const targets = reading.hintTargets;
+  if (targets?.soft === null && gauge.hinted !== null && gauge.hinted < targets.final && tokens >= targets.final)
+    return { reading, gauge: { ...gauge, hinted: targets.final } };
+  return { reading, gauge };
 }
 function freshSample() {
   return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 };
@@ -4984,7 +4989,7 @@ async function runHook(input, dir, file) {
 // adapters/codex/plugin/.codex-plugin/plugin.json
 var plugin_default = {
   name: "shift",
-  version: "0.39.0",
+  version: "0.40.0",
   description: "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
   skills: "./skills/",
   hooks: "./hooks/hooks.json",

@@ -50,7 +50,7 @@ for (const mode of ['continue', 'wait'])
                   content: [{ type: 'output_text', text: step === 3 ? 'The shift kept the fixture.' : 'Done.' }],
                 }
           if (finished) end.resolve()
-          const tokens = step >= 5 ? 200000 : 200
+          const tokens = step >= 5 ? 205632 : 200
           const events = [
             { type: 'response.created', response: { id } },
             { type: 'response.output_item.done', item },

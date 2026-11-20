@@ -2,6 +2,13 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.40.0
+
+### Changed
+
+- Each chat receives the full documentation map when it starts or shifts. During retained history, including resume, external edits report only the affected documents, sections, descriptions and pins. Known edits by the same agent advance its checkpoint silently.
+- The single final reminder for a reported window of 258,400 tokens in Codex moves from 184,800 to 205,632. A chat that already received its final reminder keeps it across the upgrade.
+
 ## 0.39.0
 
 ### Added

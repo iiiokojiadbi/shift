@@ -116,7 +116,7 @@ test('parallel installed hooks claim a threshold once', async () => {
   }
   await usage(60000)
   await hook('SessionStart')
-  await usage(184800)
+  await usage(205632)
   const outputs = await Promise.all(Array.from({ length: 12 }, () => hook('PostToolUse')))
   expect(outputs.filter(t => t.includes('Shift hint:'))).toHaveLength(1)
 })
@@ -128,14 +128,14 @@ test('a resumed profile migrates the last reading without replaying a claimed re
   const binding = join(dir, `session-${createHash('sha256').update('scope').digest('hex')}.json`)
   const record = (tokens: number) =>
     `${JSON.stringify({ payload: { type: 'token_count', info: { model_context_window: 258400, last_token_usage: { total_tokens: tokens } } } })}\n`
-  const first = record(60000) + record(208000)
+  const first = record(60000) + record(184800)
   await writeFile(transcript, first)
   await writeFile(binding, JSON.stringify({ root, hash: 'legacy' }))
   await writeFile(
     `${binding}.usage`,
     JSON.stringify({
-      gauge: { base: 60000, hinted: 208000, growth: {}, whole: false, unassisted: false },
-      reading: { tokens: 208000, window: 258400 },
+      gauge: { base: 60000, hinted: 184800, growth: {}, whole: false, unassisted: false },
+      reading: { tokens: 184800, window: 258400 },
       offset: Buffer.byteLength(first),
     }),
   )
@@ -143,7 +143,7 @@ test('a resumed profile migrates the last reading without replaying a claimed re
   await appendFile(transcript, record(210000))
   expect(await hook('PostToolUse')).toBe('')
   expect(await hook('SessionStart', { source: 'compact' })).toContain('Unrelated decision marker')
-  await appendFile(transcript, record(50000) + record(184800))
+  await appendFile(transcript, record(50000) + record(205632))
   expect(await hook('PostToolUse')).toContain('Shift hint:')
   expect(await hook('PostToolUse')).toBe('')
 })
