@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"shift.local/runtime/history"
 	"strings"
 )
 
@@ -166,6 +167,16 @@ func run(args []string) error {
 	if len(args) < 2 || !filepath.IsAbs(args[0]) {
 		return errors.New("usage: shift-bd ABSOLUTE_PROJECT command [args]")
 	}
+	if len(args) == 2 && args[1] == "shift-migrate" {
+		return migrate(filepath.Join(args[0], ".shift"), os.Stdin, os.Stdout)
+	}
+	if len(args) == 2 && args[1] == "shift-history" {
+		directory := filepath.Join(args[0], ".shift")
+		if err := privateDir(directory); err != nil {
+			return err
+		}
+		return history.Run(filepath.Join(directory, "history.db"), os.Stdin, os.Stdout)
+	}
 	bd, err := binary()
 	if err != nil {
 		return err
@@ -189,10 +200,7 @@ func run(args []string) error {
 	if _, err := os.Lstat(redirect); !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("cannot use a redirected or unreadable private workspace: %s", redirect)
 	}
-	var expected []struct {
-		ID       string `json:"id"`
-		Revision string `json:"revision"`
-	}
+	var expected []revision
 	commands := args[1:]
 	if commands[0] == "shift-checked" {
 		if len(commands) < 3 {
@@ -212,6 +220,21 @@ func run(args []string) error {
 		}
 		defer lock.Close()
 	}
+	cmd := taskCommand(bd, workspace, commands)
+	if err := verifyTasks(cmd, expected); err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return runChild(cmd)
+}
+
+type revision struct {
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+}
+
+func taskCommand(bd, workspace string, commands []string) *exec.Cmd {
+	profile, data := filepath.Join(workspace, "profile"), filepath.Join(workspace, ".beads")
 	cmd := exec.Command(bd, commands...)
 	cmd.Dir = workspace
 	cmd.Env = []string{"HOME=" + profile, "USERPROFILE=" + profile, "BEADS_DIR=" + data, "BD_DISABLE_METRICS=1", "GIT_CEILING_DIRECTORIES=" + filepath.Dir(workspace), "GIT_CONFIG_NOSYSTEM=1", "DOLT_ROOT_PATH=" + profile}
@@ -220,12 +243,16 @@ func run(args []string) error {
 			cmd.Env = append(cmd.Env, key+"="+v)
 		}
 	}
+	return cmd
+}
+func verifyTasks(cmd *exec.Cmd, expected []revision) error {
+
 	if len(expected) > 0 {
 		lookup := []string{"show", "--brief-deps", "--json"}
 		for _, entry := range expected {
 			lookup = append(lookup, "--id="+entry.ID)
 		}
-		probe := exec.Command(bd, lookup...)
+		probe := exec.Command(cmd.Path, lookup...)
 		probe.Dir, probe.Env, probe.Stderr = cmd.Dir, cmd.Env, os.Stderr
 		out, err := probe.Output()
 		if err != nil {
@@ -248,8 +275,7 @@ func run(args []string) error {
 			}
 		}
 	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return runChild(cmd)
+	return nil
 }
 
 func main() {

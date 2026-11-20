@@ -5,6 +5,7 @@ export const TOOL = 'shift'
 
 export const GUIDE_TOOL = 'shift_guide'
 
+export const MIGRATE_TOOL = 'shift_migrate'
 export const HISTORY_TOOL = 'shift_history'
 
 export const OPEN_TOOL = 'task_open'

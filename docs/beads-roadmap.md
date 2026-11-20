@@ -15,7 +15,7 @@ description: Implementation order and acceptance checks for private Beads tasks,
   - 6. Verify distribution and recovery
 <!-- /toc -->
 
-The goal is for an agent to resume with its letter and the work its chat owns **now**. If another chat resolved a blocker while the agent was away, its next task view should show that immediately. This is a plan for implementation. The current file layout is documented in [Records](records.md).
+The goal is for an agent to resume with its letter and the work its chat owns **now**. If another chat resolved a blocker while the agent was away, its next task view should show that immediately. The stages below define the acceptance scenarios. The storage layout and migration procedure are documented in [Records](records.md).
 
 ## Ownership of records
 
@@ -28,6 +28,8 @@ The goal is for an agent to resume with its letter and the work its chat owns **
 Keep task IDs, task revisions and task lists out of the archive schema. An agent can still mention its work in a letter. Moving or deleting a shift must leave the task graph intact.
 
 ## Implementation order
+
+The feature branch implements all six stages. Installed adapters on Linux have read the same task graph and recovered the same saved letter. The installed npm workflow covers migration, restart with a waiting letter, and transfer of both stores. Go race tests exercise retention and interrupted cleanup. Windows amd64 on a local volume passed guarded task writes and archive reads. Linux arm64 ran under emulation. Both macOS packages build; native install and recovery on macOS remain to be verified.
 
 Start with step 1. The task tools in step 2 and the archive in step 3 can then proceed independently. Join them in step 4. Use a disposable legacy project for steps 5 and 6 before migrating a real one.
 

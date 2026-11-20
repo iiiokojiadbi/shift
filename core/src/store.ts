@@ -1,11 +1,12 @@
 import { DIR, NAMES, RECENT_SHIFTS, SHIFTS, taskFile } from './layout'
 import type { Project } from './project'
+import { savedEntries, usesNewStorage } from './saved'
 import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
 export type Store = {
   // The installed adapter owns the executable and the child process environment.
-  beads?(root: string, args: readonly string[]): Promise<string>
+  beads?(root: string, args: readonly string[], stdin?: string): Promise<string>
   // The file's text; null when it is missing or unreadable.
   read(path: string): Promise<string | null>
   // Names of the folders or files right under `path`, sorted; none when it is missing.
@@ -27,11 +28,13 @@ export type Places = { owner: string; glossary: string; shift: string }
 
 // The records under `base` (the project's `.shift/` or a shift's snapshot); null without a board.
 // A snapshot keeps every file under its own name; a project's places come from its settings.
-export async function readWork(store: Store, base: string, places?: Places): Promise<Work | null> {
+export async function readWork(store: Store, base: string, places?: Places, liveGraph = false): Promise<Work | null> {
   const board = await store.read(`${base}/${NAMES.board}`)
   if (board === null) return null
   const at = places ?? { owner: `${base}/${NAMES.owner}`, glossary: `${base}/${NAMES.glossary}`, shift: `${base}/${NAMES.shift}` }
-  const tasks: TaskFiles[] = await Promise.all((await store.list(`${base}/${NAMES.tasks}`, 'dir')).map(name => readTask(store, base, name)))
+  const tasks: TaskFiles[] = liveGraph
+    ? []
+    : await Promise.all((await store.list(`${base}/${NAMES.tasks}`, 'dir')).map(name => readTask(store, base, name)))
 
   const knowledge: KnowledgeFile[] = await Promise.all(
     (await store.list(`${base}/${NAMES.knowledge}`, 'file'))
@@ -47,10 +50,10 @@ export async function readWork(store: Store, base: string, places?: Places): Pro
     owner,
     tasks,
     knowledge,
-    taskList: await store.read(`${base}/${NAMES.taskList}`),
+    taskList: liveGraph ? 'none' : await store.read(`${base}/${NAMES.taskList}`),
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
-    archived: await store.list(`${base}/${NAMES.archive}`, 'dir'),
+    archived: liveGraph ? [] : await store.list(`${base}/${NAMES.archive}`, 'dir'),
     oldOwner: places !== undefined && places.owner !== oldOwner && (await store.exists(oldOwner)),
   }
 }
@@ -99,14 +102,19 @@ export async function writeSnapshot(
 }
 
 // The project's records at the places its settings give.
-export function readRecords(project: Project): Promise<Work | null> {
+export async function readRecords(project: Project): Promise<Work | null> {
   const { root, settings } = project
 
-  return readWork(project.store, `${root}/${DIR}`, {
-    owner: `${root}/${settings.files.owner}`,
-    glossary: `${root}/${settings.files.glossary}`,
-    shift: `${root}/${settings.files.shift}`,
-  })
+  return readWork(
+    project.store,
+    `${root}/${DIR}`,
+    {
+      owner: `${root}/${settings.files.owner}`,
+      glossary: `${root}/${settings.files.glossary}`,
+      shift: `${root}/${settings.files.shift}`,
+    },
+    await usesNewStorage(project),
+  )
 }
 
 export async function readSnapshot(store: Store, base: string, index: string): Promise<Snapshot | null> {
@@ -134,6 +142,8 @@ export async function shiftNames({ store, root }: Project): Promise<string[]> {
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
 export async function lastShifts(project: Project, count: number): Promise<Recent> {
   const { store, root } = project
+  const saved = await savedEntries(project)
+  if (saved.length) return { total: saved.length, entries: saved.slice(-count).map(e => ({ name: e.id, about: e.about })) }
   const names = await shiftNames(project)
   const entries: HistoryEntry[] = await Promise.all(
     names.slice(-count).map(async name => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })),

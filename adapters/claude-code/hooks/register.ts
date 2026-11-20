@@ -162,7 +162,7 @@ export const register: Register = on => {
     const { prompt } = resumed
     if (prompt === undefined) return { text: resumed.text }
     // The newest letter goes now: one waiting for the owner's message is not told again.
-    await dropWaiting(loopOf($))
+    await dropWaiting(loopOf($), await projectOf($), resumed.waiting)
     const words = e.args.trim()
     if (words !== '') $.clock.after(100, () => void $.prompt.submit({ text: words, asUser: true }))
     else {
@@ -175,7 +175,7 @@ export const register: Register = on => {
 
   // The owner's word to shift, without writing it: after the turn in flight, a turn of its own.
   on('command.run', { command: SHIFT_COMMAND }, async ($, e) => {
-    const now = await shiftNow(loopOf($), e.args.trim())
+    const now = await shiftNow(loopOf($), e.args.trim(), await projectOf($))
     $.clock.after(100, () => void submitShift($, now))
 
     return {}
@@ -230,7 +230,12 @@ export const register: Register = on => {
     // Told and cleared only once the message has entered with them, and the row stands under it: a failed hook or a
     // message dropped beneath keeps every note for the next one.
     const entries = told.notes.flatMap(pieces)
-    const entered = await next({ ...e, context: [...(e.context ?? []), ...entries] })
+    const attachments = told.attachments as typeof e.attachments
+    const entered = await next({
+      ...e,
+      ...(attachments?.length ? { attachments: [...attachments, ...(e.attachments ?? [])] } : {}),
+      context: [...(e.context ?? []), ...entries],
+    })
     // Went only if every entry entered: a hook beneath may drop the prompt or strip what it carries. A result that names
     // no context at all says nothing of it, and is taken as gone.
     const context = 'drop' in entered ? undefined : entered.context
@@ -312,8 +317,11 @@ function pieces(text: string): string[] {
 }
 
 // The owner's /shift, a letter still waiting with it; the letter is told once the message went.
-async function submitShift($: EngineInterface, now: { text: string; delivered: () => Promise<void> }): Promise<void> {
-  const submitted = await $.prompt.submit({ text: now.text })
+async function submitShift($: EngineInterface, now: Awaited<ReturnType<typeof shiftNow>>): Promise<void> {
+  const submitted = await $.prompt.submit({
+    text: now.text,
+    ...(now.attachments ? { attachments: now.attachments as NonNullable<Parameters<typeof $.prompt.submit>[0]['attachments']> } : {}),
+  })
   if (!('drop' in submitted)) await now.delivered()
 }
 

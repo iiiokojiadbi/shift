@@ -333,7 +333,7 @@ test("the owner's message held during a shift goes after the letter in one promp
 
 test("the owner's held message is never lost: a turn that does not start keeps it with the letter, a shift not made sends it", async () => {
   const failing = await setUp()
-  await holdOwner(failing.loop, { text: 'KEEP ME' })
+  await holdOwner(failing.loop, { text: 'KEEP ME', attachments: ['IMAGE'] })
   await afterTurn(
     failing.project,
     failing.loop,
@@ -345,6 +345,7 @@ test("the owner's held message is never lost: a turn that does not start keeps i
   )
   expect(failing.kept.state.note?.context).toContain('<letter path=')
   expect(failing.kept.state.note?.context).toEndWith('KEEP ME')
+  expect((await waitingNote(failing.loop))?.attachments).toEqual(['IMAGE'])
   expect(failing.kept.state.letting).toBeNull()
 
   // The owner stopped the turn that shifted and wrote: the shift is not made, and their message goes with that news.

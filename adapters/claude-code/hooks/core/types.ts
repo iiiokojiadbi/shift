@@ -78,6 +78,8 @@ export type Work = {
 // What a shift hands back beside the letter: the records as they are now, where new knowledge goes, the last shifts,
 // the shift's folder and the documents with remarks.
 export type HandedBack = {
+  migrationReceipt?: string
+  liveTasks?: string
   work: Work | null
   knowledge: Placement | null
   // OWNER.md from the project's root, where its settings put it.
@@ -134,7 +136,12 @@ export type PendingShift = {
 }
 
 // The letter waiting for the owner's next message, the shift folder it came from and the files that go with it.
-export type WaitNote = { context: string; dir: string; files: string[] }
+export type WaitNote = {
+  context: string
+  dir: string
+  files: string[]
+  held?: readonly { text: string; attachments?: readonly unknown[] }[]
+}
 
 // What follows a let-go: the agent goes on from the prompt, or the note waits for the owner; the row tells the owner.
 // `note`, for a continue: the same letter as a wait note, kept for the owner's next message when the turn does not start.

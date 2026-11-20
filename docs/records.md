@@ -1,5 +1,5 @@
 ---
-description: The records the agent keeps in .shift/ and why each is shaped so: the board, tasks and the archive, OWNER.md, GLOSSARY.md, SHIFT.md, knowledge, settings, shift folders and about.md, and what the mod refuses. The rules as the model reads them are in shift_guide.
+description: The records the agent keeps in .shift/ and why each is shaped so: the board, tasks and the archive, OWNER.md, GLOSSARY.md, SHIFT.md, knowledge, settings, shift history and migration, and what the mod refuses. The rules as the model reads them are in shift_guide.
 ---
 
 # shift: records
@@ -10,31 +10,30 @@ description: The records the agent keeps in .shift/ and why each is shaped so: t
 - OWNER.md, GLOSSARY.md, SHIFT.md
 - Knowledge and where it goes
 - Settings
-- Shift folders and about.md
+- Saved shifts
+- Migrating an existing project
 - What the mod refuses
 <!-- /toc -->
 
-A record is a state, not a diary. Agents write dates and append everywhere, and working files turn into long logs nobody cleans; so every record has fixed sections, a line limit and no dates, and the mod refuses a shift that breaks them. The past is kept by the shift folders, so removing a line is always safe.
+A record is a state, not a diary. Agents write dates and append everywhere, and working files turn into long logs nobody cleans; so every record has fixed sections, a line limit and no dates, and the mod refuses a shift that breaks them. Earlier versions are retained in the shift archive, so removing a line is always safe.
 
 The rules as the model reads them live in one place, `core/src/texts/doctrine.ts`: the short doctrine in the system prompt and the full `shift_guide`, read once per project: after a let-go the agent cannot tell its first shift from a later one, so the message after a shift says the guide is known. Its `records` section also explains how to choose and revise the document for a behavior change, with examples of what belongs on the board and in an owner rule.
 
 ## Layout
 
-This layout describes the current file-backed implementation. The planned storage update preserves editable project records and separates live tasks from historical shifts. For the target layout and the manual transfer of open tasks, see the [implementation roadmap](beads-roadmap.md).
+Current project records remain editable in their configured locations. Both databases belong to the project and work offline.
 
 ```
 .shift/
-├── board.md          the goal, project-wide decisions and dead ends
-├── TASKS.md          the open tasks, which are in progress, and their links — every session
-├── OWNER.md          the owner's decisions in force for the whole project — every session
-├── GLOSSARY.md       the project's own words, an article each — every session
-├── SHIFT.md          how the project keeps its knowledge, and the map of its docs — every session
-├── settings.toml     the owner's settings, optional
-├── letter.md         the letter to itself, written anew before every shift
-├── knowledge/        traps, lessons, runbook, facts — read on demand
-├── tasks/<name>/     task.md — what the task is, its decisions and dead ends; track.md — its tracker; notes/ — notes on its items
-├── archive/          finished and dropped tasks; index.md — one line each
-└── shifts/<UTC>/     about.md, letter.md, summary.md and a snapshot of the records
+├── board.md          current goal, cross-task decisions and dead ends
+├── OWNER.md          the owner's standing decisions
+├── GLOSSARY.md       project terminology
+├── SHIFT.md          knowledge rules and documentation map
+├── settings.toml     optional project settings
+├── letter.md         the working letter
+├── knowledge/        traps, lessons, runbook and facts
+├── beads/            private task graph, history and runtime profile
+└── history.db        shift manifests and shared record contents
 ```
 
 The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a snapshot and the setup's tree go by that one list. The settings may move OWNER.md, GLOSSARY.md and SHIFT.md; every text that names them passes through `atPlaces`.
@@ -43,18 +42,11 @@ The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a sn
 
 The private task runtime stores a new task as a Beads issue. `task_open` accepts labels, an optional epic parent, blockers and initial items. The supplied name becomes a stable `shift-<name>` ID. In-progress work is assigned to the calling chat. Use `status: open` for unclaimed work. `task_query` lists ready work, filters by label, shows the current card or reads comments and issue history. A card includes its open items, recent closures and comment count.
 
-`task_manage` claims, releases, takes over or reopens a task, edits its card and labels, adjusts blockers, or adds a comment. Another chat can comment on claimed work. `task_track` applies a batch of item changes in one issue update. A private write lock serializes the revision check with the mutation across processes. A concurrent change asks the caller to reread. Closing work preserves its graph and history. The file layouts below describe legacy tasks during the transition.
+`task_manage` claims, releases, takes over or reopens a task, edits its card and labels, adjusts blockers, or adds a comment. Another chat can comment on claimed work. `task_track` applies a batch of item changes in one issue update. A private write lock serializes the revision check with the mutation across processes. A concurrent change asks the caller to reread. Closing work preserves its graph and history.
 
-The topic of work changes, and a single board lost what was done. So each line of work is a task, split by meaning, with its own `task.md` (a title and "Goal", "Done when", "Owner decisions", "Decisions", "Dead ends") and `track.md` (items `- [status] name — note`).
+After a shift the chat receives the current cards for its claimed work, with every open item, a count of closed items, the ten most recent closures and the comment count. On reattachment the first prompt checks the current cards. A changed task or claim is delivered alongside the retained context. External comments on claimed work produce a short prompt notification. Read the conversation on demand with `task_query(view="comments")`. Use `continues` when opening distinct follow-on work. Reopen a closed task to revise it.
 
-- **TASKS.md** lists every open task, one line each with `in progress`, `deferred` or `waiting for owner`, and under a line its links: `needs` an open task it cannot finish without, `after` an archived one it stands on, `continues` an archived one it picks up. From it alone the agent knows whether it does one task, several or none, and why something waits. On the board the tasks crowded out the decisions and the links had nowhere to go.
-- **Notes.** A track item is one line; when an item or the task needs more — research, a decision worked out, evidence — it gets a note in the task's `notes/` folder: free-form beside a frontmatter `description`, linked from its item in `track.md` or from `task.md`. After a shift a task in progress shows its notes as a list with their descriptions, not whole, so the message stays short and the agent opens the one it needs. The mod refuses a note without a description, a note linked from nowhere — it would be forgotten — and a link to a note that is not there. The two halves of a note link can be written in either order. Unresolved links are checked again at the next prompt and before accepting a shift. Notes are snapshotted and archived with their task.
-- **Opening** is `task_open`: the folder, `task.md` by its sections, `track.md` with the first items and the line with its links in TASKS.md, checked together before anything is written. By hand it was four edits, and a broken one surfaced only at the shift.
-- **Statuses** are set by `task_track`, which finds an item by its id: `- [status] #<id> item — what matters`. The mod gives the id — `task_open` numbers the first items, `task_track` the next — and never reuses one in the track; a call names an item in a few characters instead of the words of its name, which cost tokens and could match several. An item without an id, or with one an earlier item took — written by hand, or before ids — is numbered on from the highest whenever `task_track` writes its track and at every shift, so the tracks a shift hands back carry an id on every item and an old project needs no step. Several items go in one call (`items`), all or none: every tool call re-reads the whole history, and a stage's end — one item closed, the next opened — at a 150K history cost a call each.
-- **Restored tracks.** Each active task shows every open item, the closed count and up to ten recent closures (done or dropped). The full track remains on disk and in snapshots. The tools stamp each new item and each transition into a closed status in the same write as its line, using a trailing HTML comment with Unix milliseconds. Reopening clears the closure time. Items with unknown closure times follow dated closures in priority, using the last lines first. Tools omit these comments from the delivered text.
-- The restored message separates the board and active task records with horizontal rules and labels each task and tracker by name. The board returns in full. The goal names the current project outcome. A decision records a choice other tasks must follow and why. A dead end records a failed attempt, the observed failure and the condition that makes it relevant. A change of scope or a closing task prompts a review of the affected lines. Earlier snapshots preserve superseded entries. Useful background follows the project's knowledge placement, including local storage in projects without shared docs.
-- **Where a decision lives:** on the board only if it outlives any one task, otherwise in the task, and it goes to the archive with it. A decision may name what it turned down, `rejected: <option> — <why>`: a weighed option is not a dead end, which is something tried.
-- **Archive:** `task_archive` moves the folder to `archive/<name>/`, adds its line to `archive/index.md`, takes it out of TASKS.md and points the links into the archive. Coming back to an archived topic is a new task with `continues`.
+The board returns in full. Keep the goal to the current project outcome. A decision records a choice other tasks must follow and its reason. A dead end records what was tried, the observed failure and the condition under which it matters. Review affected lines when scope changes or a task closes. Keep decisions specific to one task on its card.
 
 ## OWNER.md, GLOSSARY.md, SHIFT.md
 
@@ -82,12 +74,22 @@ Whether knowledge goes into the project's own docs or stays local is the owner's
 
 `.shift/` is the agent's own, with no git of its own. Whether the project's git takes it in is the owner's choice (`commit`); by default the mod adds it to the repository's local exclude file.
 
-## Shift folders and about.md
+## Saved shifts
 
-Every accepted shift gets `shifts/<UTC stamp>/` — `-2`, `-3` after it when another session took that second —: the letter, a snapshot of the records, `summary.md` (what the harness kept after the let-go) and `about.md` — the shift in brief with a strict structure: a frontmatter (`description`, `at`, `after`, `result`, `tokens`, `summary_chars`, `session`) and the sections "Done", "Dropped", "Archived", "Open", derived from the files against the previous snapshot — an item known by its `#<id>`, an archived task by its folder, so a rename or a reworded line is no new work. `about.ts` writes it and reads it back for `shift_history`, the recent shifts after a shift, and the base of the hint count after a restart — taken from the newest shift that let the history go, passing over one not made or still pending. `/unshift` picks the newest folder with a letter, whatever its outcome — its letter is the freshest state — and tells the agent the outcome when that shift did not finish. The snapshots also tell a stuck task without a date anywhere: a task whose `task.md` and `track.md` are the same through the last `STUCK_SHIFTS` snapshots is named after the shift with its status and the count — a wait for the owner that nobody answered looked the same as one just begun.
+`shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to get local matches labeled by source. `delete` removes an eligible shift. Read task revisions with `task_query(view="history")`.
+
+Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The default `history_limit` is 30. Pending, unsettled and undelivered letters remain recoverable. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.
+
+To transfer a project, stop writers and copy the whole `.shift/` directory along with any project files selected by settings. The next session reads the saved letter and the current tasks. Diverged copies have independent histories.
+
+## Migrating an existing project
+
+Until cleanup finishes, the first prompt on session start and after a shift identifies legacy records. Use `shift_migrate(action="start")` to create and verify a local backup. Recreate each current task, including deferred and waiting work, through the task tools. Check its items, status, links and evidence, then confirm its old name and stable ID. Old shifts and closed tasks stay in the backup. Projects with no open tasks can proceed straight to the new shift.
+
+Make one new shift and restore its letter. Pass its ID and restoration receipt to `shift_migrate(action="cleanup")`. Cleanup checks the backup, destinations, configured paths and durable shift before moving the old task list and directories out of use. It keeps the verified copy separate from the moved originals because an older process may still write through an open file handle. If a source changed, rerun start, verify the new generation and confirm the tasks again. After an interrupted cleanup, start restores missing roots and identifies any overlapping originals to reconcile. Repeating completed cleanup is safe. If an older client recreates legacy records after cleanup, the next migration notice identifies them. Starting again creates a separate backup for those records.
 
 ## What the mod refuses
 
-A shift is refused on: no letter or a letter section missing or empty; a missing section or a line limit passed in any record; a date (a real day of a real month, never a version) in the board, TASKS.md, a task, OWNER.md, the glossary or knowledge — the letter and SHIFT.md are not checked; an unknown status; TASKS.md and the task folders out of step, a link to nothing, tasks needing each other in a circle; a knowledge file of no kind or without its entry fields; a broken `settings.toml`; `.shift/` not kept out of git when it should be; nothing changed since the last shift that was not refused at its let-go (one `not shifted` left the history whole, so the same records may shift again). A refusal names what to fix; the full list is in `shift_guide`. `shift_setup` runs the same checks, all but "nothing changed", on the records as they are, so a rule added in a newer version or a record broken before the mod looked shows before the shift.
+The editable records are checked before a shift. The following task-folder checks apply while using the legacy layout. A shift is refused on: no letter or a letter section missing or empty; a missing section or a line limit passed in any record; a date (a real day of a real month, never a version) in the board, TASKS.md, a task, OWNER.md, the glossary or knowledge — the letter and SHIFT.md are not checked; an unknown status; TASKS.md and the task folders out of step, a link to nothing, tasks needing each other in a circle; a knowledge file of no kind or without its entry fields; a broken `settings.toml`; `.shift/` not kept out of git when it should be; nothing changed since the last shift that was not refused at its let-go (one `not shifted` left the history whole, so the same records may shift again). A refusal names what to fix; the full list is in `shift_guide`. `shift_setup` runs the same checks, all but "nothing changed", on the records as they are, so a rule added in a newer version or a record broken before the mod looked shows before the shift.
 
 The mod also looks at the records around every tool the agent runs, by each file's time and size from one listing per folder — no file is read unless its stamp moved, and then its text's fingerprint decides, so a file rewritten with the same text, or edited and put back, is no change. A change made while the agent's tool ran is the agent's own: it is checked by the checks of that file alone and told once in that tool's result only when broken. A change made between its tools — the owner's hand, another session — is named in the next result, broken or not, so the agent reads it before writing over it. While another tool runs, a change is not attributed: it may be that tool's. The mod's own tools are only remembered. A record written by hand used to break silently and surface only at the shift, hundreds of K later. Checks across files stay the shift's alone — another record broken, nothing changed — so a record half written in two steps is told once, not refused.

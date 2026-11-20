@@ -125,7 +125,7 @@ const plugin: Definition = {
     let stopped = false
 
     // A session's state, its waiting letter read back from the plugin's storage the first time: it outlives a restart.
-    async function state(sessionID: string, project: () => Promise<Project> = once()): Promise<Session> {
+    async function state(sessionID: string, project: () => Promise<Project> = once(sessionID)): Promise<Session> {
       const known = sessions.get(sessionID)
       if (known !== undefined) return known
       const note = ((await ctx.storage.get(waitKey(sessionID))) ?? null) as WaitNote | null
@@ -142,7 +142,7 @@ const plugin: Definition = {
         updating: Promise.resolve(),
         prompting: Promise.resolve(),
         gauge: FRESH_GAUGE,
-        looks: { ...FRESH_LOOKS, ...saved?.checkpoint },
+        looks: { ...FRESH_LOOKS, ...saved?.checkpoint, refreshClaims: !!saved?.block },
         fill: undefined,
         busy: false,
         hold: undefined,
@@ -222,15 +222,15 @@ const plugin: Definition = {
     }
 
     // A project loaded once for the hook at hand, and only when something asks for it.
-    function once(): () => Promise<Project> {
+    function once(actor?: string): () => Promise<Project> {
       let loading: Promise<Project> | undefined
       return () => {
-        loading ??= projectAt(root)
+        loading ??= projectAt(root, actor)
         return loading
       }
     }
 
-    function courierOf(sessionID: string, project: () => Promise<Project> = once()): Courier {
+    function courierOf(sessionID: string, project: () => Promise<Project> = once(sessionID)): Courier {
       return {
         loop: loopOf(sessionID),
         gauge: keeperOf(sessionID, project),
@@ -253,7 +253,7 @@ const plugin: Definition = {
     }
 
     // The gauge in the plugin's memory; the history and the base read from the session.
-    function keeperOf(sessionID: string, project: () => Promise<Project> = once()): GaugeKeeper {
+    function keeperOf(sessionID: string, project: () => Promise<Project> = once(sessionID)): GaugeKeeper {
       return {
         read: async () => (await state(sessionID)).gauge,
         update: async change => {
@@ -327,7 +327,7 @@ const plugin: Definition = {
       const session = await state(event.sessionID)
       for (const row of session.rows.splice(0)) await tell(event.sessionID, row.text, row.level)
       if (session.block === undefined) {
-        const project = await projectAt(root)
+        const project = await projectAt(root, event.sessionID)
         if (project.settings.enabled && !(await staleLayout(project))) await refreshDocs(project, { tocs: false })
         const files = await sessionFiles(project, { refresh: false })
         session.block = { doctrine: sessionDoctrine(project.settings).doctrine, files: renderSessionFiles(files) }
@@ -355,7 +355,7 @@ const plugin: Definition = {
     // While a shift is under way the owner's message waits here, before it enters the session: entered, it would run
     // before the shift's message, which then takes it as a note and goes first.
     await ctx.session.hook('prompt', async event => {
-      const project = once()
+      const project = once(event.sessionID)
       if (await apart(event.sessionID, project)) return
       const { sessionID } = event
       const session = await state(sessionID)
@@ -437,7 +437,7 @@ const plugin: Definition = {
             session.busy = true
             const run = session.runs
             const done = await tool.run(input as Record<string, unknown>, {
-              project: () => projectAt(root),
+              project: () => projectAt(root, call.sessionID),
               sessionId: async () => call.sessionID,
               now: async () => Date.now(),
               subagent: await child(call.sessionID),
@@ -451,7 +451,7 @@ const plugin: Definition = {
             // A shift accepted after its run ended — interrupted while it was written — is not made, never one of a later
             // turn.
             if (tool.name === TOOL && (!session.busy || session.runs !== run))
-              void afterTurn(await projectAt(root), loopOf(call.sessionID), letGoOf(call.sessionID), true)
+              void afterTurn(await projectAt(root, call.sessionID), loopOf(call.sessionID), letGoOf(call.sessionID), true)
 
             return { content: done.result }
           },
@@ -465,7 +465,7 @@ const plugin: Definition = {
         name: SHIFT_COMMAND,
         description: SHIFT_NOW_DESCRIPTION,
         execute: async ({ sessionID, prompt }) => {
-          const now = await shiftNow(loopOf(sessionID), prompt.text.trim())
+          const now = await shiftNow(loopOf(sessionID), prompt.text.trim(), await projectAt(root, sessionID))
           await ctx.session.synthetic({ sessionID, text: now.text, description: `/${SHIFT_COMMAND}`, delivery: 'queue' })
           await now.delivered()
         },
@@ -475,12 +475,12 @@ const plugin: Definition = {
         name: RESUME_COMMAND,
         description: RESUME_DESCRIPTION,
         execute: async ({ sessionID, prompt }) => {
-          const resumed = await resumeShift(await projectAt(root))
+          const resumed = await resumeShift(await projectAt(root, sessionID))
           const words = prompt.text.trim()
           if (resumed.prompt === undefined) return tell(sessionID, resumed.text, 'info')
           await ctx.session.synthetic({ sessionID, text: resumed.prompt, description: resumed.text, resume: words === '' })
           // The newest letter went: one waiting for the owner's message is not told again.
-          await dropWaiting(loopOf(sessionID))
+          await dropWaiting(loopOf(sessionID), await projectAt(root, sessionID), resumed.waiting)
           if (words !== '') await ctx.session.prompt({ sessionID, text: words })
         },
       })
@@ -488,7 +488,7 @@ const plugin: Definition = {
       commands.add({
         name: TASKS_COMMAND,
         description: TASKS_DESCRIPTION,
-        execute: async ({ sessionID }) => tell(sessionID, await tasksView(await projectAt(root)), 'info'),
+        execute: async ({ sessionID }) => tell(sessionID, await tasksView(await projectAt(root, sessionID)), 'info'),
       })
     })
 
@@ -516,7 +516,7 @@ const plugin: Definition = {
           session.gauge = letGoGauge(data.reason === 'auto')
           session.fill = undefined
           session.block = undefined
-          session.looks = { ...session.looks, map: undefined, mapNotes: [] }
+          session.looks = { ...session.looks, map: undefined, mapNotes: [], migrationChecked: false }
           await saveContext(data.sessionID, session)
           if (data.reason !== 'auto') session.letGo?.({ text: data.text ?? '' })
           return
@@ -536,7 +536,7 @@ const plugin: Definition = {
         case 'session.execution.failed':
         case 'session.execution.interrupted': {
           session.busy = false
-          const project = once()
+          const project = once(data.sessionID)
           await runEnded(courierOf(data.sessionID, project))
           if (session.loop.pending === null) return
           const aborted = event.type === 'session.execution.interrupted'

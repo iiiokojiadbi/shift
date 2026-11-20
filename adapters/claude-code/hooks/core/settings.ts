@@ -10,6 +10,7 @@ export type Settings = {
   // Where knowledge goes; null until the owner said, and then it stays in the records' knowledge folder.
   knowledge: Placement | null
   // true lets the project's git take the records in; false keeps them out, the mod excludes them itself.
+  historyLimit: number
   commit: boolean
   // Where the files loaded into every session live, relative to the project's root; `always` are the project's own
   // files the owner wants whole in every session too.
@@ -35,6 +36,7 @@ export type Placement = (typeof PLACEMENTS)[number]
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
   knowledge: null,
+  historyLimit: 30,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
   docs: {
@@ -65,6 +67,13 @@ type Key = { key: string; since: string; kind: keyof typeof KINDS; at: [keyof Se
 
 // Every key, so an agent after an update sees what is new.
 export const SETTING_KEYS: readonly Key[] = [
+  {
+    key: 'history_limit',
+    since: 'storage roadmap',
+    kind: 'limit',
+    at: ['historyLimit'],
+    about: 'completed shifts to retain; pending letters are protected',
+  },
   {
     key: 'enabled',
     since: '0.2.9',

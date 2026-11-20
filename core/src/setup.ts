@@ -4,9 +4,10 @@ import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS, TASK_LIST } from './layout'
 import { formatK } from './markdown'
 import type { Project } from './project'
 import { checkWork } from './records'
+import { usesNewStorage } from './saved'
 import { DEFAULT_SETTINGS, SETTING_KEYS, settingValue } from './settings'
 import { readRecords } from './store'
-import { doctrine, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
+import { doctrine, GRAPH_LAYOUT, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
 import { fileBlock } from './texts/prompts'
 import { shownTools } from './tools'
 
@@ -86,7 +87,7 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     `## Files`,
     '',
-    SETUP_LAYOUT,
+    (await usesNewStorage(project)) ? GRAPH_LAYOUT : SETUP_LAYOUT,
     ...(moved.length === 0 ? [] : ['', `Moved by the settings: ${moved.join('; ')}.`]),
     '',
     atPlaces(SETUP_MIGRATION, settings.files),

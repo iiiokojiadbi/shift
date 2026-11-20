@@ -10,9 +10,9 @@ description: The project's map and the rules for every change: what shift is, wh
 - Rules for every change
 <!-- /toc -->
 
-An agent decides by itself when to **shift**: at a stage boundary it updates its work board and task folders, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and active tasks back with all open items and their recent closures and continues from where it stopped. The agent does not change — only what is in front of it does.
+An agent decides by itself when to **shift**: at a stage boundary it updates its board and current tasks, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and active tasks back with all open items and their recent closures and continues from where it stopped. The agent does not change — only what is in front of it does.
 
-The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, every task in its own folder, finished tasks in an archive with an index.
+The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, a private Beads task graph and an independent archive for shift records.
 
 Harnesses: Claude Code (first, done as a mod), pi (an extension) and opencode (a plugin), the last two from one npm package. Codex uses an installable marketplace plugin with session hooks and MCP tools over its local app server.
 
@@ -44,6 +44,8 @@ core/                      shared logic, pure TypeScript, no harness imports —
   src/hint.ts              when to hint, the gauge over a port, shift_status
   src/delivery.ts          every note to the agent: the two slots, a tool's result and the next prompt, and the owner's rows
   src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files, the records changed around a tool
+  src/taskgraph.ts         task cards, claims, items, dependencies and comments
+  src/saved.ts migration.ts    history operations and legacy transfer over the bundled runtime
   src/about.ts             about.md: written and read back by one module
   src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks
   src/paths.ts             paths: dirname, basename, join, normalize, from and to the root, inside the project
@@ -81,7 +83,7 @@ CHANGELOG.md               for people: what changed in each release, one entry p
 lefthook.yml  biome.json  package.json  LICENSE
 ```
 
-`.shift/` is the agent's own records for this project (board, owner decisions, knowledge, tasks, archive, shifts). It is local and never committed.
+`.shift/` is the agent's own records for this project (board, owner decisions, knowledge, private task graph and shift history). It is local and never committed.
 
 ## Rules for every change
 

@@ -42,6 +42,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
   const saved: unknown[] = []
   const tools = new Map<string, Registered>()
   const handlers = new Map<string, Handler>()
+  const commands = new Map<string, Handler>()
   const notes: string[] = []
   const sent: string[] = []
   let active = ['read', 'bash']
@@ -50,7 +51,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
       tools.set(tool.name, tool)
       active.push(tool.name)
     },
-    registerCommand: () => {},
+    registerCommand: (name: string, command: { handler: Handler }) => commands.set(name, command.handler),
     on: (name: string, handler: Handler) => handlers.set(name, handler),
     getActiveTools: () => active,
     setActiveTools: (names: string[]) => {
@@ -63,6 +64,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
   shift(pi as never)
   const ctx = {
     cwd: root,
+    isIdle: () => true,
     hasUI: false,
     ui: { notify: (text: string) => notes.push(text) },
     sessionManager: {
@@ -85,7 +87,17 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
   const call = async (name: string, params: Record<string, unknown> = {}) =>
     (await tools.get(name)?.execute('1', params, undefined, undefined, ctx))?.content[0]?.text
 
-  return { tools, notes, sent, on, call, saved, active: () => active }
+  return {
+    tools,
+    notes,
+    sent,
+    on,
+    call,
+    saved,
+    api: pi,
+    command: (name: string, args = '') => commands.get(name)?.(args, ctx),
+    active: () => active,
+  }
 }
 
 test('a project without docs shows no docs tools, neither as tools nor in the doctrine; the tools run over the records', async () => {
@@ -241,7 +253,24 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   const told = load(await project(records), 200_000, () => [wait(note), wait(null), { type: 'custom_message', customType: 'shift' }])
   await told.on('session_start')
   await told.on('input', { text: 'hi', source: 'interactive' })
+  const startup = JSON.stringify(await told.on('before_agent_start', run()))
+  expect(startup).toContain('Legacy records need migration')
+  expect(startup).not.toContain('THE LETTER')
   expect(await told.on('before_agent_start', run())).toBeUndefined()
+})
+
+test('a rejected shift command keeps the waiting letter for the next owner input', async () => {
+  const root = await project({ '.shift/TASKS.md': 'none' })
+  const note = { context: 'KEEP THIS LETTER', dir: 'legacy', files: ['letter.md'] }
+  const pi = load(root, 200_000, () => [{ type: 'custom', customType: 'shift:wait', data: { note } }])
+  await pi.on('session_start')
+  pi.api.sendUserMessage = () => {
+    throw new Error('queue unavailable')
+  }
+  await expect(Promise.resolve(pi.command('shift'))).rejects.toThrow('queue unavailable')
+  await pi.on('input', { text: 'back', source: 'interactive' })
+  const prompt = { systemPromptOptions: { sections: {}, contextFiles: [] }, messageType: 'user' }
+  expect(JSON.stringify(await pi.on('before_agent_start', prompt))).toContain(note.context)
 })
 
 test('branch checkpoints keep a stable map for two observers, a resumed observer and a fresh stretch', async () => {

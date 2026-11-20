@@ -59,7 +59,7 @@ export function renderSummary(messages: readonly { role: string; text: string }[
 }
 
 export function renderHistory(entries: HistoryEntry[], total: number): string {
-  if (entries.length === 0) return `No shifts in this project yet: ${SHIFTS}/ is empty.`
+  if (entries.length === 0) return 'No shifts in this project yet.'
 
   const blocks = entries.map((entry, index) => {
     if (entry.about === null) return `### ${entry.name}\n\nNo about.md.`
@@ -76,7 +76,9 @@ export function renderHistory(entries: HistoryEntry[], total: number): string {
 
     return lines.join('\n')
   })
-  const head = `Shifts, oldest first: ${entries.length} of ${total}. Folders — ${SHIFTS}/<name>/.`
+  const head = entries[0]?.name.startsWith('s-')
+    ? `Saved shifts, oldest first: ${entries.length} of ${total}.`
+    : `Shifts, oldest first: ${entries.length} of ${total}. Folders — ${SHIFTS}/<name>/.`
 
   return [head, ...blocks].join('\n\n')
 }

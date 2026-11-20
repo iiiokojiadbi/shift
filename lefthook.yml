@@ -7,6 +7,9 @@ output:
 pre-commit:
   parallel: true
   jobs:
+    - name: native storage
+      glob: "{runtime/beads/**,scripts/test-beads.ts}"
+      run: bun run test:beads
     - name: core copies
       glob: "{core/src/**,core/test/data.ts,adapters/*/hooks/core/**,adapters/npm/core/**,adapters/claude-code/tests/data.ts,scripts/sync-core.ts}"
       run: bun run sync-core --staged

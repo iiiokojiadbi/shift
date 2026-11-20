@@ -155,11 +155,11 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled — fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -264,19 +264,21 @@ How the mod is set up in this project — the settings, the files of the session
 
 `
 
+const DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
+
+1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
+2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
+3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
+4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
+5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`
+
 export const GUIDE_RECORDS = `## What goes where
 
 ${PLACES}
 
 ## Writing project documentation during work
 
-When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
-
-1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
-2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
-3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
-4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
-5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.
+${DOC_WRITING}
 
 ## Board — \`${BOARD}\`
 
@@ -320,6 +322,33 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Review board entries affected by the closed task. Keep only the choices and failed approaches other tasks still need.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
+
+export const GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`
+
+const GRAPH_TASKS = `Use task_query(view="ready") to find available work and view="mine" for your claims. Open a task with a stable name, goal, done_when, about and optional initial items. A task opened in progress belongs to this chat. Open an epic with kind="epic"; assign a child's parent to group it. An explicit needs or block link determines execution order. Use task_manage to claim, release, take over, edit, label or comment. A stale revision asks you to reread the card. Batch item changes with task_track using short numeric IDs. Keep task decisions and evidence on the card. Archive finished or dropped work with a reason. Reopen the same task before editing it. Link distinct follow-on work with continues. Read closed work and its history through task_query.`
+
+export const GRAPH_GUIDE_RECORDS = [
+  GRAPH_LAYOUT,
+  GRAPH_TASKS,
+  BOARD_RULES,
+  OWNER_RULES,
+  GLOSSARY_RULES,
+  KNOWLEDGE_RULES,
+  SHIFT_RULES,
+  DOC_WRITING,
+].join('\n\n')
+
+export const GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
+- Where I am: what you were doing and what you learned.
+- Next: the concrete work to resume and how to check it.
+- Unverified: what still needs evidence.
+- Hold: reasoning and details to carry through the shift.
+
+Call shift with the letter path, a single-line about (up to ${ABOUT_MAX} characters) and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
+
+On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`
 
 export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`
 

@@ -30,6 +30,10 @@ export type MapPrints = { text: string; map: Record<string, string>; notices: st
 
 export type Looks = {
   seen: Record<string, string> | null
+  refreshClaims?: boolean
+  claimDigest?: number
+  migrationChecked?: boolean
+  comments?: Record<string, number>
   running: number
   map?: MapPrints
   mapNotes?: string[]
@@ -44,7 +48,12 @@ export type HeldMessage = { text: string; attachments?: readonly unknown[] }
 export type LetGo = { heard: boolean; held?: HeldMessage[] }
 
 // The letter waiting for the owner's next message, and the shift folder it came from.
-export type WaitNote = { context: string; dir: string; files: string[] }
+export type WaitNote = {
+  context: string
+  dir: string
+  files: string[]
+  held?: readonly { text: string; attachments?: readonly unknown[] }[]
+}
 
 // What the engine's compaction gave back while a shift let go: its messages and the fills around it, as the compact
 // hook sees them before the shift's message is appended.

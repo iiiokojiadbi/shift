@@ -349,7 +349,9 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   await $.prompt.submit({ text: 'owner speaks', origin: { kind: 'composer' }, wait: false })
   await $.prompt.submit({ text: 'owner again', origin: { kind: 'composer' }, wait: false })
 
-  expect(contexts[0] ?? []).toEqual([])
+  expect(contexts[0]).toEqual([expect.stringContaining('Legacy records need migration')])
+  expect(String(contexts[0])).not.toContain('<letter')
+  expect(String(contexts[1])).not.toContain('Legacy records need migration')
   expect(String(contexts[1])).toContain('fixing tests')
   expect(String(contexts[1])).toMatch(/^<shift folder="[^"]+\/">/)
   expect(String(contexts[1])).toContain('<letter path=')
@@ -367,6 +369,7 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   expect(logs).toEqual([
     expect.stringContaining('waiting for you, the letter goes with your next message'),
     'entered: a notification',
+    expect.stringContaining('Legacy records need migration'),
     'entered: owner speaks',
     expect.stringContaining('went with your message: letter.md, board.md, tasks/tests/, knowledge/ (the map) — '),
     'entered: owner again',
@@ -534,7 +537,10 @@ test('a Write the engine held for review wrote nothing, so no document follows i
   const held = await $.tool.call({ tool: 'Write', file_path: '/proj/docs/a.md', content: '# A\n\n## One\n' } as never)
   expect(held.context).toBeUndefined()
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
-  expect(contexts[0]).toBeUndefined()
+  expect(contexts[0]).toEqual([expect.stringContaining('Legacy records need migration')])
+  expect(String(contexts[0])).not.toContain('docs/a.md')
+  await $.prompt.submit({ text: 'again', origin: { kind: 'composer' }, wait: false })
+  expect(contexts[1] ?? []).toEqual([])
   expect(files.get('/proj/docs/a.md')).not.toContain('<!-- toc -->')
 })
 

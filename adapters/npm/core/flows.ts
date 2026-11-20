@@ -25,11 +25,14 @@ import {
   TRACK_TOOL,
   taskFile,
 } from './layout'
-import { formatItem, formatK, itemsOf, sections, trackTimes } from './markdown'
+import { formatItem, formatK, frontmatter, itemsOf, sections, trackTimes } from './markdown'
+import { migrationReceipt, needsMigrationShift } from './migration'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
+import { archiveCall, isSaved, readSaved, savedEntries, savedFiles, usesNewStorage } from './saved'
 import { lastShifts, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
+import { graphGeneration, graphPath, queryGraph } from './taskgraph'
 import { archiveInList, checkTaskList, formatTaskLine, parseTaskList, withTask } from './tasks'
 import {
   ACCEPTED,
@@ -195,10 +198,11 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if (letterProblem !== null) return { deny: letterProblem }
 
   if (settings.enabled) await refreshDocs(project)
-  await numberTracks(project)
+  const modern = await usesNewStorage(project)
+  if (!modern) await numberTracks(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
-  const previousDir = await lastMadeShift(project)
+  const previousDir = modern ? null : await lastMadeShift(project)
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/${NAMES.index}`)
   const workProblem = checkWork(work, previous?.work ?? null, project)
   if (workProblem !== null) return { deny: workProblem }
@@ -206,7 +210,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if ('deny' in kept) return kept
 
   const index = await store.read(`${root}/${INDEX}`)
-  const dir = await freeShiftDir(project, shiftDir(root, call.at))
+  const dir = modern ? '' : await freeShiftDir(project, shiftDir(root, call.at))
   const shift: PendingShift = {
     after: input.after,
     letter,
@@ -217,18 +221,37 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
     sessionId: call.sessionId,
     about: input.about,
     at: call.at,
-    segment: segment({ work, index }, previous),
-    focus: focusOf(work),
+    segment: modern ? { done: [], dropped: [], archived: [], open: [] } : segment({ work, index }, previous),
+    focus: modern ? [] : focusOf(work),
   }
   // Written first, it takes the folder as soon as the store can: no harness's file API creates a file only if it is not
   // there, so two sessions accepting in the same second may still meet. Rewritten with the outcome once the turn ends;
   // `pending` stays if the session dies first.
-  await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }))
-  await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
+  const about = renderAbout({ ...shift, result: OUTCOME.pending })
+  if (modern) {
+    const files = savedFiles(work, letter, project.settingsText)
+    const entries = await savedEntries(project)
+    const previous = entries.toReversed().find(e => e.state === 'complete' && readAbout(e.about).session === call.sessionId)
+    const compare = previous && !(await needsMigrationShift(project, previous.id)) ? previous.id : undefined
+    shift.dir = await archiveCall<string>(project, {
+      action: 'begin',
+      key: JSON.stringify([call.sessionId, call.at]),
+      files,
+      about,
+      compare,
+      generation: await graphGeneration(project),
+    })
+    if (!shift.dir) return { deny: 'Nothing changed in the records since the last shift. Record progress before shifting.' }
+    const earlier = entries.find(e => e.id === shift.dir)
+    if (earlier) shift.at = Date.parse(frontmatter(earlier.about).get('at') ?? '')
+  } else {
+    await store.write(`${dir}/${NAMES.about}`, about)
+    await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText })
+  }
 
   // Knowledge is rarely written: a stretch that added none is asked once, while its history is still whole.
   const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work)
-  const accepted = ACCEPTED(dir, learned, input.after)
+  const accepted = ACCEPTED(shift.dir, learned, input.after)
 
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
 }
@@ -346,10 +369,24 @@ export async function shiftHistory(project: Project, count: number): Promise<str
 // The last shift picked up in a session that has not seen it: the text for the owner, and the prompt when there is one.
 // The newest shift with a letter, whatever became of it: its letter is the freshest state. A folder whose letter was
 // never written — a session that died while accepting — is passed over. Its outcome goes with it unless it shifted.
-export async function resumeShift(project: Project): Promise<{ text: string; prompt?: string }> {
+export async function resumeShift(project: Project, actor = project.actor): Promise<{ text: string; prompt?: string; waiting?: string }> {
   const { store, root } = project
   const names = await shiftNames(project)
-  if (names.length === 0) return { text: `No shifts in this project: ${SHIFTS}/ is empty.` }
+  const entries = await savedEntries(project)
+  const newest = entries.at(-1)
+  if (newest) {
+    const waiting = project.actor ? await archiveCall<string>(project, { action: 'waiting', session: project.actor }) : ''
+    const saved = await readSaved(project, newest.id, NAMES.letter)
+    const letter = saved.files[NAMES.letter]
+    if (letter === undefined) throw new Error(`Missing letter in saved shift ${saved.id}.`)
+    const about = readAbout(saved.about)
+    return {
+      text: `Picking up shift ${saved.id}.`,
+      ...(waiting ? { waiting } : {}),
+      prompt: resumePrompt(letter, await handBack(project, saved.id, actor), about.shifted ? null : about.result),
+    }
+  }
+  if (names.length === 0) return { text: 'No shifts in this project yet.' }
   for (const name of names.toReversed()) {
     const dir = `${root}/${SHIFTS}/${name}`
     const letter = await store.read(`${dir}/${NAMES.letter}`)
@@ -368,7 +405,7 @@ export async function resumeShift(project: Project): Promise<{ text: string; pro
 
 // The records, the last shifts and the documents' remarks as they are now, for the message after a shift. A harness
 // that carries the message into the replacement history reads them before the let-go, not after it.
-export async function handBack(project: Project, dir: string): Promise<HandedBack> {
+export async function handBack(project: Project, dir: string, actor?: string): Promise<HandedBack> {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
@@ -376,7 +413,8 @@ export async function handBack(project: Project, dir: string): Promise<HandedBac
     recent: await recentShifts(project),
     dir,
     remarks: await docsReport(project),
-    stuck: await stuckTasks(project),
+    stuck: isSaved(dir) ? [] : await stuckTasks(project),
+    ...(isSaved(dir) ? { liveTasks: await liveTasks(project, actor), migrationReceipt: await migrationReceipt(project, dir) } : {}),
   }
 }
 
@@ -428,7 +466,15 @@ export async function shiftUnsettled(
 // A failure's about.md, written before the row is told; a failed write still leaves the row.
 async function recordFailure(project: Project, shift: PendingShift, about: string, row: string): Promise<string> {
   try {
-    await project.store.write(`${shift.dir}/${NAMES.about}`, about)
+    if (isSaved(shift.dir))
+      await archiveCall(project, {
+        action: 'finish',
+        id: shift.dir,
+        state: readAbout(about).result?.startsWith('not shifted') ? 'failed' : 'unsettled',
+        about,
+        limit: project.settings.historyLimit,
+      })
+    else await project.store.write(`${shift.dir}/${NAMES.about}`, about)
 
     return row
   } catch (error) {
@@ -451,14 +497,24 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
   const { store } = project
   const { shift, before, after } = letGo
   const summary = renderSummary(letGo.messages)
-  await store.write(`${shift.dir}/${NAMES.summary}`, summary)
+  if (!isSaved(shift.dir)) await store.write(`${shift.dir}/${NAMES.summary}`, summary)
   const shrank = `${before === undefined ? '?' : formatK(before)} → ${after === undefined ? '?' : formatK(after)}`
-  const outcome = (result: string) =>
-    store.write(
-      `${shift.dir}/${NAMES.about}`,
-      renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }),
-    )
-  const handed = back ?? (await handBack(project, shift.dir))
+  const outcome = (result: string) => {
+    const about = renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result })
+    return isSaved(shift.dir)
+      ? archiveCall(project, {
+          action: 'finish',
+          id: shift.dir,
+          state: 'complete',
+          session: shift.sessionId,
+          wait: shift.after === 'wait',
+          about,
+          files: { [NAMES.summary]: summary },
+          limit: project.settings.historyLimit,
+        })
+      : store.write(`${shift.dir}/${NAMES.about}`, about)
+  }
+  const handed = back ?? (await handBack(project, shift.dir, shift.sessionId))
   const name = basename(shift.dir)
 
   const files = deliveredFiles(handed.work)
@@ -469,7 +525,8 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
     return { after: 'continue', prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) }
   }
 
-  const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files }
+  const waitBack = isSaved(shift.dir) ? { ...handed, liveTasks: 'The current task cards accompany the next prompt.' } : handed
+  const note = { context: waitContext(shift.letter, waitBack), dir: shift.dir, files }
   // Publish the waiting outcome only once a harness with durable thread history has parked the letter.
   await letGo.parkWait?.(note)
   await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
@@ -480,6 +537,11 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
 // The fill the stretch started from, if the last shift that let the history go was this session's: a fresh process
 // counts from there. A shift not made, or still pending, left the history as it was and is passed over.
 export async function shiftBase(project: Project, sessionId: string): Promise<number | null> {
+  const entries = await savedEntries(project)
+  if (entries.length) {
+    const last = entries.toReversed().find(e => e.state === 'complete' && readAbout(e.about).session === sessionId)
+    return last ? shiftFill(last.about, sessionId) : null
+  }
   for (const name of (await shiftNames(project)).toReversed()) {
     const about = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.about}`)
     if (about === null) continue
@@ -513,14 +575,30 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md and TASKS.md, with
 // paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
-export async function sessionFiles(project: Project, { refresh = true }: { refresh?: boolean } = {}): Promise<SessionFile[]> {
+export async function sessionFiles(
+  project: Project,
+  { refresh = true, includeClaims = true }: { refresh?: boolean; includeClaims?: boolean } = {},
+): Promise<SessionFile[]> {
   const { store, root, settings } = project
   if (!settings.enabled || (await staleLayout(project)) !== null) return []
   if (refresh) await refreshDocs(project)
-  const paths = [...new Set([settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always])]
-  const files = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
-
-  return files.filter((file): file is SessionFile => file.text !== null)
+  const modern = await usesNewStorage(project)
+  const paths = [
+    ...new Set([
+      settings.files.shift,
+      settings.files.owner,
+      settings.files.glossary,
+      ...(modern ? [] : [TASK_LIST]),
+      ...settings.files.always,
+    ]),
+  ]
+  const loaded = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
+  const files = loaded.filter((file): file is SessionFile => file.text !== null)
+  if (includeClaims && modern && project.actor && (await store.exists(graphPath(project)))) {
+    const list = await queryGraph(project, { view: 'mine' }, project.actor)
+    files.push({ path: 'beads:claimed', text: list })
+  }
+  return files
 }
 
 // Records the mod cannot work on yet: an older name of its folder, or the folder the shift skill left. Then the mod writes
@@ -540,7 +618,12 @@ export async function staleLayout({ store, root }: Project): Promise<string | nu
 
 // What /shift-tasks shows: the open tasks as listed, with their items' count, and the items not closed of those in
 // progress. Read only; a list the shift would refuse is shown as far as it parses.
-export async function tasksView(project: Project): Promise<string> {
+export async function liveTasks(project: Project, actor = project.actor): Promise<string> {
+  if (!actor || !(await project.store.exists(graphPath(project)))) return 'No tasks claimed by this chat.'
+  return queryGraph(project, { view: 'cards' }, actor)
+}
+export async function tasksView(project: Project, actor = project.actor): Promise<string> {
+  if (await usesNewStorage(project)) return actor ? liveTasks(project, actor) : queryGraph(project, { view: 'open' }, '')
   const { store, root } = project
   const parsed = parseTaskList((await store.read(`${root}/${TASK_LIST}`)) ?? '')
   if (typeof parsed === 'string') return `${TASK_LIST}: ${parsed}`

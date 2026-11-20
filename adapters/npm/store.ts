@@ -13,7 +13,7 @@ let writes = 0
 // The core's store over node's files and processes: pi runs an extension in its own node process, opencode a plugin
 // in its server under Bun.
 export const nodeStore: Store = {
-  beads: async (root, args) => {
+  beads: async (root, args, stdin) => {
     const executable = beadsExecutable(process.platform, process.arch)
     if (!executable) throw new Error(`No embedded Beads build for ${process.platform}/${process.arch}.`)
     let path: string
@@ -29,7 +29,12 @@ export const nodeStore: Store = {
         throw new Error(`Bundled task package ${name} does not match the installed Shift version.`)
       path = resolve(dirname(native), executable)
     }
-    return (await promisify(execFile)(path, [root, ...args], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })).stdout
+    const child = promisify(execFile)(path, [root, ...args], { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 })
+    if (stdin !== undefined) {
+      child.child.stdin?.on('error', () => undefined)
+      child.child.stdin?.end(stdin)
+    }
+    return (await child).stdout
   },
   read: path => readFile(path, 'utf8').catch(() => null),
   list: async (path, kind) => {
@@ -91,8 +96,8 @@ export const nodeStore: Store = {
 }
 
 // The project at `root`, loaded once for the event or tool call at hand.
-export function projectAt(root: string): Promise<Project> {
-  return loadProject(nodeStore, root)
+export function projectAt(root: string, actor?: string): Promise<Project> {
+  return loadProject(nodeStore, root, actor)
 }
 
 // The file a write goes to: a link's target, through a chain of links, even one not there yet; a cycle of links is

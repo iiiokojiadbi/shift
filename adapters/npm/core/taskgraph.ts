@@ -132,15 +132,22 @@ export async function queryGraph(project: Project, raw: Record<string, unknown>,
     const text = await graphCommand(project, [view, taskId(raw.task), '--json'])
     return text.trim()
   }
-  if (!['mine', 'ready', 'open', 'closed'].includes(String(view)))
+  if (!['mine', 'ready', 'open', 'closed', 'cards'].includes(String(view)))
     throw new Error('Choose mine, ready, open, closed, show, comments or history.')
   const tags = labels(raw.labels)
   if (!(await project.store.exists(graphPath(project)))) return 'No tasks.'
   const args = [view === 'ready' ? 'ready' : 'list', '--json', '--brief', '--limit=0']
   if (view === 'closed') args.push('--status=closed', '--all')
-  if (view === 'mine') args.push(`--assignee=${actor}`)
+  if (view === 'mine' || view === 'cards') args.push(`--assignee=${actor}`)
   if (tags.length) args.push(`--label=${tags.join(',')}`)
   const tasks = JSON.parse(await graphCommand(project, args)) as GraphTask[]
+  if (view === 'cards') {
+    if (!tasks.length) return 'No tasks claimed by this chat.'
+    const full = JSON.parse(
+      await graphCommand(project, ['show', '--brief-deps', '--json', ...tasks.map(t => `--id=${t.id}`)]),
+    ) as GraphTask[]
+    return full.map(taskCard).join('\n\n')
+  }
   return tasks.map(line).join('\n') || 'No tasks.'
 }
 
@@ -259,4 +266,34 @@ export async function manageGraph(project: Project, raw: Record<string, unknown>
   }
   await graphCommand(project, args, actor, [task])
   return `${task.id}: ${action} completed.`
+}
+
+// A comment advances the graph generation even when the issue's updated_at is unchanged.
+export async function graphGeneration(p: Project): Promise<string> {
+  if (!(await p.store.exists(graphPath(p)))) return ''
+  const status = JSON.parse(await graphCommand(p, ['vc', 'status', '--json']))
+  if (typeof status.commit !== 'string' || !status.commit) throw new Error('Missing private graph generation.')
+  return status.commit
+}
+
+// Observe comments on claimed work. Only a changed count needs the comment bodies
+// to distinguish this chat's writes from another writer's.
+export async function commentChanges(project: Project, previous: Record<string, number> | undefined) {
+  const actor = project.actor
+  if (!actor || !(await project.store.exists(graphPath(project)))) return null
+  const tasks = JSON.parse(await graphCommand(project, ['list', `--assignee=${actor}`, '--json', '--brief', '--limit=0'])) as GraphTask[]
+  const counts: Record<string, number> = {}
+  const notes: string[] = []
+  for (const task of tasks) {
+    const count = task.comment_count ?? 0
+    counts[task.id] = count
+    const prior = previous?.[task.id]
+    if (prior === undefined || count <= prior) continue
+    const comments = JSON.parse(await graphCommand(project, ['comments', task.id, '--json'])) as { author: string }[]
+    const outside = comments.slice(prior, count).filter(c => c.author !== actor).length
+    if (outside)
+      notes.push(`${task.id}: ${outside} new external comment${outside === 1 ? '' : 's'}. Read with task_query(view="comments").`)
+  }
+  if (previous && Object.keys(previous).length === tasks.length && tasks.every(t => previous[t.id] === counts[t.id])) return null
+  return { counts, notes }
 }

@@ -4,15 +4,30 @@ import { beadsExecutable, dirname, loadProject, type Project, type Store } from 
 // The core's store over Claude Code's files and processes.
 export function claudeStore($: EngineInterface): Store {
   return {
-    beads: async (root, args) => {
+    beads: async (root, args, stdin) => {
       const windows = (await $.env.get('OS')) === 'Windows_NT'
       const [os, arch] = windows
         ? ['Windows_NT', (await $.env.get('PROCESSOR_ARCHITECTURE')) ?? '']
         : (await $.process.run(['uname', '-sm'])).stdout.trim().split(/\s+/)
       const name = beadsExecutable(os ?? '', arch ?? '')
       if (!name) throw new Error(`No embedded Beads build for ${os}/${arch}.`)
-      const run = await $.process.run([`${$.plugin.root}/vendor/${name}`, root, ...args])
+      const argv = [`${$.plugin.root}/vendor/${name}`, root, ...args]
+      if (args[0] === 'shift-history') {
+        const child = $.process.spawn({ argv, ...(stdin === undefined ? {} : { input: stdin }) })
+        const stdout: string[] = [],
+          stderr: string[] = []
+        for (;;) {
+          const piece = await child.next()
+          if (piece.done) {
+            if (piece.value.code !== 0) throw new Error(stderr.join('').trim() || 'History process failed.')
+            return stdout.join('')
+          }
+          ;(piece.value.stream === 'stdout' ? stdout : stderr).push(piece.value.text)
+        }
+      }
+      const run = await $.process.run(argv, stdin === undefined ? {} : { stdin })
       if (run.exitCode !== 0) throw new Error(run.stderr.trim() || `Beads exited with ${run.exitCode}.`)
+      if (run.isStdoutTruncated) throw new Error('Task output exceeded the host process limit. Narrow the query.')
       return run.stdout
     },
     read: path =>
@@ -53,5 +68,5 @@ export function claudeStore($: EngineInterface): Store {
 
 // The session's project, loaded once for the hook or tool call at hand.
 export async function projectOf($: EngineInterface): Promise<Project> {
-  return loadProject(claudeStore($), await $.session.root())
+  return loadProject(claudeStore($), await $.session.root(), await $.session.id())
 }

@@ -10,6 +10,7 @@ import { createInterface as createInterface3 } from "readline";
 var MOD = "shift";
 var TOOL = "shift";
 var GUIDE_TOOL = "shift_guide";
+var MIGRATE_TOOL = "shift_migrate";
 var HISTORY_TOOL = "shift_history";
 var OPEN_TOOL = "task_open";
 var MANAGE_TOOL = "task_manage";
@@ -1343,7 +1344,7 @@ ${m.text}`).join(`
 }
 function renderHistory(entries, total) {
   if (entries.length === 0)
-    return `No shifts in this project yet: ${SHIFTS}/ is empty.`;
+    return "No shifts in this project yet.";
   const blocks = entries.map((entry, index) => {
     if (entry.about === null)
       return `### ${entry.name}
@@ -1364,19 +1365,538 @@ No about.md.`;
     return lines.join(`
 `);
   });
-  const head = `Shifts, oldest first: ${entries.length} of ${total}. Folders \u2014 ${SHIFTS}/<name>/.`;
+  const head = entries[0]?.name.startsWith("s-") ? `Saved shifts, oldest first: ${entries.length} of ${total}.` : `Shifts, oldest first: ${entries.length} of ${total}. Folders \u2014 ${SHIFTS}/<name>/.`;
   return [head, ...blocks].join(`
 
 `);
 }
 
+// core/src/taskgraph.ts
+var graphPath = (project) => `${project.root}/.shift/beads/.beads/metadata.json`;
+function taskId(raw) {
+  if (typeof raw !== "string" || !NAME.test(raw))
+    throw new Error("Pass a task ID or its short name.");
+  return raw.startsWith("shift-") ? raw : `shift-${raw}`;
+}
+function labels(raw) {
+  if (raw === undefined)
+    return [];
+  if (!Array.isArray(raw) || raw.some((each) => typeof each !== "string" || !each.trim() || /[,\r\n]/.test(each)))
+    throw new Error("Pass labels as an array of nonempty names without commas.");
+  return [...new Set(raw.map((each) => each.trim()))];
+}
+async function graphCommand(project, args, actor, expected = []) {
+  if (!project.store.beads)
+    throw new Error("The private task runtime is unavailable.");
+  const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args;
+  if (!expected.length)
+    return project.store.beads(project.root, invocation);
+  const revisions = expected.map((task) => {
+    if (!task.revision)
+      throw new Error(`Missing revision for ${task.id}.`);
+    return { id: task.id, revision: task.revision };
+  });
+  return project.store.beads(project.root, ["shift-checked", JSON.stringify(revisions), ...invocation]);
+}
+async function graphTask(project, id) {
+  if (!await project.store.exists(graphPath(project)))
+    throw new Error("No task workspace yet.");
+  const rows = JSON.parse(await graphCommand(project, ["show", taskId(id), "--brief-deps", "--json"]));
+  if (rows.length !== 1 || rows[0]?.id !== taskId(id))
+    throw new Error(`No exact task ${taskId(id)}.`);
+  return rows[0];
+}
+function line(task) {
+  return `${task.id} [${task.status}] ${task.title}${task.assignee ? ` \xB7 ${task.assignee}` : ""}${task.labels?.length ? ` \xB7 ${task.labels.join(", ")}` : ""}`;
+}
+function taskCard(task) {
+  const items = task.metadata?.items ?? [];
+  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? 0) - (a.closed ?? 0) || b.id - a.id);
+  const links = task.metadata?.links ?? [];
+  return [
+    line(task),
+    task.description && `Goal: ${task.description}`,
+    task.acceptance_criteria && `Done when: ${task.acceptance_criteria}`,
+    task.design && `Decisions: ${task.design}`,
+    task.notes && `Evidence: ${task.notes}`,
+    task.metadata?.about,
+    ...(task.dependencies ?? []).map((edge) => {
+      const link = links.find((each) => taskId(each.name) === edge.id);
+      return `${link?.kind ?? edge.dependency_type}: ${edge.id} [${edge.status}] ${edge.title}${link?.why ? ` \u2014 ${link.why}` : ""}`;
+    }),
+    ...[...items.filter((item) => !CLOSED.has(item.status)), ...closed.slice(0, RECENT_CLOSED_ITEMS)].map((item) => `#${item.id} [${item.status}] ${item.name}${item.note ? ` \u2014 ${item.note}` : ""}`),
+    `${closed.length} closed items \xB7 ${task.comment_count ?? 0} comments`
+  ].filter(Boolean).join(`
+`);
+}
+async function createGraphTask(project, input, raw, actor, now) {
+  const tags = labels(raw.labels);
+  const id = taskId(input.name);
+  const kind = raw.kind ?? "task";
+  if (kind !== "task" && kind !== "epic")
+    throw new Error("kind must be task or epic.");
+  const parent = raw.parent === undefined ? null : taskId(raw.parent);
+  const names = input.items.map((each) => each.name.toLowerCase());
+  if (names.length !== new Set(names).size)
+    throw new Error("Each initial item needs a distinct name.");
+  if (!await project.store.exists(graphPath(project)))
+    await graphCommand(project, ["init", "--init-if-missing", "--non-interactive", "--skip-hooks", "--skip-agents", "--prefix", "shift"]);
+  const deps = [];
+  const expected = [];
+  for (const link of input.links) {
+    const target = await graphTask(project, link.name);
+    if (link.kind === "needs" === (target.status === "closed"))
+      throw new Error(`${link.kind}: ${target.id} is ${target.status}.`);
+    expected.push(target);
+    deps.push(`${link.kind === "needs" ? "blocked-by" : "related"}:${target.id}`);
+  }
+  if (parent) {
+    const epic = await graphTask(project, parent);
+    if (epic.issue_type !== "epic" || epic.status === "closed")
+      throw new Error(`Parent ${parent} must be an open epic.`);
+    expected.push(epic);
+    deps.push(`parent-child:${parent}`);
+  }
+  const items = input.items.map((each, i) => ({ ...each, id: i + 1, status: "open", created: now, closed: null }));
+  const status = input.status === "in progress" ? "in_progress" : input.status === "waiting for owner" ? "blocked" : input.status;
+  const args = [
+    "create",
+    `--id=${id}`,
+    `--title=${input.title}`,
+    `--description=${input.goal}`,
+    `--acceptance=${input.doneWhen}`,
+    `--type=${kind}`,
+    `--status=${status}`,
+    `--metadata=${JSON.stringify({ items, about: input.about, links: input.links })}`,
+    "--json"
+  ];
+  if (status === "in_progress")
+    args.push(`--assignee=${actor}`);
+  if (tags.length)
+    args.push(`--labels=${tags.join(",")}`);
+  if (deps.length)
+    args.push(`--deps=${deps.join(",")}`);
+  const task = JSON.parse(await graphCommand(project, args, actor, expected));
+  return `${line(task)}${items.length ? `
+${items.map((each) => `#${each.id} ${each.name}`).join(`
+`)}` : ""}`;
+}
+async function queryGraph(project, raw, actor) {
+  const view = raw.view ?? "mine";
+  if (view === "show")
+    return taskCard(await graphTask(project, taskId(raw.task)));
+  if (view === "history" || view === "comments") {
+    const text = await graphCommand(project, [view, taskId(raw.task), "--json"]);
+    return text.trim();
+  }
+  if (!["mine", "ready", "open", "closed", "cards"].includes(String(view)))
+    throw new Error("Choose mine, ready, open, closed, show, comments or history.");
+  const tags = labels(raw.labels);
+  if (!await project.store.exists(graphPath(project)))
+    return "No tasks.";
+  const args = [view === "ready" ? "ready" : "list", "--json", "--brief", "--limit=0"];
+  if (view === "closed")
+    args.push("--status=closed", "--all");
+  if (view === "mine" || view === "cards")
+    args.push(`--assignee=${actor}`);
+  if (tags.length)
+    args.push(`--label=${tags.join(",")}`);
+  const tasks = JSON.parse(await graphCommand(project, args));
+  if (view === "cards") {
+    if (!tasks.length)
+      return "No tasks claimed by this chat.";
+    const full = JSON.parse(await graphCommand(project, ["show", "--brief-deps", "--json", ...tasks.map((t) => `--id=${t.id}`)]));
+    return full.map(taskCard).join(`
+
+`);
+  }
+  return tasks.map(line).join(`
+`) || "No tasks.";
+}
+function editable(task, actor) {
+  if (task.status === "closed")
+    throw new Error(`Reopen ${task.id} before editing it.`);
+  if (task.assignee && task.assignee !== actor)
+    throw new Error(`${task.id} belongs to ${task.assignee}. Take over explicitly to edit it.`);
+}
+async function trackGraph(project, input, actor, now) {
+  const task = await graphTask(project, input.task);
+  editable(task, actor);
+  const items = (task.metadata?.items ?? []).map((each) => ({ ...each }));
+  const receipts = [];
+  let next = items.reduce((max, item) => Math.max(item.id, max), 0) + 1;
+  for (const change of input.items) {
+    let item;
+    if ("id" in change) {
+      const found = items.find((each) => each.id === change.id);
+      if (!found)
+        throw new Error(`${task.id} has no item #${change.id}. Nothing written.`);
+      item = found;
+    } else {
+      if (items.some((each) => each.name.toLowerCase() === change.item.toLowerCase()))
+        throw new Error(`Duplicate item: ${change.item}. Nothing written.`);
+      item = { id: next++, name: change.item, status: change.status, created: now, closed: null, note: null };
+      items.push(item);
+    }
+    item.status = change.status;
+    item.note = change.note ?? item.note;
+    item.closed = CLOSED.has(change.status) ? item.closed ?? now : null;
+    receipts.push(`#${item.id} [${item.status}]`);
+  }
+  const args = [
+    "update",
+    task.id,
+    `--metadata=${JSON.stringify({ ...task.metadata, items, ...input.own?.note ? { about: input.own.note } : {} })}`
+  ];
+  if (input.own) {
+    const status = input.own.status === "in progress" ? "in_progress" : input.own.status === "deferred" ? "deferred" : "blocked";
+    args.push(`--status=${status}`, `--assignee=${status === "in_progress" ? actor : ""}`);
+    receipts.push(status);
+  }
+  await graphCommand(project, args, actor, [task]);
+  return `${task.id}: ${receipts.join(", ")}`;
+}
+async function closeGraph(project, input, actor) {
+  const task = await graphTask(project, input.name);
+  editable(task, actor);
+  if (input.outcome === "done" && task.metadata?.items?.some((each) => !CLOSED.has(each.status)))
+    throw new Error("Close the remaining items first.");
+  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`], actor, [task]);
+  return `${task.id} closed (${input.outcome}).`;
+}
+async function manageGraph(project, raw, actor) {
+  const task = await graphTask(project, taskId(raw.task));
+  const action = raw.action;
+  let args;
+  if (action === "reopen") {
+    if (task.status !== "closed")
+      throw new Error(`${task.id} is already open.`);
+    args = ["reopen", task.id];
+  } else {
+    if (task.status === "closed")
+      throw new Error(`Reopen ${task.id} before editing it.`);
+    switch (action) {
+      case "comment": {
+        if (typeof raw.text !== "string" || !raw.text.trim())
+          throw new Error("Pass a nonempty comment in text.");
+        args = ["comments", "add", `--author=${actor}`, "--", task.id, raw.text];
+        break;
+      }
+      case "block":
+      case "unblock": {
+        editable(task, actor);
+        const target = await graphTask(project, taskId(raw.target));
+        if (target.id === task.id)
+          throw new Error("A task cannot block itself.");
+        if (action === "block" && target.status === "closed")
+          throw new Error(`${target.id} is already closed.`);
+        if (action === "unblock" && !task.dependencies?.some((each) => each.id === target.id && each.dependency_type === "blocks"))
+          throw new Error(`${target.id} is not an active blocker of ${task.id}.`);
+        args = ["dep", action === "block" ? "add" : "remove", task.id, target.id];
+        await graphCommand(project, args, actor, [task, target]);
+        return `${task.id}: ${action} ${target.id}.`;
+      }
+      case "takeover":
+        args = ["update", task.id, "--force", `--assignee=${actor}`, "--status=in_progress"];
+        break;
+      case "claim":
+        editable(task, actor);
+        args = ["update", task.id, "--claim"];
+        break;
+      case "release":
+        editable(task, actor);
+        args = ["update", task.id, "--assignee=", "--status=open"];
+        break;
+      case "edit": {
+        editable(task, actor);
+        args = ["update", task.id];
+        for (const [key, flag] of [
+          ["goal", "description"],
+          ["done_when", "acceptance"],
+          ["title", "title"],
+          ["decisions", "design"],
+          ["evidence", "notes"]
+        ]) {
+          const value = raw[key];
+          if (value !== undefined) {
+            if (typeof value !== "string" || !value.trim())
+              throw new Error(`${key} needs text.`);
+            args.push(`--${flag}=${value}`);
+          }
+        }
+        if (raw.labels !== undefined)
+          args.push(`--set-labels=${labels(raw.labels).join(",")}`);
+        if (args.length === 2)
+          throw new Error("Provide at least one field or labels to edit.");
+        break;
+      }
+      default:
+        throw new Error("Choose claim, takeover, release, reopen, edit or comment.");
+    }
+  }
+  await graphCommand(project, args, actor, [task]);
+  return `${task.id}: ${action} completed.`;
+}
+async function graphGeneration(p) {
+  if (!await p.store.exists(graphPath(p)))
+    return "";
+  const status = JSON.parse(await graphCommand(p, ["vc", "status", "--json"]));
+  if (typeof status.commit !== "string" || !status.commit)
+    throw new Error("Missing private graph generation.");
+  return status.commit;
+}
+async function commentChanges(project, previous) {
+  const actor = project.actor;
+  if (!actor || !await project.store.exists(graphPath(project)))
+    return null;
+  const tasks = JSON.parse(await graphCommand(project, ["list", `--assignee=${actor}`, "--json", "--brief", "--limit=0"]));
+  const counts = {};
+  const notes = [];
+  for (const task of tasks) {
+    const count = task.comment_count ?? 0;
+    counts[task.id] = count;
+    const prior = previous?.[task.id];
+    if (prior === undefined || count <= prior)
+      continue;
+    const comments = JSON.parse(await graphCommand(project, ["comments", task.id, "--json"]));
+    const outside = comments.slice(prior, count).filter((c) => c.author !== actor).length;
+    if (outside)
+      notes.push(`${task.id}: ${outside} new external comment${outside === 1 ? "" : "s"}. Read with task_query(view="comments").`);
+  }
+  if (previous && Object.keys(previous).length === tasks.length && tasks.every((t) => previous[t.id] === counts[t.id]))
+    return null;
+  return { counts, notes };
+}
+
+// core/src/saved.ts
+var ARCHIVE_DB = `${DIR}/history.db`;
+var isSaved = (id) => /^s-[a-f0-9]{16}$/.test(id);
+var hasArchive = (p) => p.store.exists(`${p.root}/${ARCHIVE_DB}`);
+async function archiveCall(p, request) {
+  if (!p.store.beads)
+    throw new Error("This adapter has no bundled history runtime.");
+  return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
+}
+async function savedEntries(p) {
+  return await hasArchive(p) ? archiveCall(p, { action: "list" }) : [];
+}
+function readSaved(p, id, file) {
+  if (!isSaved(id))
+    throw new Error("Pass a saved shift ID from shift_history.");
+  return archiveCall(p, { action: "read", id, file });
+}
+async function usesNewStorage(p) {
+  if (!p.store.beads)
+    return false;
+  if (await p.store.exists(`${p.root}/${DIR}/migration.json`))
+    return true;
+  return !await legacyExists(p);
+}
+async function legacyExists(p) {
+  const roots = [TASK_LIST, SHIFTS, TASKS, ARCHIVE];
+  return (await Promise.all(roots.map((path) => p.store.exists(`${p.root}/${path}`)))).some(Boolean);
+}
+function savedFiles(work, letter, settings) {
+  const files = { [NAMES.board]: work.board, [NAMES.letter]: letter };
+  for (const [name, text] of [
+    [NAMES.owner, work.owner],
+    [NAMES.glossary, work.glossary],
+    [NAMES.shift, work.shift],
+    [NAMES.settings, settings]
+  ]) {
+    if (text !== null)
+      files[name] = text;
+  }
+  for (const file of work.knowledge)
+    files[`${NAMES.knowledge}/${file.name}`] = file.text;
+  return files;
+}
+async function historyAction(p, raw) {
+  if (raw.action === "search") {
+    const text = typeof raw.query === "string" ? raw.query.trim() : "";
+    if (!text)
+      throw new Error("Pass nonempty search text.");
+    const limit = raw.count ?? 10;
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 50)
+      throw new Error("count must be between 1 and 50.");
+    const shifts = await hasArchive(p) ? await archiveCall(p, { action: "search", query: text, limit }) : [];
+    const tasks = await p.store.exists(graphPath(p)) ? JSON.parse(await graphCommand(p, ["search", `--query=${text}`, `--limit=${limit}`, "--json"])) : [];
+    return [...tasks.map((t) => `task \xB7 ${t.id} \xB7 ${t.title}`), ...shifts.map((hit) => `shift \xB7 ${hit}`)].join(`
+`) || "No matches.";
+  }
+  const id = String(raw.id ?? "");
+  if (!isSaved(id))
+    throw new Error("Pass a saved shift ID from shift_history.");
+  if (raw.action === "delete") {
+    await archiveCall(p, { action: "delete", id });
+    return `Deleted saved shift ${id}.`;
+  }
+  if (raw.action === "read") {
+    const file = String(raw.file ?? NAMES.letter);
+    const entry = await readSaved(p, id, file);
+    const content = file === NAMES.about ? entry.about : entry.files[file];
+    if (typeof content !== "string")
+      throw new Error(`No record ${file} in ${id}.`);
+    return content;
+  }
+  const entry = await readSaved(p, id);
+  if (raw.action === "export")
+    return JSON.stringify({ id, files: { ...entry.files, [NAMES.about]: entry.about } }, null, 2);
+  if (raw.action === "compare") {
+    const other = await readSaved(p, String(raw.other ?? ""));
+    const delta = [];
+    const before = { ...entry.files, [NAMES.about]: entry.about }, after = { ...other.files, [NAMES.about]: other.about };
+    for (const file of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      if (before[file] === after[file])
+        continue;
+      const a = before[file]?.split(`
+`) ?? [], b = after[file]?.split(`
+`) ?? [];
+      let start = 0, end = 0;
+      while (start < a.length && start < b.length && a[start] === b[start])
+        start++;
+      while (end < a.length - start && end < b.length - start && a[a.length - end - 1] === b[b.length - end - 1])
+        end++;
+      delta.push(`--- ${id}/${file}
++++ ${other.id}/${file}
+@@ -${start + Number(a.length > start + end)},${a.length - start - end} +${start + Number(b.length > start + end)},${b.length - start - end} @@`, ...a.slice(start, a.length - end).map((s) => `-${s}`), ...b.slice(start, b.length - end).map((s) => `+${s}`));
+    }
+    return delta.join(`
+`) || "Identical records.";
+  }
+  throw new Error("Choose list, read, compare, export or delete.");
+}
+
+// core/src/migration.ts
+async function transferState(p) {
+  const path = `${p.root}/${DIR}/migration.json`;
+  const text = await p.store.read(path);
+  if (text === null && !await p.store.exists(path))
+    return null;
+  try {
+    const state = JSON.parse(text ?? "");
+    if (!state || typeof state.backup !== "string" || typeof state.confirmed !== "object" || !state.confirmed || typeof state.done !== "boolean")
+      throw new Error;
+    return state;
+  } catch {
+    throw new Error("Cannot read .shift/migration.json. Recover the migration record before cleanup. Keep the backup and current records.");
+  }
+}
+async function migrationReceipt(p, id) {
+  if (!p.store.beads)
+    return;
+  let state;
+  try {
+    state = await transferState(p);
+  } catch {
+    return;
+  }
+  if (!state || state.done || id <= state.previous)
+    return;
+  const receipt = JSON.parse(await p.store.beads(p.root, ["shift-migrate"], JSON.stringify({ action: "receipt", previous: id, generation: state.backup })));
+  return typeof receipt === "string" && /^[a-f0-9]{24}$/.test(receipt) ? receipt : undefined;
+}
+async function needsMigrationShift(p, previous) {
+  const state = await transferState(p).catch(() => null);
+  return !!state && !state.done && previous <= state.previous;
+}
+async function status(p) {
+  const state = await transferState(p);
+  const list = await p.store.read(`${p.root}/${TASK_LIST}`);
+  const folders = await p.store.list(`${p.root}/${TASKS}`, "dir");
+  const parsed = parseTaskList(list ?? "none");
+  const legacy = await legacyExists(p);
+  return { state, legacy, parsed, folders };
+}
+async function migrationNote(p) {
+  if (!p.store.beads)
+    return null;
+  const result = await status(p).catch((error) => String(error));
+  if (typeof result === "string")
+    return result;
+  const { state, legacy, parsed, folders } = result;
+  if (state?.done && legacy)
+    return "Legacy records appeared after cleanup. Run shift_migrate with action start to back them up and transfer current work.";
+  if (state?.done || !legacy && !state)
+    return null;
+  const names = new Set([...typeof parsed === "string" ? [] : parsed.map((t) => t.name), ...folders]);
+  return [
+    "Legacy records need migration. Run shift_migrate with action start. Transfer each current task through the task tools, then confirm its stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.",
+    ...state?.recovery ? [state.recovery.trim()] : [],
+    ...[...names].map((name) => `- ${name}: ${state?.confirmed[name] ?? "transfer pending"}`),
+    ...typeof parsed === "string" ? [parsed] : []
+  ].join(`
+`);
+}
+async function migrateRecords(p, raw) {
+  const run = p.store.beads;
+  if (!run)
+    throw new Error("No bundled storage runtime.");
+  const { state, legacy, parsed, folders } = await status(p);
+  if (state?.done && !legacy)
+    return `Migration already finished. Backup: ${state.backup}.`;
+  if (!legacy && !state)
+    return "No legacy records.";
+  const action = raw.action;
+  const req = { action };
+  if (action === "status")
+    return await migrationNote(p) ?? "No legacy records.";
+  if (action === "start")
+    req.previous = (await savedEntries(p)).at(-1)?.id ?? "";
+  else {
+    if (state?.done)
+      throw new Error("Legacy records appeared after cleanup. Start their transfer first.");
+    if (typeof parsed === "string")
+      throw new Error(parsed);
+    if (!state)
+      throw new Error("Start the transfer first.");
+    req.generation = state.backup;
+    const names = new Set([...parsed.map((t) => t.name), ...folders, ...Object.keys(state.confirmed)]);
+    if (action === "confirm") {
+      const name = String(raw.task ?? "");
+      if (!names.has(name))
+        throw new Error("Choose a current legacy task.");
+      const target = await graphTask(p, taskId(raw.target ?? name));
+      if (target.status === "closed")
+        throw new Error("Transfer the current task into an open graph task.");
+      if (Object.entries(state.confirmed).some(([n, id]) => n !== name && id === target.id))
+        throw new Error("Each legacy task needs its own stable ID.");
+      Object.assign(req, { task: name, target: target.id });
+    } else if (action === "cleanup") {
+      const saved = await readSaved(p, String(raw.id ?? ""), "letter.md");
+      if (saved.state !== "complete" || saved.id <= state.previous)
+        throw new Error("Complete and restore a new shift after starting migration.");
+      const expected = [];
+      for (const name of names) {
+        const target = state.confirmed[name];
+        if (!target)
+          throw new Error(`Transfer and confirm ${name} first.`);
+        const task = await graphTask(p, target);
+        if (task.status === "closed" || !task.revision)
+          throw new Error(`Reopen and check ${target} before cleanup.`);
+        expected.push({ id: target, revision: task.revision });
+      }
+      Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id });
+      req.protected = [
+        p.settings.files.shift,
+        p.settings.files.glossary,
+        p.settings.files.owner,
+        ...p.settings.files.always,
+        ...p.settings.docs.dirs
+      ].map((path) => normalize(path) ?? path);
+    } else
+      throw new Error("Choose status, start, confirm or cleanup.");
+  }
+  return String(JSON.parse(await run(p.root, ["shift-migrate"], JSON.stringify(req))));
+}
+
 // core/src/store.ts
-async function readWork(store, base, places) {
+async function readWork(store, base, places, liveGraph = false) {
   const board = await store.read(`${base}/${NAMES.board}`);
   if (board === null)
     return null;
   const at = places ?? { owner: `${base}/${NAMES.owner}`, glossary: `${base}/${NAMES.glossary}`, shift: `${base}/${NAMES.shift}` };
-  const tasks = await Promise.all((await store.list(`${base}/${NAMES.tasks}`, "dir")).map((name) => readTask(store, base, name)));
+  const tasks = liveGraph ? [] : await Promise.all((await store.list(`${base}/${NAMES.tasks}`, "dir")).map((name) => readTask(store, base, name)));
   const knowledge = await Promise.all((await store.list(`${base}/${NAMES.knowledge}`, "file")).filter((name) => name.endsWith(".md")).map(async (name) => ({ name, text: await store.read(`${base}/${NAMES.knowledge}/${name}`) ?? "" })));
   const oldOwner = `${base}/${NAMES.oldOwner}`;
   const owner = await store.read(at.owner) ?? (places === undefined ? await store.read(oldOwner) : null);
@@ -1385,10 +1905,10 @@ async function readWork(store, base, places) {
     owner,
     tasks,
     knowledge,
-    taskList: await store.read(`${base}/${NAMES.taskList}`),
+    taskList: liveGraph ? "none" : await store.read(`${base}/${NAMES.taskList}`),
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
-    archived: await store.list(`${base}/${NAMES.archive}`, "dir"),
+    archived: liveGraph ? [] : await store.list(`${base}/${NAMES.archive}`, "dir"),
     oldOwner: places !== undefined && places.owner !== oldOwner && await store.exists(oldOwner)
   };
 }
@@ -1426,13 +1946,13 @@ async function writeSnapshot(store, dir, snapshot) {
       await store.write(`${dir}/${NAMES.tasks}/${task.name}/${NAMES.notes}/${note.name}`, note.text);
   }
 }
-function readRecords(project) {
+async function readRecords(project) {
   const { root, settings } = project;
   return readWork(project.store, `${root}/${DIR}`, {
     owner: `${root}/${settings.files.owner}`,
     glossary: `${root}/${settings.files.glossary}`,
     shift: `${root}/${settings.files.shift}`
-  });
+  }, await usesNewStorage(project));
 }
 async function readSnapshot(store, base, index) {
   const work = await readWork(store, base);
@@ -1452,6 +1972,9 @@ async function shiftNames({ store, root }) {
 }
 async function lastShifts(project, count) {
   const { store, root } = project;
+  const saved = await savedEntries(project);
+  if (saved.length)
+    return { total: saved.length, entries: saved.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
   const names = await shiftNames(project);
   const entries = await Promise.all(names.slice(-count).map(async (name) => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })));
   return { entries, total: names.length };
@@ -1476,7 +1999,7 @@ function compactInstructions(shift) {
   const focus = shift.focus ?? [];
   return [
     "The agent is shifting: it continues this same work right after, from its own letter.",
-    `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
+    isSaved(shift.dir) ? `Its board (${shift.board}), current task cards and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.` : `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     "Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.",
     "Do not write next steps or a plan.",
     ...focus.length === 0 ? [] : [
@@ -1490,7 +2013,7 @@ function compactInstructions(shift) {
   ].join(`
 `);
 }
-function renderWork(work, knowledge, owner) {
+function renderWork(work, knowledge, owner, liveTasks) {
   if (work === null)
     return `There is no board at ${BOARD}.`;
   const tasks = inProgress(work).flatMap((t) => [
@@ -1506,7 +2029,7 @@ ${fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missin
     `**Board**
 
 ${fileBlock(BOARD, work.board)}`,
-    ...tasks.length === 0 ? ["No task is in progress."] : tasks,
+    ...liveTasks === undefined ? tasks.length === 0 ? ["No task is in progress."] : tasks : [liveTasks],
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">
 ${knowledgeMap(work.knowledge)}
 </knowledge>`
@@ -1604,12 +2127,12 @@ function renderStuck(stuck) {
 function shiftMessage(opening, letter, back, closing = []) {
   const { work, recent, dir, remarks } = back;
   return [
-    `<${MOD} folder="${dir}/">`,
+    back.liveTasks === undefined ? `<${MOD} folder="${dir}/">` : `<${MOD} id="${dir}">`,
     opening,
     "",
     "The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:",
     "",
-    renderWork(work, back.knowledge, back.owner),
+    renderWork(work, back.knowledge, back.owner, back.liveTasks),
     "",
     renderRecent(recent),
     "",
@@ -1617,11 +2140,14 @@ function shiftMessage(opening, letter, back, closing = []) {
     ...remarks === null ? [] : ["Documents with remarks from the mod \u2014 fix them as the work passes by them:", "", remarks, ""],
     "Your letter to yourself, written right before the shift:",
     "",
-    `<letter path="${dir}/${NAMES.letter}">`,
+    back.liveTasks === undefined ? `<letter path="${dir}/${NAMES.letter}">` : `<letter shift="${dir}">`,
     letter.trim(),
     "</letter>",
     "",
-    `The letter and the snapshots of this shift: ${dir}/.`,
+    back.liveTasks === undefined ? `The letter and the snapshots of this shift: ${dir}/.` : `Read saved records with shift_history using ID ${dir}.`,
+    ...back.migrationReceipt ? [
+      `After checking this letter, finish the transfer with shift_migrate(action="cleanup", id="${dir}", receipt="${back.migrationReceipt}").`
+    ] : [],
     ...closing,
     `</${MOD}>`
   ].join(`
@@ -1637,7 +2163,7 @@ function waitContext(letter, back) {
 }
 function resumePrompt(letter, back, outcome = null) {
   return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
-    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
+    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${isSaved(back.dir) ? "task_query" : INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
     `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
   ]);
 }
@@ -1647,7 +2173,7 @@ var TURN_END = {
   continue: "End the turn with one line and do nothing more",
   wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
 };
-var ACCEPTED = (dir, learned, after) => `Shift accepted, the letter and the snapshots: ${dir}/. ${learned ? "" : `Nothing went into ${KNOWLEDGE}/ this stretch: if you learned something that stays true for months \u2014 a trap, a lesson, a command, a fact \u2014 write it where knowledge goes here first, while the stretch is still whole. `}${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
+var ACCEPTED = (dir, learned, after) => `Shift accepted, the letter and the snapshots: ${isSaved(dir) ? `shift_history ID ${dir}` : `${dir}/`}. ${learned ? "" : `Nothing went into ${KNOWLEDGE}/ this stretch: if you learned something that stays true for months \u2014 a trap, a lesson, a command, a fact \u2014 write it where knowledge goes here first, while the stretch is still whole. `}${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
 var NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
 var EXCLUDED = (file) => `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`;
 var SHIFT_TOO_EARLY = (why) => `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown \u2014 after the first hint.`;
@@ -1656,10 +2182,10 @@ function ourWords(why) {
   return why.replace(OUTSIDE_NAME("compaction|summarization|compression"), "let-go").replace(OUTSIDE_NAME("(?:compact|summari[sz]e|compress)(?:s|ed|ing)?"), "let go").replace(OUTSIDE_NAME("summary"), "digest");
 }
 var NOT_MADE_NOTE = (name, why) => `<${MOD} note="from the mod: the shift was not made">
-Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; the shift's folder is kept as history. Go on from where you stopped, and shift again later.
+Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; its saved records remain in history. Go on from where you stopped, and shift again later.
 </${MOD}>`;
 var UNSETTLED_NOTE = (name, why, dir) => `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, ${dir}/${NAMES.letter} \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD} and ${TASK_LIST}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD} and ${isSaved(dir) ? "the current task cards" : TASK_LIST}, and continue from "${NEXT}".
 </${MOD}>`;
 var HELD_NOTE = (texts) => `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? "this message" : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? "it" : "them"} back to reach you after your letter. ${texts.length === 1 ? "It goes" : "They go"} first, before "${NEXT}".</${MOD}>
 
@@ -1669,13 +2195,14 @@ ${texts.join(`
 var FAILURE_NOTE = "the note that the shift failed";
 
 // core/src/texts/rows.ts
+var letterAt = (dir) => isSaved(dir) ? `shift_history ${dir}` : `${dir}/${NAMES.letter}`;
 var TOLD = (body) => `to the agent \u2014 ${body.split(`
 `).join(" ")}`;
 var NOT_MADE = (name, why) => `shift ${name} not made \u2014 ${why}`;
-var CONTINUING = (name, shrank, dir) => `shift ${name} done (${shrank}), continuing from the letter \u2014 ${dir}/${NAMES.letter}`;
+var CONTINUING = (name, shrank, dir) => `shift ${name} done (${shrank}), continuing from the letter \u2014 ${letterAt(dir)}`;
 var WAITING = (name, shrank) => `shift ${name} done (${shrank}) \u2014 waiting for you, the letter goes with your next message`;
-var UNSETTLED = (name, why) => `shift ${name}: the history was let go, but the message after it failed \u2014 ${why}; the letter is in the shift's folder`;
-var DELIVERED = (files, dir) => `went with your message: ${files.join(", ")} \u2014 ${dir}/${NAMES.letter}`;
+var UNSETTLED = (name, why) => `shift ${name}: the history was let go, but the message after it failed \u2014 ${why}; the accepted letter is in shift history`;
+var DELIVERED = (files, dir) => `went with your message: ${files.join(", ")} \u2014 ${letterAt(dir)}`;
 var NOT_CONTINUED = (why, carried = "the letter") => `the next turn did not start after the shift \u2014 ${why}; send any message to go on, ${carried} goes with it`;
 function renderTasks(tasks) {
   if (tasks.length === 0)
@@ -1913,11 +2440,13 @@ async function acceptShift(project, call) {
     return { deny: letterProblem };
   if (settings.enabled)
     await refreshDocs(project);
-  await numberTracks(project);
+  const modern = await usesNewStorage(project);
+  if (!modern)
+    await numberTracks(project);
   const work = await readRecords(project);
   if (work === null)
     return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` };
-  const previousDir = await lastMadeShift(project);
+  const previousDir = modern ? null : await lastMadeShift(project);
   const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/${NAMES.index}`);
   const workProblem = checkWork(work, previous?.work ?? null, project);
   if (workProblem !== null)
@@ -1926,7 +2455,7 @@ async function acceptShift(project, call) {
   if ("deny" in kept)
     return kept;
   const index = await store.read(`${root}/${INDEX}`);
-  const dir = await freeShiftDir(project, shiftDir(root, call.at));
+  const dir = modern ? "" : await freeShiftDir(project, shiftDir(root, call.at));
   const shift = {
     after: input.after,
     letter,
@@ -1937,13 +2466,34 @@ async function acceptShift(project, call) {
     sessionId: call.sessionId,
     about: input.about,
     at: call.at,
-    segment: segment({ work, index }, previous),
-    focus: focusOf(work)
+    segment: modern ? { done: [], dropped: [], archived: [], open: [] } : segment({ work, index }, previous),
+    focus: modern ? [] : focusOf(work)
   };
-  await store.write(`${dir}/${NAMES.about}`, renderAbout({ ...shift, result: OUTCOME.pending }));
-  await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText });
+  const about = renderAbout({ ...shift, result: OUTCOME.pending });
+  if (modern) {
+    const files = savedFiles(work, letter, project.settingsText);
+    const entries = await savedEntries(project);
+    const previous = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === call.sessionId);
+    const compare = previous && !await needsMigrationShift(project, previous.id) ? previous.id : undefined;
+    shift.dir = await archiveCall(project, {
+      action: "begin",
+      key: JSON.stringify([call.sessionId, call.at]),
+      files,
+      about,
+      compare,
+      generation: await graphGeneration(project)
+    });
+    if (!shift.dir)
+      return { deny: "Nothing changed in the records since the last shift. Record progress before shifting." };
+    const earlier = entries.find((e) => e.id === shift.dir);
+    if (earlier)
+      shift.at = Date.parse(frontmatter(earlier.about).get("at") ?? "");
+  } else {
+    await store.write(`${dir}/${NAMES.about}`, about);
+    await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText });
+  }
   const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work);
-  const accepted = ACCEPTED(dir, learned, input.after);
+  const accepted = ACCEPTED(shift.dir, learned, input.after);
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}
 
 ${accepted}` };
@@ -2041,11 +2591,26 @@ async function shiftHistory(project, count) {
   const { entries, total } = await lastShifts(project, count);
   return renderHistory(entries, total);
 }
-async function resumeShift(project) {
+async function resumeShift(project, actor = project.actor) {
   const { store, root } = project;
   const names = await shiftNames(project);
+  const entries = await savedEntries(project);
+  const newest = entries.at(-1);
+  if (newest) {
+    const waiting = project.actor ? await archiveCall(project, { action: "waiting", session: project.actor }) : "";
+    const saved = await readSaved(project, newest.id, NAMES.letter);
+    const letter = saved.files[NAMES.letter];
+    if (letter === undefined)
+      throw new Error(`Missing letter in saved shift ${saved.id}.`);
+    const about = readAbout(saved.about);
+    return {
+      text: `Picking up shift ${saved.id}.`,
+      ...waiting ? { waiting } : {},
+      prompt: resumePrompt(letter, await handBack(project, saved.id, actor), about.shifted ? null : about.result)
+    };
+  }
   if (names.length === 0)
-    return { text: `No shifts in this project: ${SHIFTS}/ is empty.` };
+    return { text: "No shifts in this project yet." };
   for (const name of names.toReversed()) {
     const dir = `${root}/${SHIFTS}/${name}`;
     const letter = await store.read(`${dir}/${NAMES.letter}`);
@@ -2060,7 +2625,7 @@ async function resumeShift(project) {
   }
   return { text: `No letter.md in any folder of ${SHIFTS}/ \u2014 nothing to pick up.` };
 }
-async function handBack(project, dir) {
+async function handBack(project, dir, actor) {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
@@ -2068,7 +2633,8 @@ async function handBack(project, dir) {
     recent: await recentShifts(project),
     dir,
     remarks: await docsReport(project),
-    stuck: await stuckTasks(project)
+    stuck: isSaved(dir) ? [] : await stuckTasks(project),
+    ...isSaved(dir) ? { liveTasks: await liveTasks(project, actor), migrationReceipt: await migrationReceipt(project, dir) } : {}
   };
 }
 async function stuckTasks(project) {
@@ -2105,7 +2671,16 @@ async function shiftUnsettled(project, shift, why, tokensBefore) {
 }
 async function recordFailure(project, shift, about, row) {
   try {
-    await project.store.write(`${shift.dir}/${NAMES.about}`, about);
+    if (isSaved(shift.dir))
+      await archiveCall(project, {
+        action: "finish",
+        id: shift.dir,
+        state: readAbout(about).result?.startsWith("not shifted") ? "failed" : "unsettled",
+        about,
+        limit: project.settings.historyLimit
+      });
+    else
+      await project.store.write(`${shift.dir}/${NAMES.about}`, about);
     return row;
   } catch (error) {
     return `${row} (and ${NAMES.about} was not written: ${String(error)})`;
@@ -2115,10 +2690,23 @@ async function settleShift(project, letGo, back) {
   const { store } = project;
   const { shift, before, after } = letGo;
   const summary = renderSummary(letGo.messages);
-  await store.write(`${shift.dir}/${NAMES.summary}`, summary);
+  if (!isSaved(shift.dir))
+    await store.write(`${shift.dir}/${NAMES.summary}`, summary);
   const shrank = `${before === undefined ? "?" : formatK(before)} \u2192 ${after === undefined ? "?" : formatK(after)}`;
-  const outcome = (result) => store.write(`${shift.dir}/${NAMES.about}`, renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result }));
-  const handed = back ?? await handBack(project, shift.dir);
+  const outcome = (result) => {
+    const about = renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result });
+    return isSaved(shift.dir) ? archiveCall(project, {
+      action: "finish",
+      id: shift.dir,
+      state: "complete",
+      session: shift.sessionId,
+      wait: shift.after === "wait",
+      about,
+      files: { [NAMES.summary]: summary },
+      limit: project.settings.historyLimit
+    }) : store.write(`${shift.dir}/${NAMES.about}`, about);
+  };
+  const handed = back ?? await handBack(project, shift.dir, shift.sessionId);
   const name = basename(shift.dir);
   const files = deliveredFiles(handed.work);
   if (shift.after === "continue") {
@@ -2126,12 +2714,18 @@ async function settleShift(project, letGo, back) {
     const prompt = continuePrompt(shift.letter, handed);
     return { after: "continue", prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) };
   }
-  const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files };
+  const waitBack = isSaved(shift.dir) ? { ...handed, liveTasks: "The current task cards accompany the next prompt." } : handed;
+  const note = { context: waitContext(shift.letter, waitBack), dir: shift.dir, files };
   await letGo.parkWait?.(note);
   await outcome(OUTCOME.waiting(shrank, "waiting for the owner"));
   return { after: "wait", note, row: WAITING(name, shrank) };
 }
 async function shiftBase(project, sessionId) {
+  const entries = await savedEntries(project);
+  if (entries.length) {
+    const last = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === sessionId);
+    return last ? shiftFill(last.about, sessionId) : null;
+  }
   for (const name of (await shiftNames(project)).toReversed()) {
     const about = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.about}`);
     if (about === null)
@@ -2162,15 +2756,29 @@ async function keepRecordsOut(project) {
 `);
   return { excluded: file };
 }
-async function sessionFiles(project, { refresh = true } = {}) {
+async function sessionFiles(project, { refresh = true, includeClaims = true } = {}) {
   const { store, root, settings } = project;
   if (!settings.enabled || await staleLayout(project) !== null)
     return [];
   if (refresh)
     await refreshDocs(project);
-  const paths = [...new Set([settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST, ...settings.files.always])];
-  const files = await Promise.all(paths.map(async (path) => ({ path, text: await store.read(`${root}/${path}`) })));
-  return files.filter((file) => file.text !== null);
+  const modern = await usesNewStorage(project);
+  const paths = [
+    ...new Set([
+      settings.files.shift,
+      settings.files.owner,
+      settings.files.glossary,
+      ...modern ? [] : [TASK_LIST],
+      ...settings.files.always
+    ])
+  ];
+  const loaded = await Promise.all(paths.map(async (path) => ({ path, text: await store.read(`${root}/${path}`) })));
+  const files = loaded.filter((file) => file.text !== null);
+  if (includeClaims && modern && project.actor && await store.exists(graphPath(project))) {
+    const list = await queryGraph(project, { view: "mine" }, project.actor);
+    files.push({ path: "beads:claimed", text: list });
+  }
+  return files;
 }
 async function staleLayout({ store, root }) {
   if (await store.exists(`${root}/${OLD_DIR}`)) {
@@ -2181,7 +2789,14 @@ async function staleLayout({ store, root }) {
   }
   return null;
 }
-async function tasksView(project) {
+async function liveTasks(project, actor = project.actor) {
+  if (!actor || !await project.store.exists(graphPath(project)))
+    return "No tasks claimed by this chat.";
+  return queryGraph(project, { view: "cards" }, actor);
+}
+async function tasksView(project, actor = project.actor) {
+  if (await usesNewStorage(project))
+    return actor ? liveTasks(project, actor) : queryGraph(project, { view: "open" }, "");
   const { store, root } = project;
   const parsed = parseTaskList(await store.read(`${root}/${TASK_LIST}`) ?? "");
   if (typeof parsed === "string")
@@ -2427,7 +3042,7 @@ async function letGoShift(project, loop, harness, shift, aborted) {
     await tellAgent(loop, harness, shift, NOT_MADE_NOTE(name, why), false);
     return;
   }
-  const back = shift.after === "continue" ? await handBack(project, shift.dir).catch(() => null) : null;
+  const back = shift.after === "continue" ? await handBack(project, shift.dir, shift.sessionId).catch(() => null) : null;
   const done = await harness.letGo(compactInstructions(shift), back === null ? undefined : continuePrompt(shift.letter, back)).catch((error) => ({ skip: `the let-go failed: ${String(error)}` }));
   if ("skip" in done) {
     const why = ourWords(done.skip);
@@ -2456,7 +3071,7 @@ async function letGoShift(project, loop, harness, shift, aborted) {
     if (harness.parkWait)
       await dropWaiting(loop);
     else
-      await leave(loop, harness, settled.note);
+      await leave(loop, harness, settled.note, project);
     return;
   }
   loop.tell(settled.row, "info");
@@ -2474,16 +3089,19 @@ async function tellAgent(loop, harness, shift, context, goOn) {
   else
     await leave(loop, harness, note);
 }
-async function leave(loop, harness, note) {
+async function leave(loop, harness, note, project) {
   const heard = { now: false };
   await loop.update((current) => {
     heard.now = current.letting?.heard === true;
     return heard.now ? current : { ...current, note, letting: null };
   });
-  if (heard.now)
-    await finish(loop, harness, note.context, note);
+  if (heard.now) {
+    const id = project && isSaved(note.dir) ? note.dir : undefined;
+    const fresh = project && id ? { ...note, context: await archivedWait(project, id).catch(() => note.context) } : note;
+    await finish(loop, harness, fresh.context, fresh, project && id ? () => acknowledgeWait(project, id) : undefined);
+  }
 }
-async function finish(loop, harness, prompt, keep) {
+async function finish(loop, harness, prompt, keep, delivered) {
   const taken = { held: [], waits: false };
   await loop.update((current) => {
     if (current.letting == null)
@@ -2491,16 +3109,20 @@ async function finish(loop, harness, prompt, keep) {
     taken.held = current.letting.held ?? [];
     taken.waits = (current.letting.waiting ?? 0) > 0;
     const text = withHeld(prompt, taken.held);
-    return taken.waits && text !== "" ? { ...current, note: { ...keep, context: text }, letting: null } : { ...current, letting: null };
+    return taken.waits && text !== "" ? { ...current, note: { ...keep, context: text, held: taken.held }, letting: null } : { ...current, letting: null };
   });
   const text = withHeld(prompt, taken.held);
   if (taken.waits || text === "")
     return;
-  await harness.continueWith(text, attachmentsOf(taken.held)).catch(async (error) => {
-    const kept = { ...keep, context: withHeld(keep.context, taken.held) };
+  try {
+    await harness.continueWith(text, attachmentsOf(taken.held));
+  } catch (error) {
+    const kept = { ...keep, context: withHeld(keep.context, taken.held), held: taken.held };
     await loop.update((current) => ({ ...current, note: kept }));
     loop.tell(NOT_CONTINUED(String(error), keep.files.includes(FAILURE_NOTE) ? FAILURE_NOTE : undefined), "error");
-  });
+    return;
+  }
+  await delivered?.();
 }
 function withHeld(context, held) {
   if (held.length === 0)
@@ -2514,21 +3136,42 @@ function attachmentsOf(held) {
   const all = held.flatMap((message) => message.attachments ?? []);
   return all.length === 0 ? undefined : all;
 }
-async function waitingNote(loop) {
+async function archivedWait(project, id) {
+  const entry = await readSaved(project, id, NAMES.letter);
+  return waitContext(entry.files[NAMES.letter] ?? "", await handBack(project, id, project.actor));
+}
+async function waitingId(project) {
+  return project?.actor && project.store.beads && await hasArchive(project) ? archiveCall(project, { action: "waiting", session: project.actor }) : "";
+}
+async function acknowledgeWait(project, id) {
+  await archiveCall(project, { action: "received", session: project.actor, id, limit: project.settings.historyLimit });
+}
+async function waitingNote(loop, project) {
   const { note, pending, letting } = await loop.read();
   if (pending !== null || letting != null)
     await loop.update((current) => current.pending === null && current.letting == null ? current : { ...current, letting: { ...current.letting, heard: true } });
-  if (note === null)
+  const id = await waitingId(project);
+  if (note === null && !id)
     return null;
+  let context = note?.context ?? "";
+  if (project && id && (!note || note.dir === id)) {
+    context = withHeld(await archivedWait(project, id), note?.held ?? []);
+  }
   return {
-    context: note.context,
+    context,
+    attachments: attachmentsOf(note?.held ?? []),
     delivered: async () => {
-      await loop.update((state) => sameNote(state.note, note) ? { ...state, note: null } : state);
-      loop.tell(DELIVERED(note.files, note.dir), "info");
+      if (project && id && (!note || note.dir === id))
+        await acknowledgeWait(project, id);
+      if (note)
+        await loop.update((state) => sameNote(state.note, note) ? { ...state, note: null } : state);
+      loop.tell(DELIVERED(note?.files ?? [NAMES.letter], note?.dir ?? id), "info");
     }
   };
 }
-async function dropWaiting(loop) {
+async function dropWaiting(loop, project, expected) {
+  if (project && expected)
+    await acknowledgeWait(project, expected);
   await loop.update((current) => current.note === null ? current : { ...current, note: null });
 }
 function sameNote(a, b) {
@@ -2759,13 +3402,14 @@ async function afterWrite(courier, file) {
   await follow(courier, file);
 }
 async function atPrompt(courier, { runStarts, owner }) {
-  const records = await promptRecords(courier, runStarts);
+  const records = await promptRecords(courier, runStarts, false);
   const notes = records.notes;
   const hint = await loopOffer(courier.loop, courier.gauge).catch(() => null);
   if (hint !== null)
     notes.push({ kind: "hint", body: hint.text });
-  const letter = owner ? await waitingNote(courier.loop) : null;
+  const letter = owner ? await waitingNote(courier.loop, await courier.project()) : null;
   return {
+    attachments: letter?.attachments,
     notes: [...notes.map(wrap), ...letter === null ? [] : [letter.context]],
     delivered: async () => {
       await records.delivered();
@@ -2777,12 +3421,44 @@ async function atPrompt(courier, { runStarts, owner }) {
     }
   };
 }
-async function promptRecords(courier, runStarts) {
+async function promptRecords(courier, runStarts, parkedWait = false) {
   if (runStarts)
     await courier.updateLooks((current) => ({ ...current, running: 0 }));
   const notes = [];
   const { running } = await courier.looks();
-  const { seen } = await courier.looks();
+  const { seen, comments, refreshClaims, claimDigest } = await courier.looks();
+  const project = await courier.project();
+  const needsCheck = !(await courier.looks()).migrationChecked;
+  const migration = needsCheck ? await migrationNote(project) : null;
+  if (migration)
+    notes.push({ kind: "records", body: migration });
+  else if (needsCheck)
+    await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
+  const session = project.actor;
+  const durableWait = running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session }) : "";
+  const waiting = parkedWait ? durableWait : "";
+  let digest = claimDigest;
+  let offeredCards = false;
+  if (session && (waiting || !durableWait && refreshClaims && await project.store.exists(graphPath(project)))) {
+    const cards = await queryGraph(project, { view: "cards" }, session);
+    digest = textFingerprint(cards);
+    if (waiting || digest !== claimDigest) {
+      notes.push({ kind: "records", body: cards });
+      offeredCards = true;
+    }
+  }
+  const rememberClaims = () => courier.updateLooks((now) => ({ ...now, claimDigest: digest, refreshClaims: false }));
+  if (refreshClaims && !offeredCards)
+    await rememberClaims();
+  const updates = running === 0 ? await commentChanges(project, comments) : null;
+  const rememberCounts = async () => {
+    if (updates)
+      await courier.updateLooks((current) => JSON.stringify(current.comments) === JSON.stringify(comments) ? { ...current, comments: updates.counts } : current);
+  };
+  if (updates && !updates.notes.length)
+    await rememberCounts();
+  if (updates)
+    notes.push(...updates.notes.map((body) => ({ kind: "records", body })));
   const outside = running === 0 ? await look(courier, "other") : null;
   if (outside?.body === null)
     await remember(courier, outside.seen);
@@ -2810,7 +3486,14 @@ async function promptRecords(courier, runStarts) {
     notes.push({ kind: "docs", body: docs.body });
   return {
     notes,
+    waiting,
     delivered: async () => {
+      if (migration)
+        await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
+      if (offeredCards)
+        await rememberClaims();
+      if (updates?.notes.length)
+        await rememberCounts();
       if (mapNotes.length)
         await takeMapNotes(courier, mapNotes);
       if (pending.length)
@@ -3124,6 +3807,7 @@ var PLACEMENTS = ["local", "project", "split"];
 var DEFAULT_SETTINGS = {
   enabled: true,
   knowledge: null,
+  historyLimit: 30,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
   docs: {
@@ -3144,6 +3828,13 @@ var KINDS2 = {
   placement: (value) => PLACEMENTS.includes(value) ? null : `one of ${quote(PLACEMENTS)}`
 };
 var SETTING_KEYS = [
+  {
+    key: "history_limit",
+    since: "storage roadmap",
+    kind: "limit",
+    at: ["historyLimit"],
+    about: "completed shifts to retain; pending letters are protected"
+  },
   {
     key: "enabled",
     since: "0.2.9",
@@ -3334,12 +4025,12 @@ function quoted(value) {
 }
 
 // core/src/project.ts
-async function loadProject(store, root) {
+async function loadProject(store, root, actor) {
   const settingsText = await store.read(`${root}/${SETTINGS}`);
   const parsed = settingsText === null ? null : parseSettings(settingsText);
   if (typeof parsed === "string")
-    return { store, root, settings: DEFAULT_SETTINGS, problem: parsed, settingsText, set: new Set };
-  return { store, root, settings: parsed?.settings ?? DEFAULT_SETTINGS, problem: null, settingsText, set: parsed?.set ?? new Set };
+    return { store, root, actor, settings: DEFAULT_SETTINGS, problem: parsed, settingsText, set: new Set };
+  return { store, root, actor, settings: parsed?.settings ?? DEFAULT_SETTINGS, problem: null, settingsText, set: parsed?.set ?? new Set };
 }
 // core/src/texts/tools.ts
 var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
@@ -3433,6 +4124,11 @@ var GUIDE_SCHEMA = {
 var HISTORY_SCHEMA = {
   type: "object",
   properties: {
+    action: { type: "string", enum: ["list", "read", "compare", "export", "delete", "search"] },
+    id: { type: "string", description: "Saved shift ID." },
+    query: { type: "string", description: "Local search across task titles, IDs and saved shift text." },
+    other: { type: "string", description: "Second ID to compare against." },
+    file: { type: "string", description: "Record to read, default letter.md." },
     count: {
       type: "integer",
       minimum: 1,
@@ -3535,6 +4231,22 @@ var TOOL_TEXTS = {
     description: TRACK_DESCRIPTION,
     brief: "update items by short ID, add new ones, or change the task status.",
     schema: TRACK_SCHEMA
+  },
+  [MIGRATE_TOOL]: {
+    label: "Migrate local records",
+    description: "Manually transfer current tasks. Start verifies a backup, confirm acknowledges one transferred task, cleanup takes the ID and receipt delivered with the restored letter. Status is read-only.",
+    brief: "transfer current work and verify the legacy backup.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["status", "start", "confirm", "cleanup"] },
+        task: { type: "string" },
+        target: { type: "string" },
+        receipt: { type: "string" },
+        id: { type: "string" }
+      },
+      required: ["action"]
+    }
   },
   [HISTORY_TOOL]: {
     label: "Shift history",
@@ -3665,11 +4377,11 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled \u2014 fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -3771,19 +4483,20 @@ How to read it: frontmatter \u2014 \`key: value\` lines between \`---\`; section
 How the mod is set up in this project \u2014 the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts \u2014 is \`${SETUP_TOOL}\`.
 
 `;
+var DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
+
+1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
+2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
+3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
+4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
+5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`;
 var GUIDE_RECORDS = `## What goes where
 
 ${PLACES}
 
 ## Writing project documentation during work
 
-When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
-
-1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
-2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
-3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
-4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
-5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.
+${DOC_WRITING}
 
 ## Board \u2014 \`${BOARD}\`
 
@@ -3827,6 +4540,31 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) \u2014 <about>\` to \`${INDEX}\`, with \`; continues <name>, \u2026\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Review board entries affected by the closed task. Keep only the choices and failed approaches other tasks still need.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`;
+var GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`;
+var GRAPH_TASKS = `Use task_query(view="ready") to find available work and view="mine" for your claims. Open a task with a stable name, goal, done_when, about and optional initial items. A task opened in progress belongs to this chat. Open an epic with kind="epic"; assign a child's parent to group it. An explicit needs or block link determines execution order. Use task_manage to claim, release, take over, edit, label or comment. A stale revision asks you to reread the card. Batch item changes with task_track using short numeric IDs. Keep task decisions and evidence on the card. Archive finished or dropped work with a reason. Reopen the same task before editing it. Link distinct follow-on work with continues. Read closed work and its history through task_query.`;
+var GRAPH_GUIDE_RECORDS = [
+  GRAPH_LAYOUT,
+  GRAPH_TASKS,
+  BOARD_RULES,
+  OWNER_RULES,
+  GLOSSARY_RULES,
+  KNOWLEDGE_RULES,
+  SHIFT_RULES,
+  DOC_WRITING
+].join(`
+
+`);
+var GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
+- Where I am: what you were doing and what you learned.
+- Next: the concrete work to resume and how to check it.
+- Unverified: what still needs evidence.
+- Hold: reasoning and details to carry through the shift.
+
+Call shift with the letter path, a single-line about (up to ${ABOUT_MAX} characters) and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
+
+On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
@@ -3911,11 +4649,22 @@ async function sizeReport(project, counter) {
 `))));
     }
   }
-  const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join(`
+  const migration = await migrationNote(project);
+  const notice = migration ? count(wrap({ kind: "records", body: migration })) : 0;
+  if (migration)
+    sessionRows.push(row("Migration reminder (first prompt)", notice));
+  const session = notice + count([doctrine, renderSessionFiles(files)].filter(Boolean).join(`
 
 `));
-  const folders = (await shiftNames(project)).reverse();
+  const retained = (await savedEntries(project)).reverse();
+  const modern = await usesNewStorage(project);
+  const folders = retained.length ? [] : (await shiftNames(project)).reverse();
   const saved = [];
+  for (const e of retained.slice(0, 3)) {
+    const letter = (await readSaved(project, e.id, NAMES.letter)).files[NAMES.letter];
+    if (letter !== undefined)
+      saved.push({ name: e.id, letter });
+  }
   for (const name of folders) {
     const letter = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.letter}`);
     if (letter !== null)
@@ -3923,11 +4672,13 @@ async function sizeReport(project, counter) {
     if (saved.length === 3)
       break;
   }
-  const dir = `${project.root}/${SHIFTS}/${saved[0]?.name ?? "<next-shift>"}`;
-  const back = await handBack(project, dir);
+  const dir = modern ? retained[0]?.id ?? "s-0000000000000000" : `${project.root}/${SHIFTS}/${saved[0]?.name ?? "<next-shift>"}`;
+  const back = await handBack(project, dir, project.actor);
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)));
-    for (const task of inProgress(back.work)) {
+    if (back.liveTasks)
+      continueRows.push(row("Claimed task cards", count(back.liveTasks)));
+    for (const task of modern ? [] : inProgress(back.work)) {
       const folder = `${TASKS}/${task.name}`;
       continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? "missing")));
       continueRows.push(row(`${folder}/${NAMES.track}`, count(trackPreview(task.track ?? "missing"))));
@@ -3957,268 +4708,12 @@ async function sizeReport(project, counter) {
     "",
     "Totals include message framing.",
     "",
-    ...saved.length ? [`Saved letters in ${SHIFTS}/ (outside total)`, ...saved.map((entry) => row(entry.name, count(entry.letter)))] : ["No saved letters."]
+    ...saved.length ? [
+      `Saved letters in ${modern ? "the shift archive" : `${SHIFTS}/`} (outside total)`,
+      ...saved.map((entry) => row(entry.name, count(entry.letter)))
+    ] : ["No saved letters."]
   ].join(`
 `);
-}
-
-// core/src/taskgraph.ts
-var graphPath = (project) => `${project.root}/.shift/beads/.beads/metadata.json`;
-function taskId(raw) {
-  if (typeof raw !== "string" || !NAME.test(raw))
-    throw new Error("Pass a task ID or its short name.");
-  return raw.startsWith("shift-") ? raw : `shift-${raw}`;
-}
-function labels(raw) {
-  if (raw === undefined)
-    return [];
-  if (!Array.isArray(raw) || raw.some((each) => typeof each !== "string" || !each.trim() || /[,\r\n]/.test(each)))
-    throw new Error("Pass labels as an array of nonempty names without commas.");
-  return [...new Set(raw.map((each) => each.trim()))];
-}
-async function graphCommand(project, args, actor, expected = []) {
-  if (!project.store.beads)
-    throw new Error("The private task runtime is unavailable.");
-  const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args;
-  if (!expected.length)
-    return project.store.beads(project.root, invocation);
-  const revisions = expected.map((task) => {
-    if (!task.revision)
-      throw new Error(`Missing revision for ${task.id}.`);
-    return { id: task.id, revision: task.revision };
-  });
-  return project.store.beads(project.root, ["shift-checked", JSON.stringify(revisions), ...invocation]);
-}
-async function graphTask(project, id) {
-  if (!await project.store.exists(graphPath(project)))
-    throw new Error("No task workspace yet.");
-  const rows = JSON.parse(await graphCommand(project, ["show", taskId(id), "--brief-deps", "--json"]));
-  if (rows.length !== 1 || rows[0]?.id !== taskId(id))
-    throw new Error(`No exact task ${taskId(id)}.`);
-  return rows[0];
-}
-function line(task) {
-  return `${task.id} [${task.status}] ${task.title}${task.assignee ? ` \xB7 ${task.assignee}` : ""}${task.labels?.length ? ` \xB7 ${task.labels.join(", ")}` : ""}`;
-}
-function taskCard(task) {
-  const items = task.metadata?.items ?? [];
-  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? 0) - (a.closed ?? 0) || b.id - a.id);
-  const links = task.metadata?.links ?? [];
-  return [
-    line(task),
-    task.description && `Goal: ${task.description}`,
-    task.acceptance_criteria && `Done when: ${task.acceptance_criteria}`,
-    task.design && `Decisions: ${task.design}`,
-    task.notes && `Evidence: ${task.notes}`,
-    task.metadata?.about,
-    ...(task.dependencies ?? []).map((edge) => {
-      const link = links.find((each) => taskId(each.name) === edge.id);
-      return `${link?.kind ?? edge.dependency_type}: ${edge.id} [${edge.status}] ${edge.title}${link?.why ? ` \u2014 ${link.why}` : ""}`;
-    }),
-    ...[...items.filter((item) => !CLOSED.has(item.status)), ...closed.slice(0, RECENT_CLOSED_ITEMS)].map((item) => `#${item.id} [${item.status}] ${item.name}${item.note ? ` \u2014 ${item.note}` : ""}`),
-    `${closed.length} closed items \xB7 ${task.comment_count ?? 0} comments`
-  ].filter(Boolean).join(`
-`);
-}
-async function createGraphTask(project, input, raw, actor, now) {
-  const tags = labels(raw.labels);
-  const id = taskId(input.name);
-  const kind = raw.kind ?? "task";
-  if (kind !== "task" && kind !== "epic")
-    throw new Error("kind must be task or epic.");
-  const parent = raw.parent === undefined ? null : taskId(raw.parent);
-  const names = input.items.map((each) => each.name.toLowerCase());
-  if (names.length !== new Set(names).size)
-    throw new Error("Each initial item needs a distinct name.");
-  if (!await project.store.exists(graphPath(project)))
-    await graphCommand(project, ["init", "--init-if-missing", "--non-interactive", "--skip-hooks", "--skip-agents", "--prefix", "shift"]);
-  const deps = [];
-  const expected = [];
-  for (const link of input.links) {
-    const target = await graphTask(project, link.name);
-    if (link.kind === "needs" === (target.status === "closed"))
-      throw new Error(`${link.kind}: ${target.id} is ${target.status}.`);
-    expected.push(target);
-    deps.push(`${link.kind === "needs" ? "blocked-by" : "related"}:${target.id}`);
-  }
-  if (parent) {
-    const epic = await graphTask(project, parent);
-    if (epic.issue_type !== "epic" || epic.status === "closed")
-      throw new Error(`Parent ${parent} must be an open epic.`);
-    expected.push(epic);
-    deps.push(`parent-child:${parent}`);
-  }
-  const items = input.items.map((each, i) => ({ ...each, id: i + 1, status: "open", created: now, closed: null }));
-  const status = input.status === "in progress" ? "in_progress" : input.status === "waiting for owner" ? "blocked" : input.status;
-  const args = [
-    "create",
-    `--id=${id}`,
-    `--title=${input.title}`,
-    `--description=${input.goal}`,
-    `--acceptance=${input.doneWhen}`,
-    `--type=${kind}`,
-    `--status=${status}`,
-    `--metadata=${JSON.stringify({ items, about: input.about, links: input.links })}`,
-    "--json"
-  ];
-  if (status === "in_progress")
-    args.push(`--assignee=${actor}`);
-  if (tags.length)
-    args.push(`--labels=${tags.join(",")}`);
-  if (deps.length)
-    args.push(`--deps=${deps.join(",")}`);
-  const task = JSON.parse(await graphCommand(project, args, actor, expected));
-  return `${line(task)}${items.length ? `
-${items.map((each) => `#${each.id} ${each.name}`).join(`
-`)}` : ""}`;
-}
-async function queryGraph(project, raw, actor) {
-  const view = raw.view ?? "mine";
-  if (view === "show")
-    return taskCard(await graphTask(project, taskId(raw.task)));
-  if (view === "history" || view === "comments") {
-    const text = await graphCommand(project, [view, taskId(raw.task), "--json"]);
-    return text.trim();
-  }
-  if (!["mine", "ready", "open", "closed"].includes(String(view)))
-    throw new Error("Choose mine, ready, open, closed, show, comments or history.");
-  const tags = labels(raw.labels);
-  if (!await project.store.exists(graphPath(project)))
-    return "No tasks.";
-  const args = [view === "ready" ? "ready" : "list", "--json", "--brief", "--limit=0"];
-  if (view === "closed")
-    args.push("--status=closed", "--all");
-  if (view === "mine")
-    args.push(`--assignee=${actor}`);
-  if (tags.length)
-    args.push(`--label=${tags.join(",")}`);
-  const tasks = JSON.parse(await graphCommand(project, args));
-  return tasks.map(line).join(`
-`) || "No tasks.";
-}
-function editable(task, actor) {
-  if (task.status === "closed")
-    throw new Error(`Reopen ${task.id} before editing it.`);
-  if (task.assignee && task.assignee !== actor)
-    throw new Error(`${task.id} belongs to ${task.assignee}. Take over explicitly to edit it.`);
-}
-async function trackGraph(project, input, actor, now) {
-  const task = await graphTask(project, input.task);
-  editable(task, actor);
-  const items = (task.metadata?.items ?? []).map((each) => ({ ...each }));
-  const receipts = [];
-  let next = items.reduce((max, item) => Math.max(item.id, max), 0) + 1;
-  for (const change of input.items) {
-    let item;
-    if ("id" in change) {
-      const found = items.find((each) => each.id === change.id);
-      if (!found)
-        throw new Error(`${task.id} has no item #${change.id}. Nothing written.`);
-      item = found;
-    } else {
-      if (items.some((each) => each.name.toLowerCase() === change.item.toLowerCase()))
-        throw new Error(`Duplicate item: ${change.item}. Nothing written.`);
-      item = { id: next++, name: change.item, status: change.status, created: now, closed: null, note: null };
-      items.push(item);
-    }
-    item.status = change.status;
-    item.note = change.note ?? item.note;
-    item.closed = CLOSED.has(change.status) ? item.closed ?? now : null;
-    receipts.push(`#${item.id} [${item.status}]`);
-  }
-  const args = [
-    "update",
-    task.id,
-    `--metadata=${JSON.stringify({ ...task.metadata, items, ...input.own?.note ? { about: input.own.note } : {} })}`
-  ];
-  if (input.own) {
-    const status = input.own.status === "in progress" ? "in_progress" : input.own.status === "deferred" ? "deferred" : "blocked";
-    args.push(`--status=${status}`, `--assignee=${status === "in_progress" ? actor : ""}`);
-    receipts.push(status);
-  }
-  await graphCommand(project, args, actor, [task]);
-  return `${task.id}: ${receipts.join(", ")}`;
-}
-async function closeGraph(project, input, actor) {
-  const task = await graphTask(project, input.name);
-  editable(task, actor);
-  if (input.outcome === "done" && task.metadata?.items?.some((each) => !CLOSED.has(each.status)))
-    throw new Error("Close the remaining items first.");
-  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`], actor, [task]);
-  return `${task.id} closed (${input.outcome}).`;
-}
-async function manageGraph(project, raw, actor) {
-  const task = await graphTask(project, taskId(raw.task));
-  const action = raw.action;
-  let args;
-  if (action === "reopen") {
-    if (task.status !== "closed")
-      throw new Error(`${task.id} is already open.`);
-    args = ["reopen", task.id];
-  } else {
-    if (task.status === "closed")
-      throw new Error(`Reopen ${task.id} before editing it.`);
-    switch (action) {
-      case "comment": {
-        if (typeof raw.text !== "string" || !raw.text.trim())
-          throw new Error("Pass a nonempty comment in text.");
-        args = ["comments", "add", `--author=${actor}`, "--", task.id, raw.text];
-        break;
-      }
-      case "block":
-      case "unblock": {
-        editable(task, actor);
-        const target = await graphTask(project, taskId(raw.target));
-        if (target.id === task.id)
-          throw new Error("A task cannot block itself.");
-        if (action === "block" && target.status === "closed")
-          throw new Error(`${target.id} is already closed.`);
-        if (action === "unblock" && !task.dependencies?.some((each) => each.id === target.id && each.dependency_type === "blocks"))
-          throw new Error(`${target.id} is not an active blocker of ${task.id}.`);
-        args = ["dep", action === "block" ? "add" : "remove", task.id, target.id];
-        await graphCommand(project, args, actor, [task, target]);
-        return `${task.id}: ${action} ${target.id}.`;
-      }
-      case "takeover":
-        args = ["update", task.id, "--force", `--assignee=${actor}`, "--status=in_progress"];
-        break;
-      case "claim":
-        editable(task, actor);
-        args = ["update", task.id, "--claim"];
-        break;
-      case "release":
-        editable(task, actor);
-        args = ["update", task.id, "--assignee=", "--status=open"];
-        break;
-      case "edit": {
-        editable(task, actor);
-        args = ["update", task.id];
-        for (const [key, flag] of [
-          ["goal", "description"],
-          ["done_when", "acceptance"],
-          ["title", "title"],
-          ["decisions", "design"],
-          ["evidence", "notes"]
-        ]) {
-          const value = raw[key];
-          if (value !== undefined) {
-            if (typeof value !== "string" || !value.trim())
-              throw new Error(`${key} needs text.`);
-            args.push(`--${flag}=${value}`);
-          }
-        }
-        if (raw.labels !== undefined)
-          args.push(`--set-labels=${labels(raw.labels).join(",")}`);
-        if (args.length === 2)
-          throw new Error("Provide at least one field or labels to edit.");
-        break;
-      }
-      default:
-        throw new Error("Choose claim, takeover, release, reopen, edit or comment.");
-    }
-  }
-  await graphCommand(project, args, actor, [task]);
-  return `${task.id}: ${action} completed.`;
 }
 
 // core/src/tools.ts
@@ -4228,8 +4723,14 @@ var ROWS = [
     run: async (raw, call) => {
       if (raw.section !== undefined && raw.section !== "flow" && raw.section !== "records")
         return { deny: "section must be flow or records." };
-      const guide = raw.section === "flow" ? GUIDE_FLOW : raw.section === "records" ? GUIDE_RECORDS : GUIDE;
-      return { result: atPlaces(guide.trimEnd(), (await call.project()).settings.files) };
+      const project = await call.project();
+      const modern = await usesNewStorage(project);
+      const flow = modern ? GRAPH_GUIDE_FLOW : GUIDE_FLOW;
+      const records = modern ? GRAPH_GUIDE_RECORDS : GUIDE_RECORDS;
+      const guide = raw.section === "flow" ? flow : raw.section === "records" ? records : modern ? `${flow}
+
+${records}` : GUIDE;
+      return { result: atPlaces(guide.trimEnd(), project.settings.files) };
     }
   },
   {
@@ -4258,10 +4759,11 @@ var ROWS = [
     writes: true,
     run: async (raw, call) => {
       const project = await call.project();
-      const input = parseOpenInput(raw, Boolean(project.store.beads));
+      const graph = await usesNewStorage(project);
+      const input = parseOpenInput(raw, graph);
       if (typeof input === "string")
         return { deny: input };
-      if (!project.store.beads)
+      if (!graph)
         return openTask(project, input, await call.now());
       try {
         return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) };
@@ -4299,7 +4801,7 @@ var ROWS = [
       if (typeof input === "string")
         return { deny: input };
       const project = await call.project();
-      if (!project.store.beads || !await project.store.exists(graphPath(project)))
+      if (!await usesNewStorage(project))
         return archiveTask(project, input);
       try {
         return { result: await closeGraph(project, input, await call.sessionId()) };
@@ -4316,7 +4818,7 @@ var ROWS = [
       if (typeof input === "string")
         return { deny: input };
       const project = await call.project();
-      if (!project.store.beads || !await project.store.exists(graphPath(project)))
+      if (!await usesNewStorage(project))
         return updateTrack(project, input, await call.now());
       try {
         return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) };
@@ -4326,8 +4828,27 @@ var ROWS = [
     }
   },
   {
-    name: HISTORY_TOOL,
+    name: MIGRATE_TOOL,
+    writes: true,
     run: async (raw, call) => {
+      try {
+        return { result: await migrateRecords(await call.project(), raw) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
+  {
+    name: HISTORY_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      if (raw.action && raw.action !== "list") {
+        try {
+          return { result: await historyAction(await call.project(), raw) };
+        } catch (error) {
+          return { deny: String(error) };
+        }
+      }
       const count = parseHistoryCount(raw);
       return typeof count === "string" ? { deny: count } : { result: await shiftHistory(await call.project(), count) };
     }
@@ -4455,7 +4976,7 @@ async function setupReport(project, loaded) {
     "",
     `## Files`,
     "",
-    SETUP_LAYOUT,
+    await usesNewStorage(project) ? GRAPH_LAYOUT : SETUP_LAYOUT,
     ...moved.length === 0 ? [] : ["", `Moved by the settings: ${moved.join("; ")}.`],
     "",
     atPlaces(SETUP_MIGRATION, settings.files)
@@ -4489,7 +5010,7 @@ import { basename as basename2, dirname as dirname2, resolve } from "path";
 import { promisify } from "util";
 var writes = 0;
 var nodeStore = {
-  beads: async (root, args) => {
+  beads: async (root, args, stdin) => {
     const executable = beadsExecutable(process.platform, process.arch);
     if (!executable)
       throw new Error(`No embedded Beads build for ${process.platform}/${process.arch}.`);
@@ -4497,7 +5018,14 @@ var nodeStore = {
     if (true) {
       path = resolve(import.meta.dirname, "vendor", executable);
     }
-    return (await promisify(execFile)(path, [root, ...args], { timeout: 30000, maxBuffer: 4 * 1024 * 1024 })).stdout;
+    const child = promisify(execFile)(path, [root, ...args], { timeout: 30000, maxBuffer: 64 * 1024 * 1024 });
+    if (stdin !== undefined) {
+      child.child.stdin?.on("error", () => {
+        return;
+      });
+      child.child.stdin?.end(stdin);
+    }
+    return (await child).stdout;
   },
   read: (path) => readFile(path, "utf8").catch(() => null),
   list: async (path, kind) => {
@@ -4542,8 +5070,8 @@ var nodeStore = {
     });
   })
 };
-function projectAt(root) {
-  return loadProject(nodeStore, root);
+function projectAt(root, actor) {
+  return loadProject(nodeStore, root, actor);
 }
 var MAX_LINKS = 40;
 async function through(path) {
@@ -4654,7 +5182,7 @@ function usageReading(previous, gauge, tokens, window) {
 function freshSample() {
   return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 };
 }
-function status({ gauge, reading }) {
+function status2({ gauge, reading }) {
   return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) });
 }
 async function sample(state, transcript, reset) {
@@ -5195,7 +5723,7 @@ async function retainedContext(path, receipt, marker) {
     stream.destroy();
   }
 }
-async function contextFor(input, project, state) {
+async function contextFor(input, project, state, restoring = false) {
   const problem = project.problem;
   const event = input.hook_event_name;
   const edits = await recentEdits(project, input, state.editOffset);
@@ -5221,7 +5749,7 @@ async function contextFor(input, project, state) {
     state.looks.running = 0;
   }
   if (event === "UserPromptSubmit" && sameTurn && state.looks.running > 0)
-    return [];
+    return { notes: [], waiting: "" };
   if (state.looks.running === 0 || event === "PostToolUse")
     state.editOffset = edits.offset;
   if (event === "PreToolUse" || event === "PostToolUse") {
@@ -5250,7 +5778,7 @@ async function contextFor(input, project, state) {
     });
     if (!problem || notes.some((note) => note.body.includes(problem)))
       state.reportedProblem = problem;
-    return [mapNote, ...notes.map(wrap)];
+    return { notes: [mapNote, ...notes.map(wrap)], waiting: "" };
   }
   state.shells = [];
   const start = await startSession(project);
@@ -5274,13 +5802,19 @@ async function contextFor(input, project, state) {
       await refreshDocs(project, { tocs: false });
   }
   state.docsSettings = docsSettings;
+  if (event === "SessionStart") {
+    state.looks.migrationChecked = false;
+    state.looks.refreshClaims = !!kept;
+  }
   const legacyStamps = state.looks.docs;
-  const records = await promptRecords(courier, true);
+  if (restoring)
+    state.looks.refreshClaims = false;
+  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring);
   const recordNotes = records.notes.map(wrap);
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
   state.reportedProblem = problem;
-  const files = await sessionFiles(project, { refresh: false });
+  const files = await sessionFiles(project, { refresh: false, includeClaims: fresh });
   const { confirmed } = await mapEdits();
   state.mapOffset = nextMapOffset;
   const changes = await observeMap2(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps);
@@ -5302,7 +5836,7 @@ async function contextFor(input, project, state) {
   }
   state.doctrineHash = doctrineHash;
   notes.push(...recordNotes);
-  return notes;
+  return { notes, waiting: records.waiting };
 }
 function checkpoint(db) {
   const row = db.query("SELECT state FROM checkpoint WHERE id = 1").get();
@@ -5334,7 +5868,7 @@ var pickerCommands = new Map([
   ["$shift:tasks", TASKS_COMMAND]
 ]);
 async function runHook(input, dir, file) {
-  const project = await projectAt(String(input.cwd));
+  const project = await projectAt(String(input.cwd), typeof input.session_id === "string" ? input.session_id : undefined);
   const prompt = input.hook_event_name === "UserPromptSubmit" && typeof input.prompt === "string" ? input.prompt.trim() : "";
   const token = prompt.split(/\s/, 1)[0] ?? "";
   const command = pickerCommands.get(token) ?? /^\/\/?([^/\s]+)$/.exec(token)?.[1];
@@ -5364,11 +5898,15 @@ async function runHook(input, dir, file) {
     let state = checkpoint(db) ?? await legacyState(file);
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() };
-    const notes = project.settings.enabled ? await contextFor(input, project, state) : [];
+    const delivery = project.settings.enabled ? await contextFor(input, project, state, command === RESUME_COMMAND) : { notes: [], waiting: "" };
+    const { notes } = delivery;
+    let waiting = delivery.waiting;
     if (command === SHIFT_COMMAND)
       notes.push(SHIFT_NOW(""));
     if (command === RESUME_COMMAND) {
       const last = await resumeShift(project);
+      if (last.prompt && last.waiting)
+        waiting = last.waiting;
       notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`);
     }
     if (project.settings.enabled && input.hook_event_name !== "PreToolUse" && typeof input.transcript_path === "string") {
@@ -5381,6 +5919,8 @@ async function runHook(input, dir, file) {
     const context = notes.filter(Boolean).join(`
 
 `);
+    if (waiting)
+      await acknowledgeWait(project, waiting);
     return context ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context } } : {};
   } finally {
     db.close();
@@ -5464,7 +6004,7 @@ class Session {
     };
     this.courier = {
       loop: this.loop,
-      project: () => projectAt(root),
+      project: () => projectAt(root, id),
       looks: async () => this.looks,
       updateLooks: async (change) => {
         this.looks = change(this.looks);
@@ -5475,7 +6015,7 @@ class Session {
           this.gauge = change(this.gauge);
         },
         history: async () => ({}),
-        base: async () => shiftBase(await projectAt(root), id),
+        base: async () => shiftBase(await projectAt(root, id), id),
         reading: async () => this.reading
       }
     };
@@ -5494,7 +6034,7 @@ class Session {
       };
     }
     await this.observation;
-    const project = await projectAt(this.root);
+    const project = await projectAt(this.root, this.id);
     this.enabled = project.settings.enabled;
     if (!project.settings.enabled)
       return { params, delivered: async () => {} };
@@ -5562,13 +6102,15 @@ class Session {
   }
   tool(name, raw, turn) {
     const run = this.toolsDone.then(async () => {
-      const project = await projectAt(this.root);
+      const project = await projectAt(this.root, this.id);
       if (!project.settings.enabled)
         throw new Error("Shift is disabled in this project.");
       if (name === "shift_tasks")
         return tasksView(project);
       if (name === "unshift") {
         const last = await resumeShift(project);
+        if (last.prompt)
+          await dropWaiting(this.loop, project, last.waiting);
         return last.prompt ?? last.text;
       }
       const tool = shownTools(project.settings).find((tool) => tool.name === name);
@@ -5618,7 +6160,7 @@ class Session {
   async checkMap(shellWrite) {
     if (!this.prints?.documents)
       return;
-    const project = await projectAt(this.root);
+    const project = await projectAt(this.root, this.id);
     const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset);
     const update = await mapAtTool(project, this.prints, async () => edits, shellWrite);
     if (update.note)
@@ -5706,7 +6248,7 @@ class Session {
         this.gauge = letGoGauge(true);
         if (this.enabled)
           this.observe(async () => {
-            const project = await projectAt(this.root);
+            const project = await projectAt(this.root, this.id);
             if (!project.settings.enabled)
               return;
             const files = await sessionFiles(project);
@@ -5738,7 +6280,7 @@ class Session {
     const barrier = this.barrier;
     try {
       await this.observation;
-      await afterTurn(await projectAt(this.root), this.loop, {
+      await afterTurn(await projectAt(this.root, this.id), this.loop, {
         fill: async () => this.reading.tokens,
         parkWait: this.delivery === "hooks" ? (note) => this.inject(note.context) : undefined,
         letGo: async (instructions) => {
@@ -5914,7 +6456,7 @@ async function serve() {
           if (name === "shift_status") {
             if (!(await projectAt(state.root)).settings.enabled)
               throw new Error("Shift is disabled in this project.");
-            return reply(packet.id, { content: [{ type: "text", text: status(state.usage) }] });
+            return reply(packet.id, { content: [{ type: "text", text: status2(state.usage) }] });
           }
           let session = daemon?.sessions.get(id) ?? sessions.get(id);
           let turn = "";

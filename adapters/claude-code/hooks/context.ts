@@ -29,14 +29,14 @@ export async function loadFiles($: EngineInterface, project: Project, resume = t
   await update($, filesSession, () => session)
   if (saved?.checkpoint.map && (await $.session.messages()).length) {
     await update($, files, () => saved.files)
-    await update($, looks, () => ({ ...FRESH_LOOKS, ...saved.checkpoint }))
+    await update($, looks, () => ({ ...FRESH_LOOKS, ...saved.checkpoint, refreshClaims: true }))
     return
   }
   if (!resume && project.settings.enabled && !(await staleLayout(project))) await refreshDocs(project, { tocs: false })
   const loaded = await sessionFiles(project, { refresh: resume })
   const map = await initialMap(project, loaded)
   await update($, files, () => renderSessionFiles(loaded))
-  await update($, looks, current => ({ ...(resume ? FRESH_LOOKS : current), map, mapNotes: [] }))
+  await update($, looks, current => ({ ...(resume ? FRESH_LOOKS : current), map, mapNotes: [], migrationChecked: false }))
   await persistMap($)
 }
 

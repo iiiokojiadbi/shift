@@ -44,6 +44,8 @@ test('every row has its texts; the docs tools only where the mod keeps docs, non
     'task_manage',
     'task_archive',
     'task_track',
+    'shift_migrate',
+    'shift_history',
   ])
 })
 

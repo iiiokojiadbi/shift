@@ -68,6 +68,7 @@ export default function shift(pi: ExtensionAPI): void {
   let enabled = true
   // The documents' tocs and the map are refreshed at the first run of a session, before anything looks at them.
   let mapFile: SessionFile | null | undefined
+  let claimed: SessionFile | null = null
   let loadedBlock: string | null = null
   const mapEntry = `${MOD}:map`
   const fileEntry = `${MOD}:map-file`
@@ -75,6 +76,7 @@ export default function shift(pi: ExtensionAPI): void {
   function restoreBranch(ctx: ExtensionContext) {
     looks = FRESH_LOOKS
     mapFile = undefined
+    claimed = null
     loadedBlock = null
     outside.clear()
     for (const entry of ctx.sessionManager.getBranch().toReversed()) {
@@ -82,11 +84,16 @@ export default function shift(pi: ExtensionAPI): void {
       if (entry.type !== 'custom') continue
       if (entry.customType === mapEntry && !looks.map) looks = { ...looks, ...(entry.data as ReturnType<typeof mapCheckpoint>) }
       if (entry.customType === fileEntry) {
-        mapFile = entry.data as SessionFile | null
+        const saved = entry.data as SessionFile | { map: SessionFile | null; claimed: SessionFile | null } | null
+        if (saved && 'map' in saved) {
+          mapFile = saved.map
+          claimed = saved.claimed
+        } else mapFile = saved
         break
       }
     }
     if (!looks.map) mapFile = undefined
+    else looks = { ...looks, refreshClaims: true }
   }
   // The records as last seen and the agent's tools running now; what changed before each tool began, by its call.
   let looks: Looks = FRESH_LOOKS
@@ -105,13 +112,13 @@ export default function shift(pi: ExtensionAPI): void {
       ...(tool.writes ? { executionMode: 'sequential' as const } : {}),
       async execute(_id, params, _signal, _onUpdate, ctx) {
         const done = await tool.run(params as Record<string, unknown>, {
-          project: () => projectAt(ctx.cwd),
+          project: () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId()),
           sessionId: async () => ctx.sessionManager.getSessionId(),
           now: async () => Date.now(),
           subagent: false,
           loop: loopOf(ctx),
           loaded: async () => loadedBlock,
-          status: () => gaugeStatus(keeperOf(ctx, () => projectAt(ctx.cwd))),
+          status: () => gaugeStatus(keeperOf(ctx, () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))),
           cannotLetGo: async () => cannotLetGo(ctx),
         })
         if ('deny' in done) throw new Error(done.deny)
@@ -123,7 +130,7 @@ export default function shift(pi: ExtensionAPI): void {
 
   pi.registerCommand(TASKS_COMMAND, {
     description: TASKS_DESCRIPTION,
-    handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await projectAt(ctx.cwd)), 'info'),
+    handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId())), 'info'),
   })
 
   pi.registerCommand(SHIFT_COMMAND, {
@@ -131,10 +138,9 @@ export default function shift(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       // Typed mid-run, it waits for the run to end, as Claude Code holds a command until the turn is over.
-      // The letter's clearing goes on the branch before the message that carries it, as `branchNote` reads them.
-      const now = await shiftNow(loopOf(ctx), args.trim())
+      const now = await shiftNow(loopOf(ctx), args.trim(), await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
+      pi.sendUserMessage(withImages(now.text, now.attachments), ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
       await now.delivered()
-      pi.sendUserMessage(now.text, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
     },
   })
 
@@ -143,16 +149,14 @@ export default function shift(pi: ExtensionAPI): void {
     // The owner's words typed with the command go after the letter, as their own message that starts the turn.
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
-      const resumed = await resumeShift(await projectAt(ctx.cwd))
+      const resumed = await resumeShift(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
-      // The newest letter goes now: one waiting for the owner's message is not told again. Its clearing goes on the
-      // branch before the message, as `branchNote` reads them.
-      await dropWaiting(loopOf(ctx))
       const words = args.trim()
       // Typed mid-run, both wait for the run to end.
       const busy = ctx.isIdle() ? {} : { deliverAs: 'followUp' as const }
       pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '', ...busy })
+      await dropWaiting(loopOf(ctx), await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()), resumed.waiting)
       if (words !== '') pi.sendUserMessage(words, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
     },
   })
@@ -160,7 +164,7 @@ export default function shift(pi: ExtensionAPI): void {
   // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
-    const start = await startSession(await projectAt(ctx.cwd))
+    const start = await startSession(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
     enabled = start.enabled
     restoreBranch(ctx)
     for (const row of start.rows) tell(ctx, row.text, row.level)
@@ -208,7 +212,8 @@ export default function shift(pi: ExtensionAPI): void {
       const files = await sessionFiles(loadedProject)
       mapFile = files.find(file => file.path === loadedProject.settings.files.shift) ?? null
       looks = { ...looks, map: await initialMap(loadedProject, files), mapNotes: [] }
-      pi.appendEntry(fileEntry, mapFile)
+      claimed = files.find(file => file.path === 'beads:claimed') ?? null
+      pi.appendEntry(fileEntry, { map: mapFile, claimed })
       pi.appendEntry(mapEntry, mapCheckpoint(looks))
     }
     if (mapFile) event.systemPromptOptions.sections.shift_map = renderSessionFiles([mapFile]) ?? ''
@@ -216,19 +221,21 @@ export default function shift(pi: ExtensionAPI): void {
     const owner = event.messageType === 'user' && ownerTyped
     if (owner) ownerTyped = false
     const told = await atPrompt(courierOf(ctx, project), { runStarts: true, owner })
-    if (told.notes.length > 0) await told.delivered()
     // The other records go where pi puts AGENTS.md. Keep the map in its own stable section. Read after the notes: a toc a script left stale is written with its note, never silently before it.
-    const loaded = await sessionFiles(loadedProject, { refresh: false })
+    const loaded = await sessionFiles(loadedProject, { refresh: false, includeClaims: false })
     const others = loaded.filter(file => file.path !== loadedProject.settings.files.shift)
+    if (claimed) others.push(claimed)
     loadedBlock = renderSessionFiles(mapFile ? [mapFile, ...others] : others)
-    const ours = new Set(loaded.map(file => file.path))
+    const ours = new Set(['beads:claimed', ...loaded.map(file => file.path)])
     event.systemPromptOptions.contextFiles = [
       ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
       ...others.map(file => ({ path: file.path, content: file.text })),
     ]
     if (told.notes.length === 0) return
 
-    return { message: { customType: MOD, content: told.notes.join('\n\n'), display: true } }
+    const content = withImages(told.notes.join('\n\n'), told.attachments)
+    await told.delivered()
+    return { message: { customType: MOD, content, display: true } }
   })
 
   // Every message of the history is counted by source.
@@ -237,7 +244,7 @@ export default function shift(pi: ExtensionAPI): void {
     const source = growthSource(event.message)
     if (source !== null)
       await countGrowth(
-        keeperOf(ctx, () => projectAt(ctx.cwd)),
+        keeperOf(ctx, () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId())),
         source,
         messageChars(event.message),
       )
@@ -294,7 +301,7 @@ export default function shift(pi: ExtensionAPI): void {
   // would come only after the shift is over, too late to be held, and run before the shift's message.
   pi.on('agent_settled', async (event, ctx) => {
     if (loop.pending === null) return
-    void projectAt(ctx.cwd)
+    void projectAt(ctx.cwd, ctx.sessionManager.getSessionId())
       .then(project => afterTurn(project, loopOf(ctx), letGoOf(ctx), event.aborted))
       .catch((error: unknown) => tell(ctx, `the shift did not finish: ${String(error)}`, 'error'))
   })
@@ -303,7 +310,7 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('session_compact', event => {
     gauge = letGoGauge(event.reason !== 'manual')
     mapFile = undefined
-    looks = { ...looks, map: undefined, mapNotes: [] }
+    looks = { ...looks, map: undefined, mapNotes: [], migrationChecked: false }
   })
 
   // The notes to the agent over the extension's runtime: the looks at the records, the loop and the gauge.
@@ -353,8 +360,7 @@ export default function shift(pi: ExtensionAPI): void {
         }).catch((error: unknown) => ({ skip: `did not start: ${String(error)}` })),
       continueWith: async (prompt, attachments) => {
         // The images of the owner's held messages go with it as pi gave them.
-        const images = (attachments ?? []) as NonNullable<InputEvent['images']>
-        const content = images.length === 0 ? prompt : [{ type: 'text' as const, text: prompt }, ...images]
+        const content = withImages(prompt, attachments)
         pi.sendMessage({ customType: MOD, content, display: true }, { triggerTurn: true })
       },
     }
@@ -387,6 +393,11 @@ export default function shift(pi: ExtensionAPI): void {
       },
     }
   }
+}
+
+function withImages(text: string, attachments?: readonly unknown[]) {
+  const images = (attachments ?? []) as NonNullable<InputEvent['images']>
+  return images.length ? [{ type: 'text' as const, text }, ...images] : text
 }
 
 // The wait note of the branch the session stands on: its last wait entry, written whenever the note changes. A note
@@ -428,7 +439,7 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
 
 // The project loaded once for the hook at hand.
 function once(ctx: ExtensionContext): () => Promise<Project> {
-  const loading = projectAt(ctx.cwd)
+  const loading = projectAt(ctx.cwd, ctx.sessionManager.getSessionId())
   return () => loading
 }
 

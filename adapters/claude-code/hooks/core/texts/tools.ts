@@ -11,6 +11,7 @@ import {
   LETTER,
   MANAGE_TOOL,
   MENTIONS_TOOL,
+  MIGRATE_TOOL,
   NAME_RULE,
   OPEN_TOOL,
   OUTCOMES,
@@ -144,6 +145,11 @@ export const GUIDE_SCHEMA = {
 export const HISTORY_SCHEMA = {
   type: 'object',
   properties: {
+    action: { type: 'string', enum: ['list', 'read', 'compare', 'export', 'delete', 'search'] },
+    id: { type: 'string', description: 'Saved shift ID.' },
+    query: { type: 'string', description: 'Local search across task titles, IDs and saved shift text.' },
+    other: { type: 'string', description: 'Second ID to compare against.' },
+    file: { type: 'string', description: 'Record to read, default letter.md.' },
     count: {
       type: 'integer',
       minimum: 1,
@@ -255,6 +261,23 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
     description: TRACK_DESCRIPTION,
     brief: 'update items by short ID, add new ones, or change the task status.',
     schema: TRACK_SCHEMA,
+  },
+  [MIGRATE_TOOL]: {
+    label: 'Migrate local records',
+    description:
+      'Manually transfer current tasks. Start verifies a backup, confirm acknowledges one transferred task, cleanup takes the ID and receipt delivered with the restored letter. Status is read-only.',
+    brief: 'transfer current work and verify the legacy backup.',
+    schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['status', 'start', 'confirm', 'cleanup'] },
+        task: { type: 'string' },
+        target: { type: 'string' },
+        receipt: { type: 'string' },
+        id: { type: 'string' },
+      },
+      required: ['action'],
+    },
   },
   [HISTORY_TOOL]: {
     label: 'Shift history',

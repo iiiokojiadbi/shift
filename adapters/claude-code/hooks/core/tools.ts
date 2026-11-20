@@ -10,6 +10,7 @@ import {
   HISTORY_TOOL,
   MANAGE_TOOL,
   MENTIONS_TOOL,
+  MIGRATE_TOOL,
   MOD,
   OPEN_TOOL,
   OUTLINE_TOOL,
@@ -21,12 +22,14 @@ import {
   TRACK_TOOL,
 } from './layout'
 import { holdShift, type Loop } from './loop'
+import { migrateRecords } from './migration'
 import type { Project } from './project'
+import { historyAction, usesNewStorage } from './saved'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
 import { sizeReport } from './sizes'
-import { closeGraph, createGraphTask, graphPath, manageGraph, queryGraph, trackGraph } from './taskgraph'
-import { doctrine, doctrineBody, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
+import { closeGraph, createGraphTask, manageGraph, queryGraph, trackGraph } from './taskgraph'
+import { doctrine, doctrineBody, GRAPH_GUIDE_FLOW, GRAPH_GUIDE_RECORDS, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
 import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
 import { updateTrack } from './track'
@@ -72,8 +75,12 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       if (raw.section !== undefined && raw.section !== 'flow' && raw.section !== 'records')
         return { deny: 'section must be flow or records.' }
-      const guide = raw.section === 'flow' ? GUIDE_FLOW : raw.section === 'records' ? GUIDE_RECORDS : GUIDE
-      return { result: atPlaces(guide.trimEnd(), (await call.project()).settings.files) }
+      const project = await call.project()
+      const modern = await usesNewStorage(project)
+      const flow = modern ? GRAPH_GUIDE_FLOW : GUIDE_FLOW
+      const records = modern ? GRAPH_GUIDE_RECORDS : GUIDE_RECORDS
+      const guide = raw.section === 'flow' ? flow : raw.section === 'records' ? records : modern ? `${flow}\n\n${records}` : GUIDE
+      return { result: atPlaces(guide.trimEnd(), project.settings.files) }
     },
   },
   {
@@ -98,9 +105,10 @@ const ROWS: readonly Row[] = [
     writes: true,
     run: async (raw, call) => {
       const project = await call.project()
-      const input = parseOpenInput(raw, Boolean(project.store.beads))
+      const graph = await usesNewStorage(project)
+      const input = parseOpenInput(raw, graph)
       if (typeof input === 'string') return { deny: input }
-      if (!project.store.beads) return openTask(project, input, await call.now())
+      if (!graph) return openTask(project, input, await call.now())
       try {
         return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) }
       } catch (error) {
@@ -137,7 +145,7 @@ const ROWS: readonly Row[] = [
 
       if (typeof input === 'string') return { deny: input }
       const project = await call.project()
-      if (!project.store.beads || !(await project.store.exists(graphPath(project)))) return archiveTask(project, input)
+      if (!(await usesNewStorage(project))) return archiveTask(project, input)
       try {
         return { result: await closeGraph(project, input, await call.sessionId()) }
       } catch (error) {
@@ -153,7 +161,7 @@ const ROWS: readonly Row[] = [
 
       if (typeof input === 'string') return { deny: input }
       const project = await call.project()
-      if (!project.store.beads || !(await project.store.exists(graphPath(project)))) return updateTrack(project, input, await call.now())
+      if (!(await usesNewStorage(project))) return updateTrack(project, input, await call.now())
       try {
         return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) }
       } catch (error) {
@@ -162,8 +170,27 @@ const ROWS: readonly Row[] = [
     },
   },
   {
-    name: HISTORY_TOOL,
+    name: MIGRATE_TOOL,
+    writes: true,
     run: async (raw, call) => {
+      try {
+        return { result: await migrateRecords(await call.project(), raw) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
+  {
+    name: HISTORY_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      if (raw.action && raw.action !== 'list') {
+        try {
+          return { result: await historyAction(await call.project(), raw) }
+        } catch (error) {
+          return { deny: String(error) }
+        }
+      }
       const count = parseHistoryCount(raw)
 
       return typeof count === 'string' ? { deny: count } : { result: await shiftHistory(await call.project(), count) }

@@ -1,8 +1,11 @@
+import { wrap } from './delivery'
 import { mapBounds } from './docs'
 import { handBack, sessionFiles } from './flows'
 import { BOARD, LETTER, NAMES, SHIFTS, TASKS } from './layout'
+import { migrationNote } from './migration'
 import type { Project } from './project'
 import { knowledgeMap } from './records'
+import { readSaved, savedEntries, usesNewStorage } from './saved'
 import { shiftNames } from './store'
 import {
   continuePrompt,
@@ -34,19 +37,29 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
       if (end >= 0) sessionRows.push(row('  of which: documentation map', count(parts.slice(start, end + 1).join('\n'))))
     }
   }
-  const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n'))
-  const folders = (await shiftNames(project)).reverse()
+  const migration = await migrationNote(project)
+  const notice = migration ? count(wrap({ kind: 'records', body: migration })) : 0
+  if (migration) sessionRows.push(row('Migration reminder (first prompt)', notice))
+  const session = notice + count([doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n'))
+  const retained = (await savedEntries(project)).reverse()
+  const modern = await usesNewStorage(project)
+  const folders = retained.length ? [] : (await shiftNames(project)).reverse()
   const saved: { name: string; letter: string }[] = []
+  for (const e of retained.slice(0, 3)) {
+    const letter = (await readSaved(project, e.id, NAMES.letter)).files[NAMES.letter]
+    if (letter !== undefined) saved.push({ name: e.id, letter })
+  }
   for (const name of folders) {
     const letter = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.letter}`)
     if (letter !== null) saved.push({ name, letter })
     if (saved.length === 3) break
   }
-  const dir = `${project.root}/${SHIFTS}/${saved[0]?.name ?? '<next-shift>'}`
-  const back = await handBack(project, dir)
+  const dir = modern ? (retained[0]?.id ?? 's-0000000000000000') : `${project.root}/${SHIFTS}/${saved[0]?.name ?? '<next-shift>'}`
+  const back = await handBack(project, dir, project.actor)
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)))
-    for (const task of inProgress(back.work)) {
+    if (back.liveTasks) continueRows.push(row('Claimed task cards', count(back.liveTasks)))
+    for (const task of modern ? [] : inProgress(back.work)) {
       const folder = `${TASKS}/${task.name}`
       continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? 'missing')))
       continueRows.push(row(`${folder}/${NAMES.track}`, count(trackPreview(task.track ?? 'missing'))))
@@ -74,7 +87,10 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     'Totals include message framing.',
     '',
     ...(saved.length
-      ? [`Saved letters in ${SHIFTS}/ (outside total)`, ...saved.map(entry => row(entry.name, count(entry.letter)))]
+      ? [
+          `Saved letters in ${modern ? 'the shift archive' : `${SHIFTS}/`} (outside total)`,
+          ...saved.map(entry => row(entry.name, count(entry.letter))),
+        ]
       : ['No saved letters.']),
   ].join('\n')
 }

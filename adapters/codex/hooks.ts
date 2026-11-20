@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import {
+  acknowledgeWait,
   afterToolRecords,
   beforeTool,
   docStamps,
@@ -90,7 +91,7 @@ async function retainedContext(path: string, receipt: ContextReceipt, marker: st
   }
 }
 
-async function contextFor(input: Fields, project: Project, state: HookState) {
+async function contextFor(input: Fields, project: Project, state: HookState, restoring = false) {
   const problem = project.problem
   const event = input.hook_event_name
   const edits = await recentEdits(project, input, state.editOffset)
@@ -117,7 +118,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
     state.looks.running = 0
   }
   // A steer can submit another prompt while this turn's tool is still writing.
-  if (event === 'UserPromptSubmit' && sameTurn && state.looks.running > 0) return []
+  if (event === 'UserPromptSubmit' && sameTurn && state.looks.running > 0) return { notes: [], waiting: '' }
   if (state.looks.running === 0 || event === 'PostToolUse') state.editOffset = edits.offset
   if (event === 'PreToolUse' || event === 'PostToolUse') {
     let mapNote = ''
@@ -149,7 +150,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
             readOnly: false,
           })
     if (!problem || notes.some(note => note.body.includes(problem))) state.reportedProblem = problem
-    return [mapNote, ...notes.map(wrap)]
+    return { notes: [mapNote, ...notes.map(wrap)], waiting: '' }
   }
   state.shells = []
   const start = await startSession(project)
@@ -175,13 +176,18 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
     if (!(await staleLayout(project))) await refreshDocs(project, { tocs: false })
   }
   state.docsSettings = docsSettings
+  if (event === 'SessionStart') {
+    state.looks.migrationChecked = false
+    state.looks.refreshClaims = !!kept
+  }
   const legacyStamps = state.looks.docs
-  const records = await promptRecords(courier, true)
+  if (restoring) state.looks.refreshClaims = false
+  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring)
   const recordNotes = records.notes.map(wrap)
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
   state.reportedProblem = problem
-  const files = await sessionFiles(project, { refresh: false })
+  const files = await sessionFiles(project, { refresh: false, includeClaims: fresh })
   const { confirmed } = await mapEdits()
   state.mapOffset = nextMapOffset
   const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps)
@@ -203,7 +209,7 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   }
   state.doctrineHash = doctrineHash
   notes.push(...recordNotes)
-  return notes
+  return { notes, waiting: records.waiting }
 }
 
 function checkpoint(db: Database): HookState | undefined {
@@ -241,7 +247,7 @@ const pickerCommands = new Map([
 // Hook processes for one thread can overlap. A SQLite writer transaction covers the observation,
 // the decision to deliver and its checkpoint. The OS releases the lock if the hook is killed.
 export async function runHook(input: Fields, dir: string, file: string) {
-  const project = await projectAt(String(input.cwd))
+  const project = await projectAt(String(input.cwd), typeof input.session_id === 'string' ? input.session_id : undefined)
   const prompt = input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' ? input.prompt.trim() : ''
   const token = prompt.split(/\s/, 1)[0] ?? ''
   const command = pickerCommands.get(token) ?? /^\/\/?([^/\s]+)$/.exec(token)?.[1]
@@ -269,10 +275,15 @@ export async function runHook(input: Fields, dir: string, file: string) {
     let state = checkpoint(db) ?? (await legacyState(file))
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() }
-    const notes = project.settings.enabled ? await contextFor(input, project, state) : []
+    const delivery = project.settings.enabled
+      ? await contextFor(input, project, state, command === RESUME_COMMAND)
+      : { notes: [], waiting: '' }
+    const { notes } = delivery
+    let waiting = delivery.waiting
     if (command === SHIFT_COMMAND) notes.push(SHIFT_NOW(''))
     if (command === RESUME_COMMAND) {
       const last = await resumeShift(project)
+      if (last.prompt && last.waiting) waiting = last.waiting
       notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`)
     }
     if (project.settings.enabled && input.hook_event_name !== 'PreToolUse' && typeof input.transcript_path === 'string') {
@@ -282,6 +293,7 @@ export async function runHook(input: Fields, dir: string, file: string) {
     db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))
     db.exec('COMMIT')
     const context = notes.filter(Boolean).join('\n\n')
+    if (waiting) await acknowledgeWait(project, waiting)
     return context ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context } } : {}
   } finally {
     db.close()

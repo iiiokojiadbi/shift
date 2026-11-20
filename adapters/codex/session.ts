@@ -11,6 +11,7 @@ import {
   type Courier,
   countGrowth,
   docStamps,
+  dropWaiting,
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
@@ -116,7 +117,7 @@ export class Session {
     }
     this.courier = {
       loop: this.loop,
-      project: () => projectAt(root),
+      project: () => projectAt(root, id),
       looks: async () => this.looks,
       updateLooks: async change => {
         this.looks = change(this.looks)
@@ -127,7 +128,7 @@ export class Session {
           this.gauge = change(this.gauge)
         },
         history: async () => ({}),
-        base: async () => shiftBase(await projectAt(root), id),
+        base: async () => shiftBase(await projectAt(root, id), id),
         reading: async () => this.reading,
       },
     }
@@ -146,7 +147,7 @@ export class Session {
       }
     }
     await this.observation
-    const project = await projectAt(this.root)
+    const project = await projectAt(this.root, this.id)
     this.enabled = project.settings.enabled
     if (!project.settings.enabled) return { params, delivered: async () => {} }
     const first = !this.prepared
@@ -215,11 +216,12 @@ export class Session {
 
   tool(name: string, raw: Fields, turn: string) {
     const run = this.toolsDone.then(async () => {
-      const project = await projectAt(this.root)
+      const project = await projectAt(this.root, this.id)
       if (!project.settings.enabled) throw new Error('Shift is disabled in this project.')
       if (name === 'shift_tasks') return tasksView(project)
       if (name === 'unshift') {
         const last = await resumeShift(project)
+        if (last.prompt) await dropWaiting(this.loop, project, last.waiting)
         return last.prompt ?? last.text
       }
       const tool = shownTools(project.settings).find(tool => tool.name === name)
@@ -265,7 +267,7 @@ export class Session {
 
   private async checkMap(shellWrite: boolean) {
     if (!this.prints?.documents) return
-    const project = await projectAt(this.root)
+    const project = await projectAt(this.root, this.id)
     const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset)
     const update = await mapAtTool(project, this.prints, async () => edits, shellWrite)
     if (update.note) await this.inject(update.note)
@@ -344,7 +346,7 @@ export class Session {
         this.gauge = letGoGauge(true)
         if (this.enabled)
           this.observe(async () => {
-            const project = await projectAt(this.root)
+            const project = await projectAt(this.root, this.id)
             if (!project.settings.enabled) return
             const files = await sessionFiles(project)
             const block = renderSessionFiles(files)
@@ -372,7 +374,7 @@ export class Session {
     try {
       await this.observation
       await afterTurn(
-        await projectAt(this.root),
+        await projectAt(this.root, this.id),
         this.loop,
         {
           fill: async () => this.reading.tokens,
