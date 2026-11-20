@@ -24,16 +24,22 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 
 ### Codex
 
-Requires Bun on PATH and Codex CLI (tested with 0.171.0). Install the tagged plugin from the repository's marketplace:
+Requires Bun on PATH and Codex CLI (tested with 0.171.0). Subscribe to stable releases from the repository's marketplace:
 
 ```sh
-codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.38.2
+codex plugin marketplace add iiiokojiadbi/shift --ref codex-stable
 codex plugin add shift@shift
 ```
 
 Start Codex with `codex` as usual. In `/hooks`, review and trust the hooks supplied by `shift@shift`, then open a new thread. The first turn receives SHIFT.md with its documentation map. To let the agent initiate a shift, the TUI needs the local app server. If its daemon is stopped, run `codex app-server daemon start` once and reopen Codex. See [Commands](#commands) for the terminal inputs.
 
-For updates, exit Codex first. In your shell, run `codex plugin marketplace remove shift`, then the two install commands above for the new tag. Reopen your thread with `codex resume` and review the updated hooks in `/hooks`.
+For an existing installation pinned to a version tag, change the `ref` line under `[marketplaces.shift]` in your Codex `config.toml` to `ref = "codex-stable"` once. For updates, exit Codex and run:
+
+```sh
+codex plugin marketplace upgrade shift
+```
+
+Reopen your thread with `codex resume` and review modified hooks in `/hooks`.
 
 ### Claude Code
 
