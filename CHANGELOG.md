@@ -2,6 +2,13 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.38.2
+
+### Changed
+
+- Size reports now show the combined token count first, followed by aligned counts for the session and continuation. The documentation map is marked as part of its parent file. Up to three saved letters appear separately.
+- The Codex update instructions cover upgrading between sessions so active hooks can finish using their installed version.
+
 ## 0.38.1
 
 ### Fixed
