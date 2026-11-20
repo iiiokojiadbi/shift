@@ -17,6 +17,7 @@ export type GraphTask = {
   assignee?: string
   labels?: string[]
   comment_count?: number
+  dependent_count?: number
   dependencies?: Relation[]
   metadata?: { items?: GraphItem[]; about?: string; links?: OpenInput['links'] }
 }
@@ -37,12 +38,19 @@ function labels(raw: unknown): string[] {
 export async function graphCommand(project: Project, args: string[], actor?: string, expected: GraphTask[] = []): Promise<string> {
   if (!project.store.beads) throw new Error('The private task runtime is unavailable.')
   const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args
-  if (!expected.length) return project.store.beads(project.root, invocation)
-  const revisions = expected.map(task => {
-    if (!task.revision) throw new Error(`Missing revision for ${task.id}.`)
-    return { id: task.id, revision: task.revision }
-  })
-  return project.store.beads(project.root, ['shift-checked', JSON.stringify(revisions), ...invocation])
+  return project.store.beads(project.root, ['shift-task'], JSON.stringify({ args: invocation, expected: expected.map(taskGuard) }))
+}
+
+export function taskGuard(task: GraphTask) {
+  if (!task.revision) throw new Error(`Missing revision for ${task.id}.`)
+  return {
+    id: task.id,
+    revision: task.revision,
+    labels: task.labels,
+    comment_count: task.comment_count,
+    dependent_count: task.dependent_count,
+    dependencies: task.dependencies?.map(({ id, dependency_type }) => ({ id, dependency_type })),
+  }
 }
 
 export async function graphTask(project: Project, id: string): Promise<GraphTask> {
@@ -126,7 +134,14 @@ export async function createGraphTask(project: Project, input: OpenInput, raw: R
 
 export async function queryGraph(project: Project, raw: Record<string, unknown>, actor: string) {
   const view = raw.view ?? 'mine'
-  if (view === 'show') return taskCard(await graphTask(project, taskId(raw.task)))
+  if (view === 'show') {
+    const task = await graphTask(project, taskId(raw.task))
+    const card = taskCard(task)
+    if (task.issue_type !== 'epic') return card
+    const result = JSON.parse(await graphCommand(project, ['show', task.id, '--children', '--json']))
+    const children: GraphTask[] = result[task.id] ?? []
+    return [card, ...children.map(child => `child: ${line(child)}`)].join('\n')
+  }
   if (view === 'history' || view === 'comments') {
     const text = await graphCommand(project, [view, taskId(raw.task), '--json'])
     return text.trim()
@@ -142,10 +157,13 @@ export async function queryGraph(project: Project, raw: Record<string, unknown>,
   const tasks = JSON.parse(await graphCommand(project, args)) as GraphTask[]
   if (view === 'cards') {
     if (!tasks.length) return 'No tasks claimed by this chat.'
-    const full = JSON.parse(
-      await graphCommand(project, ['show', '--brief-deps', '--json', ...tasks.map(t => `--id=${t.id}`)]),
-    ) as GraphTask[]
-    return full.map(taskCard).join('\n\n')
+    const cards: string[] = []
+    for (let i = 0; i < tasks.length; i += 64) {
+      const ids = tasks.slice(i, i + 64).map(t => `--id=${t.id}`)
+      const full = JSON.parse(await graphCommand(project, ['show', '--brief-deps', '--json', ...ids])) as GraphTask[]
+      cards.push(...full.map(taskCard))
+    }
+    return cards.join('\n\n')
   }
   return tasks.map(line).join('\n') || 'No tasks.'
 }
@@ -197,7 +215,12 @@ export async function closeGraph(project: Project, input: ArchiveInput, actor: s
   editable(task, actor)
   if (input.outcome === 'done' && task.metadata?.items?.some(each => !CLOSED.has(each.status)))
     throw new Error('Close the remaining items first.')
-  await graphCommand(project, ['close', task.id, `--reason=${input.outcome}: ${input.about}`], actor, [task])
+  await graphCommand(
+    project,
+    ['close', task.id, `--reason=${input.outcome}: ${input.about}`, ...(input.outcome === 'dropped' ? ['--force'] : [])],
+    actor,
+    [task],
+  )
   return `${task.id} closed (${input.outcome}).`
 }
 
@@ -277,22 +300,28 @@ export async function graphGeneration(p: Project): Promise<string> {
 
 // Observe comments on claimed work. Only a changed count needs the comment bodies
 // to distinguish this chat's writes from another writer's.
-export async function commentChanges(project: Project, previous: Record<string, number> | undefined) {
+export async function commentChanges(project: Project, previous: Record<string, number> | undefined, lastManifest?: string) {
   const actor = project.actor
-  if (!actor || !(await project.store.exists(graphPath(project)))) return null
+  if (!actor || !project.store.beads) return null
+  if (!(await project.store.exists(graphPath(project))))
+    return previous && !Object.keys(previous).length && !lastManifest ? null : { counts: {}, manifest: undefined, notes: [] }
+  // Sample before querying. A commit during the query will be checked again on the next prompt.
+  const raw = await project.store.read(`${project.root}/.shift/beads/.beads/embeddeddolt/shift/.dolt/noms/manifest`)
+  // The pinned manifest starts with its format, lock hash and root hash. Chunk listings can grow.
+  const manifest = raw?.match(/^5:__DOLT__:[0-9a-v]{32}:[0-9a-v]{32}:/)?.[0]
+  if (manifest && manifest === lastManifest && previous) return null
   const tasks = JSON.parse(await graphCommand(project, ['list', `--assignee=${actor}`, '--json', '--brief', '--limit=0'])) as GraphTask[]
-  const counts: Record<string, number> = {}
+  const counts: Record<string, number> = { ...previous }
   const notes: string[] = []
   for (const task of tasks) {
     const count = task.comment_count ?? 0
     counts[task.id] = count
-    const prior = previous?.[task.id]
+    const prior = previous ? (previous[task.id] ?? 0) : undefined
     if (prior === undefined || count <= prior) continue
-    const comments = JSON.parse(await graphCommand(project, ['comments', task.id, '--json'])) as { author: string }[]
-    const outside = comments.slice(prior, count).filter(c => c.author !== actor).length
+    const outside: number = JSON.parse(await graphCommand(project, ['shift-comment-count', task.id, actor, String(prior), String(count)]))
     if (outside)
       notes.push(`${task.id}: ${outside} new external comment${outside === 1 ? '' : 's'}. Read with task_query(view="comments").`)
   }
-  if (previous && Object.keys(previous).length === tasks.length && tasks.every(t => previous[t.id] === counts[t.id])) return null
-  return { counts, notes }
+  if (previous && lastManifest === manifest && tasks.every(t => previous[t.id] === counts[t.id])) return null
+  return { counts, notes, manifest }
 }

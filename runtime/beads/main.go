@@ -5,6 +5,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
 	_ "embed"
@@ -17,6 +18,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"shift.local/runtime/history"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -202,14 +205,30 @@ func run(args []string) error {
 	}
 	var expected []revision
 	commands := args[1:]
-	if commands[0] == "shift-checked" {
-		if len(commands) < 3 {
-			return errors.New("missing checked task operation")
+	if commands[0] == "shift-task" {
+		var request struct {
+			Args     []string
+			Expected []revision
 		}
-		if err := json.Unmarshal([]byte(commands[1]), &expected); err != nil {
+		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
 			return err
 		}
-		commands = commands[2:]
+		commands, expected = request.Args, request.Expected
+		if len(commands) == 0 {
+			return errors.New("missing task operation")
+		}
+	}
+	if commands[0] == "shift-comment-count" {
+		if len(commands) != 5 {
+			return errors.New("missing task, observer or comment range")
+		}
+		start, err1 := strconv.Atoi(commands[3])
+		end, err2 := strconv.Atoi(commands[4])
+		if err1 != nil || err2 != nil || start < 0 || end < start {
+			return errors.New("invalid comment range")
+		}
+		cmd := taskCommand(bd, workspace, []string{"comments", "--json", "--", commands[1]})
+		return countExternalComments(cmd, commands[2], start, end)
 	}
 	switch commands[0] {
 	case "list", "ready", "show", "history":
@@ -220,17 +239,128 @@ func run(args []string) error {
 		}
 		defer lock.Close()
 	}
+	// The parent uses JSON on stdin. Move large supported fields off the second
+	// command line as well, into the pinned CLI's file-input options.
+	var inputs []*os.File
+	defer func() {
+		for _, f := range inputs {
+			closeInput(f)
+		}
+	}()
+	fileArg := func(field, content string) (string, error) {
+		f, path, err := inputFile(workspace, field, content)
+		if err == nil {
+			inputs = append(inputs, f)
+		}
+		return path, err
+	}
+	for i, arg := range commands {
+		if arg == "--" {
+			if commands[0] == "comments" && len(commands) == i+3 && len(commands[i+2]) > 4096 {
+				path, err := fileArg("comment", commands[i+2])
+				if err != nil {
+					return err
+				}
+				commands[i], commands[i+1], commands[i+2] = "--file="+path, "--", commands[i+1]
+			}
+			break
+		}
+		field, content, ok := strings.Cut(arg, "=")
+		if !ok || len(content) <= 4096 {
+			continue
+		}
+		switch field {
+		case "--metadata", "--description", "--design", "--reason":
+			path, err := fileArg(field[2:], content)
+			if err != nil {
+				return err
+			}
+			switch field {
+			case "--metadata":
+				commands[i] = "--metadata=@" + path
+			case "--description":
+				commands[i] = "--body-file=" + path
+			default:
+				commands[i] = field + "-file=" + path
+			}
+		}
+	}
 	cmd := taskCommand(bd, workspace, commands)
 	if err := verifyTasks(cmd, expected); err != nil {
 		return err
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return runChild(cmd)
+	if err := runChild(cmd); commandTooLong(err) {
+		return fmt.Errorf("task command exceeds the operating system argument limit; shorten inline fields (such as acceptance criteria, evidence, title or labels) or put the longer text in a comment: %w", err)
+	} else {
+		return err
+	}
+}
+
+// The comments command returns complete bodies. Decode one row at a time here so
+// a prompt reads a single count even when an issue has megabytes of discussion.
+func countExternalComments(cmd *exec.Cmd, actor string, start, end int) error {
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = os.Stderr
+	if err := startQuery(cmd); err != nil {
+		return err
+	}
+	count, err := externalComments(out, actor, start, end)
+	if err != nil {
+		_ = cmd.Process.Kill()
+	}
+	if waited := cmd.Wait(); waited != nil && err == nil {
+		return waited
+	}
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(count)
+}
+
+func externalComments(out io.Reader, actor string, start, end int) (int, error) {
+	decoder := json.NewDecoder(out)
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('[') {
+		return 0, errors.New("invalid private comment list")
+	}
+	count, rows := 0, 0
+	for decoder.More() {
+		var comment struct {
+			Author string `json:"author"`
+		}
+		if err := decoder.Decode(&comment); err != nil {
+			return 0, err
+		}
+		if rows >= start && rows < end && comment.Author != actor {
+			count++
+		}
+		rows++
+	}
+	if _, err := decoder.Token(); err != nil {
+		return 0, err
+	}
+	if rows < end {
+		return 0, errors.New("comments changed during observation; retry")
+	}
+	return count, nil
+}
+
+type relation struct {
+	ID   string `json:"id"`
+	Kind string `json:"dependency_type"`
 }
 
 type revision struct {
-	ID       string `json:"id"`
-	Revision string `json:"revision"`
+	Labels         []string   `json:"labels"`
+	Dependencies   []relation `json:"dependencies"`
+	DependentCount int        `json:"dependent_count"`
+	CommentCount   int        `json:"comment_count"`
+	ID             string     `json:"id"`
+	Revision       string     `json:"revision"`
 }
 
 func taskCommand(bd, workspace string, commands []string) *exec.Cmd {
@@ -245,11 +375,27 @@ func taskCommand(bd, workspace string, commands []string) *exec.Cmd {
 	}
 	return cmd
 }
+func (r revision) matches(other revision) bool {
+	sortEdges := func(a, b relation) int {
+		if a.ID == b.ID {
+			return cmp.Compare(a.Kind, b.Kind)
+		}
+		return cmp.Compare(a.ID, b.ID)
+	}
+	slices.Sort(r.Labels)
+	slices.Sort(other.Labels)
+	slices.SortFunc(r.Dependencies, sortEdges)
+	slices.SortFunc(other.Dependencies, sortEdges)
+	return r.Revision != "" && r.ID == other.ID && r.Revision == other.Revision &&
+		r.CommentCount == other.CommentCount && r.DependentCount == other.DependentCount &&
+		slices.Equal(r.Labels, other.Labels) && slices.Equal(r.Dependencies, other.Dependencies)
+}
+
 func verifyTasks(cmd *exec.Cmd, expected []revision) error {
 
-	if len(expected) > 0 {
+	for group := range slices.Chunk(expected, 64) {
 		lookup := []string{"show", "--brief-deps", "--json"}
-		for _, entry := range expected {
+		for _, entry := range group {
 			lookup = append(lookup, "--id="+entry.ID)
 		}
 		probe := exec.Command(cmd.Path, lookup...)
@@ -258,19 +404,16 @@ func verifyTasks(cmd *exec.Cmd, expected []revision) error {
 		if err != nil {
 			return err
 		}
-		var issues []struct {
-			ID       string `json:"id"`
-			Revision string `json:"revision"`
-		}
+		var issues []revision
 		if err = json.Unmarshal(out, &issues); err != nil {
 			return err
 		}
-		current := map[string]string{}
+		current := map[string]revision{}
 		for _, entry := range issues {
-			current[entry.ID] = entry.Revision
+			current[entry.ID] = entry
 		}
-		for _, entry := range expected {
-			if entry.Revision == "" || current[entry.ID] != entry.Revision {
+		for _, entry := range group {
+			if !entry.matches(current[entry.ID]) {
 				return errors.New("a task changed during this operation; reread it and retry")
 			}
 		}

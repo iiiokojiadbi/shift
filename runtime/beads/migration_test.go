@@ -118,12 +118,8 @@ func TestInterruptedTransfer(t *testing.T) {
 	}
 }
 
-func TestMigrationWithoutOpenTasks(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "TASKS.md")
-	put(t, path, "none")
-	mustTransfer(t, root, fields{"action": "start"})
-	state := marker(t, root)
+func completedTransferShift(t *testing.T, root string) string {
+	t.Helper()
 	db := filepath.Join(root, "history.db")
 	save := func(args fields) string {
 		t.Helper()
@@ -143,6 +139,54 @@ func TestMigrationWithoutOpenTasks(t *testing.T) {
 	}
 	id := save(fields{"action": "begin", "key": "test", "about": "test", "files": map[string]string{"letter.md": "letter", "board.md": "board"}})
 	save(fields{"action": "finish", "id": id, "about": "ok", "state": "complete", "limit": 30})
+	return id
+}
+
+func TestCleanupProtectsConfiguredFiles(t *testing.T) {
+	project := t.TempDir()
+	root := filepath.Join(project, ".shift")
+	archive := filepath.Join(root, "archive")
+	if err := os.MkdirAll(archive, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(archive, "handbook.md")
+	put(t, path, "current handbook")
+	settings := "[docs]\ndirs = [\"handbook.md\"]"
+	put(t, filepath.Join(root, "settings.toml"), settings)
+	mustTransfer(t, root, fields{"action": "start"})
+	state := marker(t, root)
+	id := completedTransferShift(t, root)
+	args := fields{"action": "cleanup", "previous": id, "generation": state.Backup, "confirmed": map[string]string{}, "receipt": restoreReceipt(state, id)}
+	// Settings were unreadable or changed after the caller loaded the project.
+	for _, old := range []any{nil, "old settings"} {
+		args["settings"] = old
+		if _, err := transferCall(root, args); err == nil || !strings.Contains(err.Error(), "project settings") {
+			t.Fatalf("accepted stale settings: %v", err)
+		}
+	}
+	args["settings"] = settings
+	t.Run("configured symlink to an archived document", func(t *testing.T) {
+		link := filepath.Join(project, "handbook.md")
+		if err := os.Symlink(path, link); err != nil {
+			t.Skipf("creating a symlink is unavailable: %v", err)
+		}
+		args["protected"] = []string{"handbook.md"}
+		if _, err := transferCall(root, args); err == nil || !strings.Contains(err.Error(), "configured project file") {
+			t.Fatalf("cleanup did not protect the target: %v", err)
+		}
+		if content(t, link) != "current handbook" || marker(t, root).Done {
+			t.Fatal("cleanup displaced the configured document")
+		}
+	})
+}
+
+func TestMigrationWithoutOpenTasks(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "TASKS.md")
+	put(t, path, "none")
+	mustTransfer(t, root, fields{"action": "start"})
+	state := marker(t, root)
+	id := completedTransferShift(t, root)
 	args := fields{"action": "cleanup", "previous": id, "generation": state.Backup, "confirmed": map[string]string{}, "receipt": "wrong"}
 	if _, err := transferCall(root, args); err == nil {
 		t.Fatal("accepted invalid receipt")

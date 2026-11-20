@@ -2,9 +2,11 @@ import { expect, test } from 'bun:test'
 import { MAP_END, refreshDocs, renderMap } from '../src/docs'
 import { acceptShift, archiveTask, sessionFiles } from '../src/flows'
 import { checkGlossary } from '../src/glossary'
+import { migrateRecords } from '../src/migration'
 import { loadProject } from '../src/project'
+import { usesNewStorage } from '../src/saved'
 import { DEFAULT_SETTINGS, type DocsSettings, parseSettings } from '../src/settings'
-import type { Store } from '../src/store'
+import { readRecords, type Store } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { renderSessionFiles } from '../src/texts/prompts'
 import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
@@ -23,6 +25,39 @@ const LIST = [
   '  - continues: [old](archive/old/)',
   '- [deferred] [core](tasks/core/) — the storage port',
 ].join('\n')
+
+test('an older client creating TASKS.md cannot switch an initialized project back to task files', async () => {
+  for (const marker of ['history.db', 'beads/.beads/metadata.json']) {
+    const store = memoryStore({ [`${R}/TASKS.md`]: 'none' })
+    store.beads = async () => {
+      throw new Error('Storage selection should only inspect paths.')
+    }
+    const project = await at(store)
+    expect(await usesNewStorage(project)).toBe(false)
+    await store.write(`${R}/${marker}`, '')
+    expect(await usesNewStorage(project)).toBe(true)
+  }
+})
+
+test('the current owner file on a case-insensitive volume does not trigger legacy migration', async () => {
+  const store = memoryStore({ [`${R}/board.md`]: BOARD, [`${R}/OWNER.md`]: 'current' })
+  const project = await at({ ...store, exists: path => store.exists(path === `${R}/owner.md` ? `${R}/OWNER.md` : path) })
+  expect(await readRecords(project)).toMatchObject({ owner: 'current', oldOwner: false })
+})
+
+test('invalid settings at cleanup keep the configured document in its legacy directory', async () => {
+  const store = memoryStore({
+    [`${R}/settings.toml`]: '[docs]\ndirs = [".shift/archive/handbook.md"]\ntypo = true',
+    [`${R}/archive/handbook.md`]: 'working document',
+    [`${R}/migration.json`]: JSON.stringify({ backup: 'legacy-backup-test', confirmed: {}, done: false }),
+  })
+  store.beads = async () => {
+    throw new Error('Unexpected native operation during refused cleanup.')
+  }
+  const project = await at(store)
+  await expect(migrateRecords(project, { action: 'cleanup', id: 's-0000000000000001' })).rejects.toThrow('settings.toml')
+  expect(await store.read(`${R}/archive/handbook.md`)).toBe('working document')
+})
 
 test('TASKS.md lists every folder once, with links that lead somewhere', () => {
   const folders = ['adapters', 'core']

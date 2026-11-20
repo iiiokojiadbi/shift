@@ -1,17 +1,18 @@
+import { readAbout } from './about'
 import { docStamps, followWrite, refreshDocs, settleDocs } from './docs'
-import { type ChangedBy, type ConfirmedEdit, changedRecords, type Seen, textFingerprint } from './flows'
+import { type ChangedBy, type ConfirmedEdit, changedRecords, handBack, type Seen, textFingerprint } from './flows'
 import type { GaugeKeeper } from './hint'
-import { DIR, MOD } from './layout'
+import { DIR, MOD, NAMES } from './layout'
 import { type Loop, loopHint, loopOffer, waitingNote } from './loop'
 import { currentMap, type MapPrints } from './map'
 import { migrationNote } from './migration'
 import { fromRoot } from './paths'
 import type { Project } from './project'
 import { noteLinks } from './records'
-import { archiveCall, hasArchive } from './saved'
+import { archiveCall, hasArchive, readSaved } from './saved'
 import { readTask } from './store'
 import { commentChanges, graphPath, queryGraph } from './taskgraph'
-import { NOTE_KINDS, type NoteKind } from './texts/prompts'
+import { continuePrompt, NOTE_KINDS, type NoteKind } from './texts/prompts'
 import { TOLD } from './texts/rows'
 
 // Everything the mod tells the agent goes through here: a hint, the check of the records changed, the docs settled
@@ -27,6 +28,7 @@ export type Looks = {
   refreshClaims?: boolean
   claimDigest?: number
   migrationChecked?: boolean
+  commentManifest?: string | undefined
   comments?: Record<string, number>
   running: number
   map?: MapPrints
@@ -39,17 +41,18 @@ export type Looks = {
 export const FRESH_LOOKS: Looks = { seen: null, running: 0 }
 
 // Save only observations that need to survive reattachment. Running tools belong to the old process.
-export type MapCheckpoint = Pick<Looks, 'map' | 'mapNotes' | 'seen' | 'docs' | 'comments' | 'claimDigest'>
+export type MapCheckpoint = Pick<Looks, 'map' | 'mapNotes' | 'seen' | 'docs' | 'comments' | 'commentManifest' | 'claimDigest'>
 
 export function mapCheckpoint(looks: Looks): MapCheckpoint {
   const { map, mapNotes, seen, docs } = looks
-  return { map, mapNotes, seen, docs, comments: looks.comments, claimDigest: looks.claimDigest }
+  return { map, mapNotes, seen, docs, comments: looks.comments, commentManifest: looks.commentManifest, claimDigest: looks.claimDigest }
 }
 
 export function checkpointChanged(before: Looks, after: Looks): boolean {
   return (
     before.claimDigest !== after.claimDigest ||
     before.comments !== after.comments ||
+    before.commentManifest !== after.commentManifest ||
     before.map !== after.map ||
     before.mapNotes !== after.mapNotes ||
     !same(before.seen, after.seen)
@@ -148,7 +151,12 @@ export async function afterWrite(courier: Courier, file: string): Promise<void> 
 export async function atPrompt(
   courier: Courier,
   { runStarts, owner }: { runStarts: boolean; owner: boolean },
-): Promise<{ notes: string[]; attachments?: readonly unknown[] | undefined; delivered(): Promise<void> }> {
+): Promise<{
+  waiting?: string | undefined
+  notes: string[]
+  attachments?: readonly unknown[] | undefined
+  delivered(includeLetter?: boolean): Promise<void>
+}> {
   const records = await promptRecords(courier, runStarts, false)
   const notes = records.notes
   const hint = await loopOffer(courier.loop, courier.gauge).catch(() => null)
@@ -156,22 +164,23 @@ export async function atPrompt(
   const letter = owner ? await waitingNote(courier.loop, await courier.project()) : null
 
   return {
+    waiting: letter?.dir,
     attachments: letter?.attachments,
     notes: [...notes.map(wrap), ...(letter === null ? [] : [letter.context])],
-    delivered: async () => {
+    delivered: async (includeLetter = true) => {
       await records.delivered()
       await hint?.take()
       for (const note of notes) if (note.kind !== 'map') courier.loop.tell(TOLD(note.body), 'info')
-      await letter?.delivered()
+      if (includeLetter) await letter?.delivered()
     },
   }
 }
 
-export async function promptRecords(courier: RecordCourier, runStarts: boolean, parkedWait = false) {
+export async function promptRecords(courier: RecordCourier, runStarts: boolean, parkedWait = false, submitted = '') {
   if (runStarts) await courier.updateLooks(current => ({ ...current, running: 0 }))
   const notes: Note[] = []
   const { running } = await courier.looks()
-  const { seen, comments, refreshClaims, claimDigest } = await courier.looks()
+  const { seen, comments, commentManifest, refreshClaims, claimDigest } = await courier.looks()
   const project = await courier.project()
   const needsCheck = !(await courier.looks()).migrationChecked
   const migration = needsCheck ? await migrationNote(project) : null
@@ -180,13 +189,25 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean, 
   const session = project.actor
   const durableWait =
     running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && (await hasArchive(project))
-      ? await archiveCall<string>(project, { action: 'waiting', session })
+      ? await archiveCall<string>(project, { action: 'waiting', session: project.deliveryKey ?? session })
       : ''
-  const waiting = parkedWait ? durableWait : ''
+  let waiting = parkedWait ? durableWait : ''
+  let recovery = ''
+  let includeCards = !!waiting
+  if (waiting) {
+    const saved = await readSaved(project, waiting, NAMES.letter)
+    if (readAbout(saved.about).after === 'continue') {
+      // A normal automatic continuation already carries the letter. Its caller acknowledges enqueue.
+      const letter = saved.files[NAMES.letter] ?? ''
+      if (submitted.startsWith(`<shift id="${waiting}">\nShift done.`) && submitted.includes(letter.trim())) waiting = ''
+      else recovery = continuePrompt(letter, await handBack(project, waiting, session))
+      includeCards = false
+    }
+  }
   // Read claimed work again on reattachment without rewriting the retained system block.
   let digest = claimDigest
   let offeredCards = false
-  if (session && (waiting || (!durableWait && refreshClaims && (await project.store.exists(graphPath(project)))))) {
+  if (session && (includeCards || (!durableWait && refreshClaims && (await project.store.exists(graphPath(project)))))) {
     const cards = await queryGraph(project, { view: 'cards' }, session)
     digest = textFingerprint(cards)
     if (waiting || digest !== claimDigest) {
@@ -196,11 +217,13 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean, 
   }
   const rememberClaims = () => courier.updateLooks(now => ({ ...now, claimDigest: digest, refreshClaims: false }))
   if (refreshClaims && !offeredCards) await rememberClaims()
-  const updates = running === 0 ? await commentChanges(project, comments) : null
+  const updates = running === 0 ? await commentChanges(project, comments, commentManifest) : null
   const rememberCounts = async () => {
     if (updates)
       await courier.updateLooks(current =>
-        JSON.stringify(current.comments) === JSON.stringify(comments) ? { ...current, comments: updates.counts } : current,
+        current.commentManifest === commentManifest && JSON.stringify(current.comments) === JSON.stringify(comments)
+          ? { ...current, comments: updates.counts, commentManifest: updates.manifest }
+          : current,
       )
   }
   if (updates && !updates.notes.length) await rememberCounts()
@@ -225,6 +248,7 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean, 
   return {
     notes,
     waiting,
+    recovery,
     delivered: async () => {
       if (migration) await courier.updateLooks(current => ({ ...current, migrationChecked: true }))
       if (offeredCards) await rememberClaims()

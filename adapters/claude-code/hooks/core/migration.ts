@@ -1,9 +1,10 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { DIR, TASK_LIST, TASKS } from './layout'
+import { docPaths } from './docs'
+import { BOARD, DIR, KNOWLEDGE, LETTER, SETTINGS, TASK_LIST, TASKS } from './layout'
 import { normalize } from './paths'
 import type { Project } from './project'
 import { legacyExists, readSaved, savedEntries } from './saved'
-import { graphTask, taskId } from './taskgraph'
+import { graphTask, taskGuard, taskId } from './taskgraph'
 import { parseTaskList } from './tasks'
 
 type Transfer = { recovery?: string; backup: string; confirmed: Record<string, string>; done: boolean; previous: string }
@@ -97,6 +98,8 @@ export async function migrateRecords(p: Project, raw: Record<string, unknown>) {
         throw new Error('Each legacy task needs its own stable ID.')
       Object.assign(req, { task: name, target: target.id })
     } else if (action === 'cleanup') {
+      if (p.problem) throw new Error(`Correct settings.toml before cleanup: ${p.problem}`)
+      req.settings = p.settingsText
       const saved = await readSaved(p, String(raw.id ?? ''), 'letter.md')
       if (saved.state !== 'complete' || saved.id <= state.previous)
         throw new Error('Complete and restore a new shift after starting migration.')
@@ -106,10 +109,16 @@ export async function migrateRecords(p: Project, raw: Record<string, unknown>) {
         if (!target) throw new Error(`Transfer and confirm ${name} first.`)
         const task = await graphTask(p, target)
         if (task.status === 'closed' || !task.revision) throw new Error(`Reopen and check ${target} before cleanup.`)
-        expected.push({ id: target, revision: task.revision })
+        expected.push(taskGuard(task))
       }
       Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id })
       req.protected = [
+        BOARD,
+        LETTER,
+        SETTINGS,
+        KNOWLEDGE,
+        ...(await p.store.list(`${p.root}/${KNOWLEDGE}`, 'file')).map(name => `${KNOWLEDGE}/${name}`),
+        ...(await docPaths(p.store, p.root, p.settings.docs.dirs)),
         p.settings.files.shift,
         p.settings.files.glossary,
         p.settings.files.owner,

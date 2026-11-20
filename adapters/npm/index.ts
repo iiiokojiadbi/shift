@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import type {
   CompactionEntry,
@@ -29,6 +30,7 @@ import {
   HELD,
   holdOwner,
   initialMap,
+  isSaved,
   letGoGauge,
   MOD,
   mapCheckpoint,
@@ -57,6 +59,10 @@ const OURS: ReadonlySet<string> = new Set(TOOLS.map(tool => tool.name))
 const READING: ReadonlySet<string> = new Set(['read', 'grep', 'find', 'ls'])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
+const DELIVERY_ENTRY = `${MOD}:delivery`
+const OFFER_ENTRY = `${MOD}:offered`
+type LetterOffer = { id: string; hash: string }
+const hashText = (text: string) => createHash('sha256').update(text).digest('hex')
 const WAIT_ENTRY = `${MOD}:wait`
 
 export default function shift(pi: ExtensionAPI): void {
@@ -73,7 +79,50 @@ export default function shift(pi: ExtensionAPI): void {
   const mapEntry = `${MOD}:map`
   const fileEntry = `${MOD}:map-file`
 
+  let offer: LetterOffer | null = null
+  function offerLetter(id: string | undefined, text: string) {
+    if (!id || !isSaved(id)) return false
+    offer = { id, hash: hashText(text) }
+    pi.appendEntry(OFFER_ENTRY, offer)
+    return true
+  }
+
+  // pi queues sends without returning their outcome. Only the matching message on
+  // this branch proves admission, including after a failed start or a process restart.
+  async function confirmLetter(ctx: ExtensionContext) {
+    if (!offer) return
+    const pending = offer
+    const branch = ctx.sessionManager.getBranch()
+    for (let i = branch.length - 1; i >= 0; i--) {
+      const entry = branch[i]
+      if (!entry || (entry.type === 'custom' && entry.customType === OFFER_ENTRY)) break
+      const content =
+        entry.type === 'custom_message' && entry.customType === MOD
+          ? entry.content
+          : entry.type === 'message' && entry.message.role === 'user'
+            ? entry.message.content
+            : undefined
+      if (!content) continue
+      const text =
+        typeof content === 'string'
+          ? content
+          : content
+              .filter(part => part.type === 'text')
+              .map(part => part.text)
+              .join('')
+      if (hashText(text) !== pending.hash) continue
+      await dropWaiting(loopOf(ctx), await branchProject(ctx), pending.id)
+      if (pending === offer) {
+        pi.appendEntry(OFFER_ENTRY, null)
+        offer = null
+      }
+      return
+    }
+  }
+
   function restoreBranch(ctx: ExtensionContext) {
+    const offered = ctx.sessionManager.getBranch().findLast(entry => entry.type === 'custom' && entry.customType === OFFER_ENTRY)
+    offer = offered?.type === 'custom' ? (offered.data as LetterOffer | null) : null
     looks = FRESH_LOOKS
     mapFile = undefined
     claimed = null
@@ -112,13 +161,13 @@ export default function shift(pi: ExtensionAPI): void {
       ...(tool.writes ? { executionMode: 'sequential' as const } : {}),
       async execute(_id, params, _signal, _onUpdate, ctx) {
         const done = await tool.run(params as Record<string, unknown>, {
-          project: () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId()),
+          project: () => branchProject(ctx),
           sessionId: async () => ctx.sessionManager.getSessionId(),
           now: async () => Date.now(),
           subagent: false,
           loop: loopOf(ctx),
           loaded: async () => loadedBlock,
-          status: () => gaugeStatus(keeperOf(ctx, () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))),
+          status: () => gaugeStatus(keeperOf(ctx, () => branchProject(ctx))),
           cannotLetGo: async () => cannotLetGo(ctx),
         })
         if ('deny' in done) throw new Error(done.deny)
@@ -130,7 +179,7 @@ export default function shift(pi: ExtensionAPI): void {
 
   pi.registerCommand(TASKS_COMMAND, {
     description: TASKS_DESCRIPTION,
-    handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId())), 'info'),
+    handler: async (_args, ctx) => ctx.ui.notify(await tasksView(await branchProject(ctx)), 'info'),
   })
 
   pi.registerCommand(SHIFT_COMMAND, {
@@ -138,9 +187,11 @@ export default function shift(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
       // Typed mid-run, it waits for the run to end, as Claude Code holds a command until the turn is over.
-      const now = await shiftNow(loopOf(ctx), args.trim(), await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
+      await confirmLetter(ctx)
+      const now = await shiftNow(loopOf(ctx), args.trim(), await branchProject(ctx))
+      const queued = offerLetter(now.dir, now.text)
       pi.sendUserMessage(withImages(now.text, now.attachments), ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
-      await now.delivered()
+      if (!queued) await now.delivered()
     },
   })
 
@@ -149,14 +200,16 @@ export default function shift(pi: ExtensionAPI): void {
     // The owner's words typed with the command go after the letter, as their own message that starts the turn.
     handler: async (args, ctx) => {
       if (!enabled) return ctx.ui.notify(`${MOD} is off in this project: ${SETTINGS} has enabled = false.`, 'info')
-      const resumed = await resumeShift(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
+      await confirmLetter(ctx)
+      const resumed = await resumeShift(await branchProject(ctx))
       ctx.ui.notify(resumed.text, 'info')
       if (resumed.prompt === undefined) return
       const words = args.trim()
       // Typed mid-run, both wait for the run to end.
       const busy = ctx.isIdle() ? {} : { deliverAs: 'followUp' as const }
+      const queued = offerLetter(resumed.waiting, resumed.prompt)
       pi.sendMessage({ customType: MOD, content: resumed.prompt, display: true }, { triggerTurn: words === '', ...busy })
-      await dropWaiting(loopOf(ctx), await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()), resumed.waiting)
+      if (!queued) await dropWaiting(loopOf(ctx), await branchProject(ctx), resumed.waiting)
       if (words !== '') pi.sendUserMessage(words, ctx.isIdle() ? undefined : { deliverAs: 'followUp' })
     },
   })
@@ -164,7 +217,7 @@ export default function shift(pi: ExtensionAPI): void {
   // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
-    const start = await startSession(await projectAt(ctx.cwd, ctx.sessionManager.getSessionId()))
+    const start = await startSession(await branchProject(ctx))
     enabled = start.enabled
     restoreBranch(ctx)
     for (const row of start.rows) tell(ctx, row.text, row.level)
@@ -203,6 +256,7 @@ export default function shift(pi: ExtensionAPI): void {
   // The doctrine every run; between turns a hint, and after a wait the letter, follow the owner's message.
   pi.on('before_agent_start', async (event, ctx) => {
     if (!enabled) return
+    await confirmLetter(ctx)
     const project = once(ctx)
     const loadedProject = await project()
     // The doctrine at the settings' places: a shift may have moved a record.
@@ -234,7 +288,7 @@ export default function shift(pi: ExtensionAPI): void {
     if (told.notes.length === 0) return
 
     const content = withImages(told.notes.join('\n\n'), told.attachments)
-    await told.delivered()
+    await told.delivered(!offerLetter(told.waiting, told.notes.join('\n\n')))
     return { message: { customType: MOD, content, display: true } }
   })
 
@@ -244,7 +298,7 @@ export default function shift(pi: ExtensionAPI): void {
     const source = growthSource(event.message)
     if (source !== null)
       await countGrowth(
-        keeperOf(ctx, () => projectAt(ctx.cwd, ctx.sessionManager.getSessionId())),
+        keeperOf(ctx, () => branchProject(ctx)),
         source,
         messageChars(event.message),
       )
@@ -300,8 +354,9 @@ export default function shift(pi: ExtensionAPI): void {
   // awaited: pi defers every prompt until its settled handlers return, so an owner's message sent during the let-go
   // would come only after the shift is over, too late to be held, and run before the shift's message.
   pi.on('agent_settled', async (event, ctx) => {
+    await confirmLetter(ctx)
     if (loop.pending === null) return
-    void projectAt(ctx.cwd, ctx.sessionManager.getSessionId())
+    void branchProject(ctx)
       .then(project => afterTurn(project, loopOf(ctx), letGoOf(ctx), event.aborted))
       .catch((error: unknown) => tell(ctx, `the shift did not finish: ${String(error)}`, 'error'))
   })
@@ -335,6 +390,7 @@ export default function shift(pi: ExtensionAPI): void {
       update: async change => {
         const before = loop
         loop = change(loop)
+        if (loop.pending && loop.pending !== before.pending) pi.appendEntry(DELIVERY_ENTRY, loop.pending.dir)
         if (loop.note !== before.note) pi.appendEntry(WAIT_ENTRY, { note: loop.note })
       },
       tell: (row, level) => tell(ctx, row, level),
@@ -358,9 +414,14 @@ export default function shift(pi: ExtensionAPI): void {
               }),
           })
         }).catch((error: unknown) => ({ skip: `did not start: ${String(error)}` })),
-      continueWith: async (prompt, attachments) => {
+      confirmsInHistory: true,
+      continueWith: async (prompt, attachments, receipt) => {
         // The images of the owner's held messages go with it as pi gave them.
         const content = withImages(prompt, attachments)
+        if (receipt) {
+          await loopOf(ctx).update(state => ({ ...state, note: receipt }))
+          offerLetter(receipt.dir, prompt)
+        }
         pi.sendMessage({ customType: MOD, content, display: true }, { triggerTurn: true })
       },
     }
@@ -406,6 +467,7 @@ function withImages(text: string, attachments?: readonly unknown[]) {
 function branchNote(ctx: ExtensionContext): WaitNote | null {
   let followed = false
   for (const entry of ctx.sessionManager.getBranch().toReversed()) {
+    if (entry.type === 'custom' && entry.customType === OFFER_ENTRY && entry.data === null) followed = true
     if ((entry.type === 'custom_message' && entry.customType === MOD) || (entry.type === 'message' && entry.message.role !== 'system'))
       followed = true
     if (entry.type !== 'custom' || entry.customType !== WAIT_ENTRY) continue
@@ -438,8 +500,15 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
 }
 
 // The project loaded once for the hook at hand.
+async function branchProject(ctx: ExtensionContext): Promise<Project> {
+  const actor = ctx.sessionManager.getSessionId()
+  const anchor = ctx.sessionManager.getBranch().findLast(entry => entry.type === 'custom' && entry.customType === DELIVERY_ENTRY)
+  const branch = anchor?.type === 'custom' && typeof anchor.data === 'string' ? anchor.data : null
+  return { ...(await projectAt(ctx.cwd, actor)), deliveryKey: JSON.stringify([actor, branch]) }
+}
+
 function once(ctx: ExtensionContext): () => Promise<Project> {
-  const loading = projectAt(ctx.cwd, ctx.sessionManager.getSessionId())
+  const loading = branchProject(ctx)
   return () => loading
 }
 

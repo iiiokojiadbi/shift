@@ -51,6 +51,16 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 
 - Codex from this checkout requires Bun and Codex CLI (tested with 0.170.0). In the project to work on, run `bun /path/to/shift/adapters/codex/index.ts`. Inside this repository, `bun run shift:codex` does the same. For a JSON-RPC client, pass `--stdio` as the first argument and negotiate the experimental API. For a marketplace installation from this checkout, use `codex plugin marketplace add .` followed by `codex plugin add shift@shift`. Build the installed runtime with `bun run build:codex` after changing its source. The ordinary `check` command verifies its contents.
 
+For the source launcher, build the current platform in this checkout and link its versioned optional package before using the task tools. For example, on Linux x64:
+
+```sh
+bun run beads:bundle /path/to/release-assets linux_amd64
+mkdir -p adapters/npm/node_modules/@iiiokojiadbi
+ln -s "$(pwd)/beads-packages/linux_amd64" adapters/npm/node_modules/@iiiokojiadbi/shift-beads-linux-x64
+```
+
+The link can stay in place across rebuilds. Use the corresponding bundle and npm platform name on other systems. Published npm installs resolve this dependency automatically.
+
 - Claude Code from the catalog: `claude plugin marketplace add iiiokojiadbi/claude-plugins`, then `claude plugin install shift@iiiokojiadbi`.
 - Claude Code in place: `claude plugin marketplace add <path to this repo>` and `claude plugin install shift@shift`; edits apply on `/reload-plugins`. Do not have both installed at once.
 - pi from npm: `pi install npm:@iiiokojiadbi/shift`.

@@ -12,14 +12,14 @@ export function claudeStore($: EngineInterface): Store {
       const name = beadsExecutable(os ?? '', arch ?? '')
       if (!name) throw new Error(`No embedded Beads build for ${os}/${arch}.`)
       const argv = [`${$.plugin.root}/vendor/${name}`, root, ...args]
-      if (args[0] === 'shift-history') {
+      if (args[0] === 'shift-history' || args[0] === 'shift-task') {
         const child = $.process.spawn({ argv, ...(stdin === undefined ? {} : { input: stdin }) })
         const stdout: string[] = [],
           stderr: string[] = []
         for (;;) {
           const piece = await child.next()
           if (piece.done) {
-            if (piece.value.code !== 0) throw new Error(stderr.join('').trim() || 'History process failed.')
+            if (piece.value.code !== 0) throw new Error(stderr.join('').trim() || 'Storage process failed.')
             return stdout.join('')
           }
           ;(piece.value.stream === 'stdout' ? stdout : stderr).push(piece.value.text)

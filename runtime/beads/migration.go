@@ -195,6 +195,22 @@ func matchesLegacyPath(path, prefix string) bool {
 	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
+// Resolve existing ancestors too when a configured file has not been created yet.
+func resolveConfiguredPath(path string) (string, error) {
+	_, err := os.Lstat(path)
+	if !errors.Is(err, os.ErrNotExist) {
+		if err != nil {
+			return "", err
+		}
+		return filepath.EvalSymlinks(path)
+	}
+	parent, err := resolveConfiguredPath(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(path)), nil
+}
+
 func migrate(root string, input io.Reader, output io.Writer) error {
 	var req struct {
 		Expected   []revision
@@ -202,6 +218,7 @@ func migrate(root string, input io.Reader, output io.Writer) error {
 		Previous   string
 		Task       string
 		Target     string
+		Settings   *string
 		Protected  []string
 		Generation string
 		Receipt    string
@@ -420,10 +437,27 @@ func migrate(root string, input io.Reader, output io.Writer) error {
 			return errors.New("complete and restore a new shift after starting migration")
 		}
 		return history.WithComplete(filepath.Join(root, "history.db"), req.Previous, func() error {
-			for _, name := range legacyRoots {
-				for _, p := range req.Protected {
+			settings, err := os.ReadFile(filepath.Join(root, "settings.toml"))
+			if !(errors.Is(err, os.ErrNotExist) && req.Settings == nil) &&
+				(err != nil || req.Settings == nil || string(settings) != *req.Settings) {
+				return errors.New("project settings changed or cannot be read; retry cleanup after checking settings.toml")
+			}
+			projectDir, err := filepath.EvalSymlinks(filepath.Dir(root))
+			if err != nil {
+				return err
+			}
+			for _, p := range req.Protected {
+				resolved, err := resolveConfiguredPath(filepath.Join(projectDir, filepath.FromSlash(p)))
+				if err != nil {
+					return err
+				}
+				rel, err := filepath.Rel(projectDir, resolved)
+				if err != nil {
+					return err
+				}
+				for _, name := range legacyRoots {
 					prefix := ".shift/" + name
-					if matchesLegacyPath(p, prefix) {
+					if matchesLegacyPath(p, prefix) || matchesLegacyPath(rel, prefix) {
 						return fmt.Errorf("configured project file in %s; move it before cleanup", prefix)
 					}
 				}

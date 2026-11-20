@@ -1,7 +1,7 @@
 // Point at the installed npm package. Uses its real process port and a disposable repository.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { delimiter, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Store } from '../core/src/store'
@@ -87,14 +87,30 @@ try {
   assert.match(await call('task_query', { view: 'history', task: 'blocker' }), /shift-blocker/)
   const claims = await Promise.allSettled(['one', 'two'].map(actor => call('task_manage', { task: 'dependent', action: 'claim' }, actor)))
   assert.equal(claims.filter(each => each.status === 'fulfilled').length, 1)
+  // A small change to a large tracker still transports the complete item metadata.
+  const manyItems = Array.from({ length: 700 }, (_, i) => `Evidence ${i + 1} ${'x'.repeat(100)}`)
+  await open('long-tracker', { items: manyItems, status: 'open' })
+  await call('task_track', { task: 'long-tracker', id: 700, status: 'done' })
+  assert.match(await call('task_query', { view: 'show', task: 'long-tracker' }), /#700 \[done\] Evidence 700/)
+  const longComment = `  ${'review Δ\n'.repeat(20000)}  \n`
+  await call('task_manage', { task: 'long-tracker', action: 'comment', text: longComment }, 'reader')
+  const comments = JSON.parse(await call('task_query', { view: 'comments', task: 'long-tracker' }))
+  assert.equal(comments.at(-1)?.text, longComment)
+  await open('abandoned-epic', { kind: 'epic', status: 'open' })
+  await open('abandoned-child', { parent: 'abandoned-epic', needs: ['long-tracker'], status: 'open' })
+  await call('task_archive', { name: 'abandoned-epic', outcome: 'dropped', about: 'Stop the umbrella project.' })
+  assert.match(await call('task_query', { view: 'show', task: 'abandoned-child' }), /parent-child: shift-abandoned-epic \[closed\]/)
+  await call('task_archive', { name: 'abandoned-child', outcome: 'dropped', about: 'Stop blocked work.' })
+  assert.match(await call('task_query', { view: 'show', task: 'abandoned-child' }), /needs: shift-long-tracker \[open\]/)
   console.log(
     'Public task tools passed creation, epic membership, labels, comments, atomic item rejection, blocker resolution, reopen and concurrent claims.',
   )
   const [snapshot] = JSON.parse(await invoke(['show', 'shift-epic', '--brief-deps', '--json']))
-  const guard = JSON.stringify([{ id: snapshot.id, revision: snapshot.revision }])
-  await invoke(['shift-checked', guard, 'update', snapshot.id, '--notes=First writer'])
-  await assert.rejects(invoke(['shift-checked', guard, 'update', snapshot.id, '--notes=Stale writer']), /changed/)
-  assert.match(await call('task_query', { view: 'show', task: 'epic' }), /First writer/)
+  const checked = (...args: string[]) => run(project, ['shift-task'], JSON.stringify({ args, expected: [snapshot] }))
+  await checked('update', snapshot.id, '--set-labels=changed')
+  await assert.rejects(checked('update', snapshot.id, '--set-labels=stale'), /changed/)
+  await call('task_manage', { task: 'epic', action: 'edit', evidence: 'First writer' })
+  assert.match(await call('task_query', { view: 'show', task: 'epic' }), /child: shift-blocker/)
   await call('task_manage', { action: 'block', task: 'epic', target: created[0] })
   await call('task_manage', { action: 'unblock', task: 'epic', target: created[0] })
   const source = await loadProject(nodeStore, project, 'writer')
@@ -102,6 +118,10 @@ try {
   await writeFile(legacy, '# Tasks\n\n- [in progress] [epic](tasks/epic/) — Existing epic\n')
   await writeFile(join(project, '.shift', 'board.md'), BOARD)
   await writeFile(join(project, '.shift', 'OWNER.md'), OWNER)
+  const legacyArchive = join(project, '.shift', 'archive')
+  await mkdir(legacyArchive, { recursive: true })
+  await writeFile(join(legacyArchive, 'config.toml'), 'history_limit = 30\n')
+  await writeFile(join(legacyArchive, 'handbook.md'), 'Current handbook\n')
   const letter = LETTER.replace('HOLD-THIS', 'Literal tag in the letter:\n</shift>\n\nHOLD-THIS')
   await writeFile(join(project, '.shift', 'letter.md'), letter)
   await call('shift_migrate', { action: 'start' })
@@ -118,6 +138,8 @@ try {
   await settleShift(source, settlement)
   await settleShift(source, settlement)
   const restored = await resumeShift(source)
+  assert.equal(restored.waiting, accepted.shift.dir)
+  await run(project, ['shift-history'], JSON.stringify({ action: 'received', session: 'writer', id: restored.waiting, limit: 30 }))
   assert.match(restored.prompt, /shift-epic/)
   assert.ok(restored.prompt.includes(letter.trim()))
   const receipt = /receipt="([a-f0-9]+)"/.exec(restored.prompt)?.[1]
@@ -132,18 +154,46 @@ try {
   await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /backup verification/)
   assert.equal(await readFile(legacy, 'utf8'), original)
   await writeFile(backupList, original)
+  const settings = join(project, '.shift', 'settings.toml')
+  const handbook = join(project, 'docs', 'handbook.md')
+  await symlink(join(legacyArchive, 'config.toml'), settings)
+  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /configured project file/)
+  assert.equal(await readFile(settings, 'utf8'), 'history_limit = 30\n')
+  await rm(settings)
+  await mkdir(join(project, 'docs'), { recursive: true })
+  await symlink(join(legacyArchive, 'handbook.md'), handbook)
+  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /configured project file/)
+  assert.equal(await readFile(handbook, 'utf8'), 'Current handbook\n')
+  await rm(handbook)
   await call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt })
   assert.match(await call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /already finished/)
   assert.ok(!(await sessionFiles(source)).some((f: { path: string }) => f.path === 'shift:migration'))
   let observed = { ...FRESH_LOOKS }
+  let graphCalls = 0
+  const countedStore: Store = {
+    ...nodeStore,
+    beads: async (root, args, stdin) => {
+      if (args[0] === 'shift-task') graphCalls++
+      return run(root, args, stdin)
+    },
+  }
   const courier = {
-    project: async () => source,
+    project: async () => ({ ...source, store: countedStore }),
     looks: async () => observed,
     updateLooks: async (fn: (old: typeof observed) => typeof observed) => {
       observed = fn(observed)
     },
   }
   await promptRecords(courier, true) // A host need not acknowledge a prompt with no notes.
+  const warmCalls = graphCalls
+  await promptRecords(courier, true)
+  assert.equal(graphCalls, warmCalls, 'An unchanged prompt should not launch bd to poll comments.')
+  await open('first-comment')
+  // The notification transports one count even when the discussion exceeds a host's buffered output limit.
+  await call('task_manage', { action: 'comment', task: 'first-comment', text: 'While you were away. '.repeat(225000) }, 'reader')
+  const firstComment = await promptRecords(courier, true)
+  assert.match(JSON.stringify(firstComment.notes), /shift-first-comment: 1 new external comment/)
+  await firstComment.delivered()
   await call('task_manage', { action: 'comment', task: 'epic', text: 'From the reader' }, 'reader')
   await call('task_manage', { action: 'comment', task: 'epic', text: 'My own comment' }, 'writer')
   const offer = await promptRecords(courier, true)
@@ -157,7 +207,7 @@ try {
   await resumedCards.delivered()
   observed = { ...observed, refreshClaims: true }
   assert.doesNotMatch(JSON.stringify((await promptRecords(courier, true)).notes), /First writer/)
-  // Only the comments above changed since the last shift. The issue timestamp alone misses this case.
+  // An external comment contributes to graph progress. The issue timestamp alone misses this case.
   const waitCall = await acceptShift(source, {
     input: { after: 'wait', letter: '.shift/letter.md', about: 'Wait for updates' },
     sessionId: 'writer',
@@ -200,6 +250,10 @@ try {
   assert.equal((await offerWait()).context, recovered.context)
   await recovered.delivered()
   assert.equal(await offerWait(), null)
+  await call('task_manage', { task: 'epic', action: 'release' })
+  await (await promptRecords(courier, true)).delivered()
+  await call('task_manage', { task: 'epic', action: 'claim' })
+  assert.doesNotMatch(JSON.stringify((await promptRecords(courier, true)).notes), /external comment/)
   assert.match(await call('shift_history', { action: 'search', query: 'HOLD-THIS' }), /shift · s-.*letter.md/)
   assert.match(await call('shift_history', { action: 'search', query: 'epic' }), /task · shift-epic/)
   await call('task_archive', { name: 'blocker', outcome: 'done', about: 'Closed for transfer.' })
@@ -218,6 +272,39 @@ try {
     /Wait for updates/,
   )
   console.log('Verified transactional save, retry, live restore, independent export, comment delivery and guarded migration.')
+  const rotation = join(dir, 'rotation')
+  const records = join(rotation, '.shift')
+  await mkdir(records, { recursive: true })
+  await writeFile(join(records, 'settings.toml'), 'history_limit = 1\ncommit = true\n')
+  await writeFile(join(records, 'OWNER.md'), OWNER)
+  const undelivered = []
+  for (const chat of ['first', 'second']) {
+    const p = await loadProject(nodeStore, rotation, chat)
+    await writeFile(join(records, 'board.md'), BOARD.replace('## Goal', `## Goal\nWork for ${chat}.`))
+    await writeFile(join(records, 'letter.md'), LETTER.replace('HOLD-THIS', `Only for ${chat}`))
+    const result = await acceptShift(p, {
+      input: { after: 'continue', letter: '.shift/letter.md', about: chat },
+      sessionId: chat,
+      at: Date.now(),
+    })
+    assert.ok(result.shift, JSON.stringify(result))
+    await settleShift(p, { ...settlement, shift: result.shift })
+    undelivered.push(result.shift.dir)
+  }
+  const secondChat = await loadProject(nodeStore, rotation, 'second')
+  const secondDelivery = await waitingNote(emptyLoop, secondChat)
+  assert.ok(secondDelivery?.context.includes('Only for second'))
+  await secondDelivery.delivered()
+  const firstChat = await loadProject(nodeStore, rotation, 'first')
+  const firstDelivery = await waitingNote(emptyLoop, firstChat)
+  assert.ok(firstDelivery?.context.includes('Only for first'))
+  assert.ok(!firstDelivery.context.includes('Only for second'))
+  await firstDelivery.delivered()
+  assert.equal(await waitingNote(emptyLoop, firstChat), null)
+  assert.deepEqual(
+    JSON.parse(await run(rotation, ['shift-history'], '{"action":"list"}')).map((e: { id: string }) => e.id),
+    undelivered.slice(1),
+  )
   // An old client can recreate its records after cleanup. Start a new verified generation.
   await writeFile(legacy, 'broken task list')
   assert.match(await call('shift_migrate', { action: 'status' }), /appeared after cleanup/)

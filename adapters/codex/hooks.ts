@@ -182,7 +182,7 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   }
   const legacyStamps = state.looks.docs
   if (restoring) state.looks.refreshClaims = false
-  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring)
+  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring, String(input.prompt ?? ''))
   const recordNotes = records.notes.map(wrap)
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
@@ -208,7 +208,7 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     notes.push(changes.note)
   }
   state.doctrineHash = doctrineHash
-  notes.push(...recordNotes)
+  notes.push(...recordNotes, records.recovery)
   return { notes, waiting: records.waiting }
 }
 

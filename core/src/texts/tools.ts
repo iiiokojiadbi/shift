@@ -238,7 +238,7 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [QUERY_TOOL]: {
     label: 'Read tasks',
     description:
-      'List your tasks, ready work, open or closed tasks. Show a task card with its blockers, read comments or inspect its history by ID. Filter lists by labels.',
+      'List your tasks, ready work, open or closed tasks. Show a task card with its blockers and an epic’s children, read comments or inspect its history by ID. Filter lists by labels.',
     brief: 'list ready work and read task cards, comments or history.',
     schema: {
       type: 'object',

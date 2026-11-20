@@ -23,7 +23,8 @@ export function readSaved(p: Project, id: string, file?: string): Promise<SavedE
 // Existing projects keep their original workflow until the agent starts the transfer.
 export async function usesNewStorage(p: Project): Promise<boolean> {
   if (!p.store.beads) return false
-  if (await p.store.exists(`${p.root}/${DIR}/migration.json`)) return true
+  if ((await hasArchive(p)) || (await p.store.exists(graphPath(p))) || (await p.store.exists(`${p.root}/${DIR}/migration.json`)))
+    return true
   return !(await legacyExists(p))
 }
 

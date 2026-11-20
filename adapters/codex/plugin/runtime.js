@@ -1389,14 +1389,19 @@ async function graphCommand(project, args, actor, expected = []) {
   if (!project.store.beads)
     throw new Error("The private task runtime is unavailable.");
   const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args;
-  if (!expected.length)
-    return project.store.beads(project.root, invocation);
-  const revisions = expected.map((task) => {
-    if (!task.revision)
-      throw new Error(`Missing revision for ${task.id}.`);
-    return { id: task.id, revision: task.revision };
-  });
-  return project.store.beads(project.root, ["shift-checked", JSON.stringify(revisions), ...invocation]);
+  return project.store.beads(project.root, ["shift-task"], JSON.stringify({ args: invocation, expected: expected.map(taskGuard) }));
+}
+function taskGuard(task) {
+  if (!task.revision)
+    throw new Error(`Missing revision for ${task.id}.`);
+  return {
+    id: task.id,
+    revision: task.revision,
+    labels: task.labels,
+    comment_count: task.comment_count,
+    dependent_count: task.dependent_count,
+    dependencies: task.dependencies?.map(({ id, dependency_type }) => ({ id, dependency_type }))
+  };
 }
 async function graphTask(project, id) {
   if (!await project.store.exists(graphPath(project)))
@@ -1483,8 +1488,16 @@ ${items.map((each) => `#${each.id} ${each.name}`).join(`
 }
 async function queryGraph(project, raw, actor) {
   const view = raw.view ?? "mine";
-  if (view === "show")
-    return taskCard(await graphTask(project, taskId(raw.task)));
+  if (view === "show") {
+    const task = await graphTask(project, taskId(raw.task));
+    const card = taskCard(task);
+    if (task.issue_type !== "epic")
+      return card;
+    const result = JSON.parse(await graphCommand(project, ["show", task.id, "--children", "--json"]));
+    const children = result[task.id] ?? [];
+    return [card, ...children.map((child) => `child: ${line(child)}`)].join(`
+`);
+  }
   if (view === "history" || view === "comments") {
     const text = await graphCommand(project, [view, taskId(raw.task), "--json"]);
     return text.trim();
@@ -1505,8 +1518,13 @@ async function queryGraph(project, raw, actor) {
   if (view === "cards") {
     if (!tasks.length)
       return "No tasks claimed by this chat.";
-    const full = JSON.parse(await graphCommand(project, ["show", "--brief-deps", "--json", ...tasks.map((t) => `--id=${t.id}`)]));
-    return full.map(taskCard).join(`
+    const cards = [];
+    for (let i = 0;i < tasks.length; i += 64) {
+      const ids = tasks.slice(i, i + 64).map((t) => `--id=${t.id}`);
+      const full = JSON.parse(await graphCommand(project, ["show", "--brief-deps", "--json", ...ids]));
+      cards.push(...full.map(taskCard));
+    }
+    return cards.join(`
 
 `);
   }
@@ -1561,7 +1579,7 @@ async function closeGraph(project, input, actor) {
   editable(task, actor);
   if (input.outcome === "done" && task.metadata?.items?.some((each) => !CLOSED.has(each.status)))
     throw new Error("Close the remaining items first.");
-  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`], actor, [task]);
+  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`, ...input.outcome === "dropped" ? ["--force"] : []], actor, [task]);
   return `${task.id} closed (${input.outcome}).`;
 }
 async function manageGraph(project, raw, actor) {
@@ -1645,27 +1663,32 @@ async function graphGeneration(p) {
     throw new Error("Missing private graph generation.");
   return status.commit;
 }
-async function commentChanges(project, previous) {
+async function commentChanges(project, previous, lastManifest) {
   const actor = project.actor;
-  if (!actor || !await project.store.exists(graphPath(project)))
+  if (!actor || !project.store.beads)
+    return null;
+  if (!await project.store.exists(graphPath(project)))
+    return previous && !Object.keys(previous).length && !lastManifest ? null : { counts: {}, manifest: undefined, notes: [] };
+  const raw = await project.store.read(`${project.root}/.shift/beads/.beads/embeddeddolt/shift/.dolt/noms/manifest`);
+  const manifest = raw?.match(/^5:__DOLT__:[0-9a-v]{32}:[0-9a-v]{32}:/)?.[0];
+  if (manifest && manifest === lastManifest && previous)
     return null;
   const tasks = JSON.parse(await graphCommand(project, ["list", `--assignee=${actor}`, "--json", "--brief", "--limit=0"]));
-  const counts = {};
+  const counts = { ...previous };
   const notes = [];
   for (const task of tasks) {
     const count = task.comment_count ?? 0;
     counts[task.id] = count;
-    const prior = previous?.[task.id];
+    const prior = previous ? previous[task.id] ?? 0 : undefined;
     if (prior === undefined || count <= prior)
       continue;
-    const comments = JSON.parse(await graphCommand(project, ["comments", task.id, "--json"]));
-    const outside = comments.slice(prior, count).filter((c) => c.author !== actor).length;
+    const outside = JSON.parse(await graphCommand(project, ["shift-comment-count", task.id, actor, String(prior), String(count)]));
     if (outside)
       notes.push(`${task.id}: ${outside} new external comment${outside === 1 ? "" : "s"}. Read with task_query(view="comments").`);
   }
-  if (previous && Object.keys(previous).length === tasks.length && tasks.every((t) => previous[t.id] === counts[t.id]))
+  if (previous && lastManifest === manifest && tasks.every((t) => previous[t.id] === counts[t.id]))
     return null;
-  return { counts, notes };
+  return { counts, notes, manifest };
 }
 
 // core/src/saved.ts
@@ -1688,7 +1711,7 @@ function readSaved(p, id, file) {
 async function usesNewStorage(p) {
   if (!p.store.beads)
     return false;
-  if (await p.store.exists(`${p.root}/${DIR}/migration.json`))
+  if (await hasArchive(p) || await p.store.exists(graphPath(p)) || await p.store.exists(`${p.root}/${DIR}/migration.json`))
     return true;
   return !await legacyExists(p);
 }
@@ -1863,6 +1886,9 @@ async function migrateRecords(p, raw) {
         throw new Error("Each legacy task needs its own stable ID.");
       Object.assign(req, { task: name, target: target.id });
     } else if (action === "cleanup") {
+      if (p.problem)
+        throw new Error(`Correct settings.toml before cleanup: ${p.problem}`);
+      req.settings = p.settingsText;
       const saved = await readSaved(p, String(raw.id ?? ""), "letter.md");
       if (saved.state !== "complete" || saved.id <= state.previous)
         throw new Error("Complete and restore a new shift after starting migration.");
@@ -1874,10 +1900,16 @@ async function migrateRecords(p, raw) {
         const task = await graphTask(p, target);
         if (task.status === "closed" || !task.revision)
           throw new Error(`Reopen and check ${target} before cleanup.`);
-        expected.push({ id: target, revision: task.revision });
+        expected.push(taskGuard(task));
       }
       Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id });
       req.protected = [
+        BOARD,
+        LETTER,
+        SETTINGS,
+        KNOWLEDGE,
+        ...(await p.store.list(`${p.root}/${KNOWLEDGE}`, "file")).map((name) => `${KNOWLEDGE}/${name}`),
+        ...await docPaths(p.store, p.root, p.settings.docs.dirs),
         p.settings.files.shift,
         p.settings.files.glossary,
         p.settings.files.owner,
@@ -1909,7 +1941,7 @@ async function readWork(store, base, places, liveGraph = false) {
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
     archived: liveGraph ? [] : await store.list(`${base}/${NAMES.archive}`, "dir"),
-    oldOwner: places !== undefined && places.owner !== oldOwner && await store.exists(oldOwner)
+    oldOwner: places !== undefined && places.owner !== oldOwner && (await store.list(base, "file")).includes(NAMES.oldOwner)
   };
 }
 async function readTask(store, base, name) {
@@ -2597,7 +2629,7 @@ async function resumeShift(project, actor = project.actor) {
   const entries = await savedEntries(project);
   const newest = entries.at(-1);
   if (newest) {
-    const waiting = actor ? await archiveCall(project, { action: "waiting", session: actor }) : "";
+    const waiting = actor ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? actor }) : "";
     const saved = await readSaved(project, waiting || newest.id, NAMES.letter);
     const letter = saved.files[NAMES.letter];
     if (letter === undefined)
@@ -2699,8 +2731,8 @@ async function settleShift(project, letGo, back) {
       action: "finish",
       id: shift.dir,
       state: "complete",
-      session: shift.sessionId,
-      wait: shift.after === "wait",
+      session: project.deliveryKey ?? shift.sessionId,
+      wait: !letGo.carried,
       about,
       files: { [NAMES.summary]: summary },
       limit: project.settings.historyLimit
@@ -3057,6 +3089,7 @@ async function letGoShift(project, loop, harness, shift, aborted) {
       shift,
       messages: done.messages,
       parkWait: harness.parkWait,
+      carried: done.carried,
       before: done.before ?? before,
       after: done.after ?? await harness.fill()
     }, back ?? undefined);
@@ -3080,7 +3113,8 @@ async function letGoShift(project, loop, harness, shift, aborted) {
   });
   const carried = done.carried === true;
   const text = carried ? WAKE : settled.prompt;
-  await finish(loop, harness, text, carried ? { ...settled.note, context: text } : settled.note);
+  const confirm = !carried && isSaved(shift.dir) ? () => acknowledgeWait(project, shift.dir) : undefined;
+  await finish(loop, harness, text, carried ? { ...settled.note, context: text } : settled.note, confirm);
 }
 async function tellAgent(loop, harness, shift, context, goOn) {
   const note = { context, dir: shift.dir, files: [FAILURE_NOTE] };
@@ -3115,14 +3149,16 @@ async function finish(loop, harness, prompt, keep, delivered) {
   if (taken.waits || text === "")
     return;
   try {
-    await harness.continueWith(text, attachmentsOf(taken.held));
+    const note = delivered ? { ...keep, context: text, held: taken.held } : undefined;
+    await harness.continueWith(text, attachmentsOf(taken.held), note);
   } catch (error) {
     const kept = { ...keep, context: withHeld(keep.context, taken.held), held: taken.held };
     await loop.update((current) => ({ ...current, note: kept }));
     loop.tell(NOT_CONTINUED(String(error), keep.files.includes(FAILURE_NOTE) ? FAILURE_NOTE : undefined), "error");
     return;
   }
-  await delivered?.();
+  if (!harness.confirmsInHistory)
+    await delivered?.();
 }
 function withHeld(context, held) {
   if (held.length === 0)
@@ -3138,13 +3174,19 @@ function attachmentsOf(held) {
 }
 async function archivedWait(project, id) {
   const entry = await readSaved(project, id, NAMES.letter);
-  return waitContext(entry.files[NAMES.letter] ?? "", await handBack(project, id, project.actor));
+  const render = readAbout(entry.about).after === "continue" ? continuePrompt : waitContext;
+  return render(entry.files[NAMES.letter] ?? "", await handBack(project, id, project.actor));
 }
 async function waitingId(project) {
-  return project?.actor && project.store.beads && await hasArchive(project) ? archiveCall(project, { action: "waiting", session: project.actor }) : "";
+  return project?.actor && project.store.beads && await hasArchive(project) ? archiveCall(project, { action: "waiting", session: project.deliveryKey ?? project.actor }) : "";
 }
 async function acknowledgeWait(project, id) {
-  await archiveCall(project, { action: "received", session: project.actor, id, limit: project.settings.historyLimit });
+  await archiveCall(project, {
+    action: "received",
+    session: project.deliveryKey ?? project.actor,
+    id,
+    limit: project.settings.historyLimit
+  });
 }
 async function waitingNote(loop, project) {
   const { note, pending, letting } = await loop.read();
@@ -3158,6 +3200,7 @@ async function waitingNote(loop, project) {
     context = withHeld(await archivedWait(project, id), note?.held ?? []);
   }
   return {
+    dir: note?.dir ?? id,
     context,
     attachments: attachmentsOf(note?.held ?? []),
     delivered: async () => {
@@ -3409,24 +3452,26 @@ async function atPrompt(courier, { runStarts, owner }) {
     notes.push({ kind: "hint", body: hint.text });
   const letter = owner ? await waitingNote(courier.loop, await courier.project()) : null;
   return {
+    waiting: letter?.dir,
     attachments: letter?.attachments,
     notes: [...notes.map(wrap), ...letter === null ? [] : [letter.context]],
-    delivered: async () => {
+    delivered: async (includeLetter = true) => {
       await records.delivered();
       await hint?.take();
       for (const note of notes)
         if (note.kind !== "map")
           courier.loop.tell(TOLD(note.body), "info");
-      await letter?.delivered();
+      if (includeLetter)
+        await letter?.delivered();
     }
   };
 }
-async function promptRecords(courier, runStarts, parkedWait = false) {
+async function promptRecords(courier, runStarts, parkedWait = false, submitted = "") {
   if (runStarts)
     await courier.updateLooks((current) => ({ ...current, running: 0 }));
   const notes = [];
   const { running } = await courier.looks();
-  const { seen, comments, refreshClaims, claimDigest } = await courier.looks();
+  const { seen, comments, commentManifest, refreshClaims, claimDigest } = await courier.looks();
   const project = await courier.project();
   const needsCheck = !(await courier.looks()).migrationChecked;
   const migration = needsCheck ? await migrationNote(project) : null;
@@ -3435,11 +3480,25 @@ async function promptRecords(courier, runStarts, parkedWait = false) {
   else if (needsCheck)
     await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
   const session = project.actor;
-  const durableWait = running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session }) : "";
-  const waiting = parkedWait ? durableWait : "";
+  const durableWait = running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? session }) : "";
+  let waiting = parkedWait ? durableWait : "";
+  let recovery = "";
+  let includeCards = !!waiting;
+  if (waiting) {
+    const saved = await readSaved(project, waiting, NAMES.letter);
+    if (readAbout(saved.about).after === "continue") {
+      const letter = saved.files[NAMES.letter] ?? "";
+      if (submitted.startsWith(`<shift id="${waiting}">
+Shift done.`) && submitted.includes(letter.trim()))
+        waiting = "";
+      else
+        recovery = continuePrompt(letter, await handBack(project, waiting, session));
+      includeCards = false;
+    }
+  }
   let digest = claimDigest;
   let offeredCards = false;
-  if (session && (waiting || !durableWait && refreshClaims && await project.store.exists(graphPath(project)))) {
+  if (session && (includeCards || !durableWait && refreshClaims && await project.store.exists(graphPath(project)))) {
     const cards = await queryGraph(project, { view: "cards" }, session);
     digest = textFingerprint(cards);
     if (waiting || digest !== claimDigest) {
@@ -3450,10 +3509,10 @@ async function promptRecords(courier, runStarts, parkedWait = false) {
   const rememberClaims = () => courier.updateLooks((now) => ({ ...now, claimDigest: digest, refreshClaims: false }));
   if (refreshClaims && !offeredCards)
     await rememberClaims();
-  const updates = running === 0 ? await commentChanges(project, comments) : null;
+  const updates = running === 0 ? await commentChanges(project, comments, commentManifest) : null;
   const rememberCounts = async () => {
     if (updates)
-      await courier.updateLooks((current) => JSON.stringify(current.comments) === JSON.stringify(comments) ? { ...current, comments: updates.counts } : current);
+      await courier.updateLooks((current) => current.commentManifest === commentManifest && JSON.stringify(current.comments) === JSON.stringify(comments) ? { ...current, comments: updates.counts, commentManifest: updates.manifest } : current);
   };
   if (updates && !updates.notes.length)
     await rememberCounts();
@@ -3487,6 +3546,7 @@ async function promptRecords(courier, runStarts, parkedWait = false) {
   return {
     notes,
     waiting,
+    recovery,
     delivered: async () => {
       if (migration)
         await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
@@ -4209,7 +4269,7 @@ var TOOL_TEXTS = {
   },
   [QUERY_TOOL]: {
     label: "Read tasks",
-    description: "List your tasks, ready work, open or closed tasks. Show a task card with its blockers, read comments or inspect its history by ID. Filter lists by labels.",
+    description: "List your tasks, ready work, open or closed tasks. Show a task card with its blockers and an epic\u2019s children, read comments or inspect its history by ID. Filter lists by labels.",
     brief: "list ready work and read task cards, comments or history.",
     schema: {
       type: "object",
@@ -5809,7 +5869,7 @@ async function contextFor(input, project, state, restoring = false) {
   const legacyStamps = state.looks.docs;
   if (restoring)
     state.looks.refreshClaims = false;
-  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring);
+  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, String(input.prompt ?? ""));
   const recordNotes = records.notes.map(wrap);
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
@@ -5835,7 +5895,7 @@ async function contextFor(input, project, state, restoring = false) {
     notes.push(changes.note);
   }
   state.doctrineHash = doctrineHash;
-  notes.push(...recordNotes);
+  notes.push(...recordNotes, records.recovery);
   return { notes, waiting: records.waiting };
 }
 function checkpoint(db) {
@@ -6324,6 +6384,8 @@ class Session {
         const prepared = await this.prompt({ threadId: this.id }, true);
         await this.inject(String(fields(fields(prepared.params.additionalContext).shift).value ?? note.context));
         await prepared.delivered();
+        if (this.delivery === "hooks" && isSaved(note.dir))
+          await acknowledgeWait(await projectAt(this.root, this.id), note.dir);
       }
     } finally {
       this.barrier = undefined;

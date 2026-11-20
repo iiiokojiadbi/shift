@@ -1,4 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { readAbout } from './about'
 import { handBack, settleShift, shiftNotMade, shiftUnsettled } from './flows'
 import { type GaugeKeeper, offerHint, takeHint } from './hint'
 import { NAMES } from './layout'
@@ -63,7 +64,9 @@ export type LetGoHarness = {
     carry?: string,
   ): Promise<{ messages: readonly { role: string; text: string }[]; before?: number; after?: number; carried?: boolean } | { skip: string }>
   // Starts the agent's next turn with the prompt, and what the owner's held messages carried besides their text.
-  continueWith(prompt: string, attachments?: readonly unknown[]): Promise<void>
+  continueWith(prompt: string, attachments?: readonly unknown[], receipt?: WaitNote): Promise<void>
+  // The host confirms a queued letter when its message appears in branch history.
+  confirmsInHistory?: boolean
   // What the harness refreshes once the history is let go, before the message after it.
   afterLetGo?(): Promise<void>
   // Parks a wait letter in durable history before the waiting outcome is observable.
@@ -148,6 +151,7 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
         shift,
         messages: done.messages,
         parkWait: harness.parkWait,
+        carried: done.carried,
         before: done.before ?? before,
         after: done.after ?? (await harness.fill()),
       },
@@ -173,7 +177,8 @@ async function letGoShift(project: Project, loop: Loop, harness: LetGoHarness, s
   // told twice. A note kept for a turn that did not start carries that line too.
   const carried = done.carried === true
   const text = carried ? WAKE : settled.prompt
-  await finish(loop, harness, text, carried ? { ...settled.note, context: text } : settled.note)
+  const confirm = !carried && isSaved(shift.dir) ? () => acknowledgeWait(project, shift.dir) : undefined
+  await finish(loop, harness, text, carried ? { ...settled.note, context: text } : settled.note, confirm)
 }
 
 // A failed shift is told to the agent, who was told it was accepted: at once when it was to continue and may go on,
@@ -218,14 +223,15 @@ async function finish(loop: Loop, harness: LetGoHarness, prompt: string, keep: W
   const text = withHeld(prompt, taken.held)
   if (taken.waits || text === '') return
   try {
-    await harness.continueWith(text, attachmentsOf(taken.held))
+    const note = delivered ? { ...keep, context: text, held: taken.held } : undefined
+    await harness.continueWith(text, attachmentsOf(taken.held), note)
   } catch (error) {
     const kept = { ...keep, context: withHeld(keep.context, taken.held), held: taken.held }
     await loop.update(current => ({ ...current, note: kept }))
     loop.tell(NOT_CONTINUED(String(error), keep.files.includes(FAILURE_NOTE) ? FAILURE_NOTE : undefined), 'error')
     return
   }
-  await delivered?.()
+  if (!harness.confirmsInHistory) await delivered?.()
 }
 
 function withHeld(context: string, held: readonly HeldMessage[]): string {
@@ -285,20 +291,26 @@ const WAIT_STEP = 250
 // delivery keeps it for the next one.
 async function archivedWait(project: Project, id: string) {
   const entry = await readSaved(project, id, NAMES.letter)
-  return waitContext(entry.files[NAMES.letter] ?? '', await handBack(project, id, project.actor))
+  const render = readAbout(entry.about).after === 'continue' ? continuePrompt : waitContext
+  return render(entry.files[NAMES.letter] ?? '', await handBack(project, id, project.actor))
 }
 async function waitingId(project?: Project) {
   return project?.actor && project.store.beads && (await hasArchive(project))
-    ? archiveCall<string>(project, { action: 'waiting', session: project.actor })
+    ? archiveCall<string>(project, { action: 'waiting', session: project.deliveryKey ?? project.actor })
     : ''
 }
 export async function acknowledgeWait(project: Project, id: string) {
-  await archiveCall(project, { action: 'received', session: project.actor, id, limit: project.settings.historyLimit })
+  await archiveCall(project, {
+    action: 'received',
+    session: project.deliveryKey ?? project.actor,
+    id,
+    limit: project.settings.historyLimit,
+  })
 }
 export async function waitingNote(
   loop: Loop,
   project?: Project,
-): Promise<{ context: string; attachments?: readonly unknown[] | undefined; delivered: () => Promise<void> } | null> {
+): Promise<{ dir: string; context: string; attachments?: readonly unknown[] | undefined; delivered: () => Promise<void> } | null> {
   const { note, pending, letting } = await loop.read()
   // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
   // message, whether an older letter goes with this one or not.
@@ -313,6 +325,7 @@ export async function waitingNote(
     context = withHeld(await archivedWait(project, id), note?.held ?? [])
   }
   return {
+    dir: note?.dir ?? id,
     context,
     attachments: attachmentsOf(note?.held ?? []),
     delivered: async () => {
@@ -343,11 +356,11 @@ export async function shiftNow(
   loop: Loop,
   words: string,
   project?: Project,
-): Promise<{ text: string; attachments?: readonly unknown[] | undefined; delivered: () => Promise<void> }> {
+): Promise<{ dir?: string; text: string; attachments?: readonly unknown[] | undefined; delivered: () => Promise<void> }> {
   const letter = await waitingNote(loop, project)
   const ask = SHIFT_NOW(words)
 
   return letter === null
     ? { text: ask, delivered: async () => {} }
-    : { text: `${letter.context}\n\n${ask}`, attachments: letter.attachments, delivered: letter.delivered }
+    : { dir: letter.dir, text: `${letter.context}\n\n${ask}`, attachments: letter.attachments, delivered: letter.delivered }
 }

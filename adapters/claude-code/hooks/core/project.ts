@@ -8,6 +8,8 @@ import type { Store } from './store'
 // and its problem is told to the owner at the session's start and refuses a shift until the owner fixes it.
 export type Project = {
   actor?: string | undefined
+  // A history branch may own a letter independently of its chat's task claims.
+  deliveryKey?: string
   store: Store
   root: string
   settings: Settings

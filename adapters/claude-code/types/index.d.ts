@@ -33,6 +33,7 @@ export type Looks = {
   refreshClaims?: boolean
   claimDigest?: number
   migrationChecked?: boolean
+  commentManifest?: string | undefined
   comments?: Record<string, number>
   running: number
   map?: MapPrints

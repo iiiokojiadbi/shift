@@ -54,7 +54,7 @@ export async function readWork(store: Store, base: string, places?: Places, live
     glossary: await store.read(at.glossary),
     shift: await store.read(at.shift),
     archived: liveGraph ? [] : await store.list(`${base}/${NAMES.archive}`, 'dir'),
-    oldOwner: places !== undefined && places.owner !== oldOwner && (await store.exists(oldOwner)),
+    oldOwner: places !== undefined && places.owner !== oldOwner && (await store.list(base, 'file')).includes(NAMES.oldOwner),
   }
 }
 

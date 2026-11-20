@@ -1,7 +1,8 @@
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, expect, spyOn, test } from 'bun:test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import shift from '../index'
+import { nodeStore } from '../store'
 import { cleanup, scratch } from './scratch'
 
 afterAll(cleanup)
@@ -257,6 +258,94 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   expect(startup).toContain('Legacy records need migration')
   expect(startup).not.toContain('THE LETTER')
   expect(await told.on('before_agent_start', run())).toBeUndefined()
+})
+
+test.each(['wait', 'continue'])('a sibling cannot consume a %s letter; the original branch recovers it after restart', async after => {
+  const root = await project({
+    '.shift/letter.md': '## Where I am\nBRANCH A ONLY\n## Next\ngo\n## Unverified\nnone\n## Hold\nhold',
+    '.shift/board.md': '## Goal\ng\n## Decisions\nnone\n## Dead ends\nnone',
+    '.shift/OWNER.md': 'none',
+    '.shift/settings.toml': 'commit = true',
+  })
+  const id = 's-0000000000000001'
+  const queue = new Map<string, string>()
+  let about = ''
+  let files: Record<string, string> = {}
+  const archive = spyOn(nodeStore, 'beads').mockImplementation(async (_root, args, stdin) => {
+    expect(args).toEqual(['shift-history'])
+    const request = JSON.parse(stdin ?? '{}')
+    switch (request.action) {
+      case 'begin':
+        about = request.about
+        files = request.files
+        await writeFile(join(root, '.shift/history.db'), '')
+        return JSON.stringify(id)
+      case 'finish':
+        about = request.about
+        if (request.wait) queue.set(request.session, id)
+        return 'null'
+      case 'waiting':
+        return JSON.stringify(queue.get(request.session) ?? '')
+      case 'received':
+        if (queue.get(request.session) === request.id) queue.delete(request.session)
+        return 'null'
+      case 'list':
+        return JSON.stringify([{ id, about, state: 'complete', files: {} }])
+      case 'read':
+        return JSON.stringify({ id, about, files })
+      default:
+        throw new Error(`Unexpected archive request: ${request.action}`)
+    }
+  })
+  try {
+    let entries: unknown[] = []
+    const history = branch(200_000)
+    const pi = load(root, 200_000, () => [...history, ...entries])
+    entries = pi.saved
+    // pi's sendMessage returns void even if its later attempt to start the run fails before message_end.
+    if (after === 'continue') pi.api.sendMessage = () => 0
+    await pi.on('session_start')
+    expect(await pi.call('shift', { letter: '.shift/letter.md', after, about: 'branch A' })).toContain('Shift accepted')
+    await pi.on('agent_settled', { aborted: false })
+    expect([...queue.values()]).toEqual([id])
+
+    // A process can die between settlement and the branch-local wait entry. The earlier shift anchor survives.
+    const beforeAdmission = [...entries]
+    const original = entries.filter(entry => (entry as { customType?: string }).customType !== 'shift:wait')
+    const ownerPrompt = async (session: typeof pi) => {
+      await session.on('input', { text: 'hello', source: 'interactive' })
+      const result = (await session.on('before_agent_start', {
+        systemPromptOptions: { sections: {}, contextFiles: [] },
+        messageType: 'user',
+      })) as { message: { content: string } } | undefined
+      return result?.message.content ?? ''
+    }
+    entries = []
+    await pi.on('session_tree')
+    expect(await ownerPrompt(pi)).not.toContain('BRANCH A ONLY')
+    expect([...queue.values()]).toEqual([id])
+
+    const resumed = load(root, 200_000, () => [...history, ...original, ...resumed.saved])
+    await resumed.on('session_start')
+    const delivered = await ownerPrompt(resumed)
+    expect(delivered).toContain('BRANCH A ONLY')
+    expect(delivered).toContain(after === 'continue' ? 'Shift done.' : 'You shifted and waited')
+    expect([...queue.values()]).toEqual([id])
+    resumed.saved.push({ type: 'custom_message', customType: 'shift', content: 'Another message' })
+    await resumed.on('agent_settled', { aborted: false })
+    expect([...queue.values()]).toEqual([id])
+    resumed.saved.push({ type: 'custom_message', customType: 'shift', content: delivered })
+    await resumed.on('agent_settled', { aborted: false })
+    expect(queue.size).toBe(0)
+    expect(await ownerPrompt(resumed)).not.toContain('BRANCH A ONLY')
+
+    // Rewinding away the admitted message restores this branch's local note even after its archive receipt was cleared.
+    const rewound = load(root, 200_000, () => [...history, ...beforeAdmission, ...rewound.saved])
+    await rewound.on('session_start')
+    expect(await ownerPrompt(rewound)).toContain('BRANCH A ONLY')
+  } finally {
+    archive.mockRestore()
+  }
 })
 
 test('a rejected shift command keeps the waiting letter for the next owner input', async () => {

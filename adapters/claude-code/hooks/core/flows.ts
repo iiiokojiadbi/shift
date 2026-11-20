@@ -375,7 +375,7 @@ export async function resumeShift(project: Project, actor = project.actor): Prom
   const entries = await savedEntries(project)
   const newest = entries.at(-1)
   if (newest) {
-    const waiting = actor ? await archiveCall<string>(project, { action: 'waiting', session: actor }) : ''
+    const waiting = actor ? await archiveCall<string>(project, { action: 'waiting', session: project.deliveryKey ?? actor }) : ''
     const saved = await readSaved(project, waiting || newest.id, NAMES.letter)
     const letter = saved.files[NAMES.letter]
     if (letter === undefined) throw new Error(`Missing letter in saved shift ${saved.id}.`)
@@ -484,6 +484,7 @@ async function recordFailure(project: Project, shift: PendingShift, about: strin
 
 export type LetGo = {
   shift: PendingShift
+  carried?: boolean | undefined
   parkWait?(note: WaitNote): Promise<void>
   // What the history was let go into, as the harness gives it back.
   messages: readonly { role: string; text: string }[]
@@ -506,8 +507,8 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
           action: 'finish',
           id: shift.dir,
           state: 'complete',
-          session: shift.sessionId,
-          wait: shift.after === 'wait',
+          session: project.deliveryKey ?? shift.sessionId,
+          wait: !letGo.carried,
           about,
           files: { [NAMES.summary]: summary },
           limit: project.settings.historyLimit,

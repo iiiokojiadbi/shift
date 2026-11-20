@@ -3,6 +3,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 import {
+  acknowledgeWait,
   afterTool,
   afterTurn,
   afterWrite,
@@ -17,6 +18,7 @@ import {
   FRESH_LOOP,
   type Gauge,
   gaugeStatus,
+  isSaved,
   type Looks,
   type Loop,
   type LoopState,
@@ -425,6 +427,7 @@ export class Session {
         const prepared = await this.prompt({ threadId: this.id }, true)
         await this.inject(String(fields(fields(prepared.params.additionalContext).shift).value ?? note.context))
         await prepared.delivered()
+        if (this.delivery === 'hooks' && isSaved(note.dir)) await acknowledgeWait(await projectAt(this.root, this.id), note.dir)
       }
     } finally {
       this.barrier = undefined
