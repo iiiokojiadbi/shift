@@ -374,8 +374,8 @@ export async function resumeShift(project: Project, actor = project.actor): Prom
   const entries = await savedEntries(project)
   const newest = entries.at(-1)
   if (newest) {
-    const waiting = project.actor ? await archiveCall<string>(project, { action: 'waiting', session: project.actor }) : ''
-    const saved = await readSaved(project, newest.id, NAMES.letter)
+    const waiting = actor ? await archiveCall<string>(project, { action: 'waiting', session: actor }) : ''
+    const saved = await readSaved(project, waiting || newest.id, NAMES.letter)
     const letter = saved.files[NAMES.letter]
     if (letter === undefined) throw new Error(`Missing letter in saved shift ${saved.id}.`)
     const about = readAbout(saved.about)

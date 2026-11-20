@@ -76,6 +76,8 @@ Whether knowledge goes into the project's own docs or stays local is the owner's
 
 ## Saved shifts
 
+An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
+
 `shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to get local matches labeled by source. `delete` removes an eligible shift. Read task revisions with `task_query(view="history")`.
 
 Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The default `history_limit` is 30. Pending, unsettled and undelivered letters remain recoverable. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.

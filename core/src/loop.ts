@@ -326,7 +326,9 @@ export async function waitingNote(
 // A waiting letter delivered another way — by /unshift, or by a newer shift's — is not delivered again.
 export async function dropWaiting(loop: Loop, project?: Project, expected?: string): Promise<void> {
   if (project && expected) await acknowledgeWait(project, expected)
-  await loop.update(current => (current.note === null ? current : { ...current, note: null }))
+  await loop.update(current =>
+    current.note === null || (expected && current.note.dir !== expected) ? current : { ...current, note: null },
+  )
 }
 
 // Notes compared by value: a harness may keep them serialized.

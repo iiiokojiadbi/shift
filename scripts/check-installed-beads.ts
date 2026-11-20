@@ -179,6 +179,20 @@ try {
   assert.equal(fromMemory.context.split('HOLD-THIS').length, 2)
   assert.ok(fromMemory.context.endsWith('Message after the letter'))
   assert.deepEqual(fromMemory.attachments, ['image'])
+  const reader = await loadProject(nodeStore, project, 'reader')
+  const newerLetter = letter.replace('HOLD-THIS', 'HOLD-READER')
+  await writeFile(join(project, '.shift', 'letter.md'), newerLetter)
+  const newer = await acceptShift(reader, {
+    input: { after: 'continue', letter: '.shift/letter.md', about: 'Independent reader shift' },
+    sessionId: 'reader',
+    at: Date.now(),
+  })
+  assert.ok(newer.shift, JSON.stringify(newer))
+  await settleShift(reader, { ...settlement, shift: newer.shift })
+  const explicit = await resumeShift(source)
+  assert.equal(explicit.waiting, waitCall.shift.dir)
+  assert.ok(explicit.prompt.includes(letter.trim()))
+  assert.ok((await resumeShift(reader)).prompt.includes(newerLetter.trim()))
   const recovered = await offerWait()
   assert.ok(recovered)
   assert.match(recovered.context, /Evidence added while waiting/)
@@ -193,7 +207,7 @@ try {
   await cp(join(project, '.shift'), join(copy, '.shift'), { recursive: true })
   const copied = await loadProject(nodeStore, copy, 'writer')
   const copiedCall = { project: async () => copied, sessionId: async () => 'writer', now: async () => Date.now() }
-  assert.ok((await resumeShift(copied)).prompt.includes(letter.trim()))
+  assert.ok((await resumeShift(copied)).prompt.includes(newerLetter.trim()))
   const query = (TOOLS as Tool[]).find(t => t.name === 'task_query')
   const history = (TOOLS as Tool[]).find(t => t.name === 'shift_history')
   assert.ok(query && history)

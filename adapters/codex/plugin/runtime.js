@@ -2597,8 +2597,8 @@ async function resumeShift(project, actor = project.actor) {
   const entries = await savedEntries(project);
   const newest = entries.at(-1);
   if (newest) {
-    const waiting = project.actor ? await archiveCall(project, { action: "waiting", session: project.actor }) : "";
-    const saved = await readSaved(project, newest.id, NAMES.letter);
+    const waiting = actor ? await archiveCall(project, { action: "waiting", session: actor }) : "";
+    const saved = await readSaved(project, waiting || newest.id, NAMES.letter);
     const letter = saved.files[NAMES.letter];
     if (letter === undefined)
       throw new Error(`Missing letter in saved shift ${saved.id}.`);
@@ -3172,7 +3172,7 @@ async function waitingNote(loop, project) {
 async function dropWaiting(loop, project, expected) {
   if (project && expected)
     await acknowledgeWait(project, expected);
-  await loop.update((current) => current.note === null ? current : { ...current, note: null });
+  await loop.update((current) => current.note === null || expected && current.note.dir !== expected ? current : { ...current, note: null });
 }
 function sameNote(a, b) {
   return a !== null && a.dir === b.dir && a.context === b.context;
