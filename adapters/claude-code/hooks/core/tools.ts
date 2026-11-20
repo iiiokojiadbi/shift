@@ -13,6 +13,7 @@ import {
   OPEN_TOOL,
   OUTLINE_TOOL,
   SETUP_TOOL,
+  SIZES_TOOL,
   STATUS_TOOL,
   TOOL,
   TRACK_TOOL,
@@ -21,7 +22,8 @@ import { holdShift, type Loop } from './loop'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
-import { doctrine, doctrineBody, GUIDE } from './texts/doctrine'
+import { sizeReport } from './sizes'
+import { doctrine, doctrineBody, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
 import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
 import { updateTrack } from './track'
@@ -62,7 +64,15 @@ export type Tool = ToolText & {
 type Row = Omit<Tool, keyof ToolText | 'writes' | 'docs'> & { writes?: boolean; docs?: boolean }
 
 const ROWS: readonly Row[] = [
-  { name: GUIDE_TOOL, run: async (_raw, call) => ({ result: atPlaces(GUIDE, (await call.project()).settings.files) }) },
+  {
+    name: GUIDE_TOOL,
+    run: async (raw, call) => {
+      if (raw.section !== undefined && raw.section !== 'flow' && raw.section !== 'records')
+        return { deny: 'section must be flow or records.' }
+      const guide = raw.section === 'flow' ? GUIDE_FLOW : raw.section === 'records' ? GUIDE_RECORDS : GUIDE
+      return { result: atPlaces(guide.trimEnd(), (await call.project()).settings.files) }
+    },
+  },
   {
     name: TOOL,
     writes: true,
@@ -86,7 +96,7 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       const input = parseOpenInput(raw)
 
-      return typeof input === 'string' ? { deny: input } : openTask(await call.project(), input)
+      return typeof input === 'string' ? { deny: input } : openTask(await call.project(), input, await call.now())
     },
   },
   {
@@ -104,7 +114,7 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       const input = parseTrackInput(raw)
 
-      return typeof input === 'string' ? { deny: input } : updateTrack(await call.project(), input)
+      return typeof input === 'string' ? { deny: input } : updateTrack(await call.project(), input, await call.now())
     },
   },
   {
@@ -116,6 +126,7 @@ const ROWS: readonly Row[] = [
     },
   },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
+  { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   { name: SETUP_TOOL, run: async (_raw, call) => ({ result: await setupReport(await call.project(), await call.loaded()) }) },
   {
     name: OUTLINE_TOOL,

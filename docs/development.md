@@ -24,6 +24,7 @@ Bun runs everything; `bun install` also installs the git hooks (lefthook). Biome
 | Command | What it does |
 |---|---|
 | `bun run sync-core` | copies `core/src/` into the two packaged adapters, and `core/test/data.ts` into the Claude Code plugin's `tests/`; run after every change in `core/src/`, and again after `bun run fix` touched it; `--check` fails on a stale copy on disk, `--staged` on one in git's index — what the commit takes — and a source folder that cannot be read, or a missing `core/test/data.ts`, stops it rather than empty the copies |
+| `bun run shift:sizes [project]` | counts session and continuation text with o200k_base locally and lists the last three saved letters separately. Reports paths and token counts only |
 | `bun run check` | fails on a stale core copy, then biome |
 | `bun run fix` | biome with fixes |
 | `bun run typecheck` | `tsc` over every package: `types:core`, `types:claude-code`, `types:npm`, `types:codex` |

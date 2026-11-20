@@ -141,3 +141,83 @@ test('steering while a tool writes leaves its records and unfinished links for t
   expect(settled).not.toContain('that is not there')
   expect(settled).not.toContain('outside your tools')
 })
+
+async function recordPatch(transcript: string, path: string, unified_diff: string) {
+  await appendFile(
+    transcript,
+    `${JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        thread_id: 'scope',
+        item: {
+          type: 'FileChange',
+          status: 'completed',
+          changes: { [path]: { type: 'update', unified_diff } },
+        },
+      },
+    })}\n`,
+  )
+}
+
+test('a completed nested patch is recognized while another edit in the same interval is reported', async () => {
+  const { root, transcript, hook } = await fixture()
+  await hook('SessionStart')
+  const path = join(root, '.shift/OWNER.md')
+  await writeFile(path, 'Changed by nested patch.\n')
+  await recordPatch(transcript, path, '@@ -1 +1 @@\n-Unrelated decision marker.\n\\ No newline at end of file\n+Changed by nested patch.\n')
+  await appendFile(join(root, '.shift/board.md'), '\nExternal decision.\n')
+  const note = await hook('PreToolUse')
+  expect(note).toContain('board.md` changed outside')
+  expect(note).not.toContain('OWNER.md` changed outside')
+  await hook('PostToolUse')
+  await appendFile(path, 'External update.\n')
+  expect(await hook('UserPromptSubmit')).toContain('OWNER.md` changed outside')
+  const guide = { tool_name: 'mcp__shift__shift_guide' }
+  await hook('PreToolUse', guide)
+  await appendFile(path, 'Another external update.\n')
+  expect(await hook('PostToolUse', guide)).toContain('OWNER.md` changed outside')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('a completed patch cannot claim another writer’s change elsewhere in the same file', async () => {
+  const { root, transcript, hook } = await fixture()
+  const path = join(root, '.shift/OWNER.md')
+  await writeFile(path, 'Original decision.\nAnother decision.\n')
+  await hook('SessionStart')
+  await hook('PreToolUse')
+  await writeFile(path, 'Patched decision.\nExternal decision.\n')
+  await recordPatch(transcript, path, '@@ -1 +1 @@\n-Original decision.\n+Patched decision.\n')
+  expect(await hook('PostToolUse')).toContain('OWNER.md` changed outside')
+  expect(await hook('UserPromptSubmit')).toBe('')
+})
+
+test('the two sides of an agent note link settle at the next prompt', async () => {
+  const { root, hook } = await fixture()
+  const folder = join(root, '.shift/tasks/example')
+  await mkdir(join(folder, 'notes'), { recursive: true })
+  await writeFile(
+    join(folder, 'task.md'),
+    `# Work\n\n${['Goal', 'Done when', 'Owner decisions', 'Decisions', 'Dead ends'].map(h => `## ${h}\n\nnone\n`).join('\n')}`,
+  )
+  const track = join(folder, 'track.md')
+  await writeFile(track, '- [open] #1 research\n')
+  await hook('SessionStart')
+  await hook('PreToolUse')
+  await writeFile(track, '- [open] #1 research — see [details](notes/details.md)\n')
+  expect(await hook('PostToolUse')).toBe('')
+  await hook('PreToolUse')
+  await writeFile(join(folder, 'notes/details.md'), '---\ndescription: Details\n---\n')
+  expect(await hook('PostToolUse')).toBe('')
+  expect(await hook('UserPromptSubmit')).toBe('')
+  await hook('PreToolUse')
+  await appendFile(track, '- [open] #2 another — see [missing](notes/missing.md)\n')
+  expect(await hook('PostToolUse')).toBe('')
+  await appendFile(track, '- [open] #3 added elsewhere\n')
+  const changed = await hook('PreToolUse')
+  expect(changed).toContain('track.md` changed outside')
+  expect(changed).not.toContain('notes/missing.md')
+  expect(await hook('PostToolUse')).toBe('')
+  expect((await hook('UserPromptSubmit')).match(/notes\/missing\.md/g)).toHaveLength(1)
+  expect(await hook('UserPromptSubmit')).toBe('')
+})

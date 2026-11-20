@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { ARCHIVE_TOOL, CLOSED, DIR, TASK_LIST, TASKS, taskFile } from './layout'
-import { formatItem, itemsOf } from './markdown'
+import { formatItem, itemsOf, trackTimes } from './markdown'
 import type { Project } from './project'
 import type { Store } from './store'
 import { formatTaskLine, taskLine } from './tasks'
@@ -10,11 +10,15 @@ import type { Item, ItemChange, TrackInput } from './types'
 // An id is the item's `#<n>`, given by the mod when the item is added and never reused in the track: a call names an
 // item in a few characters, not by the words of its name.
 
-export async function updateTrack(project: Project, input: TrackInput): Promise<{ deny: string } | { result: string }> {
+export async function updateTrack(
+  project: Project,
+  input: TrackInput,
+  now: number | null = null,
+): Promise<{ deny: string } | { result: string }> {
   const { store, root } = project
   const done: string[] = []
   if (input.items.length > 0) {
-    const items = await setItems(store, root, input.task, input.items)
+    const items = await setItems(store, root, input.task, input.items, now)
     if ('deny' in items) return items
     done.push(items.result)
   }
@@ -51,6 +55,7 @@ async function setItems(
   root: string,
   task: string,
   changes: readonly ItemChange[],
+  now: number | null,
 ): Promise<{ deny: string } | { result: string }> {
   const path = taskFile(`${root}/${DIR}`, task, 'track')
   const read = await store.read(path)
@@ -58,7 +63,7 @@ async function setItems(
   let text = numberItems(read)
   const lines: string[] = []
   for (const [n, change] of changes.entries()) {
-    const applied = applyItem(text, task, change)
+    const applied = applyItem(text, task, change, now)
     if ('deny' in applied) return { deny: changes.length === 1 ? applied.deny : `items[${n}]: ${applied.deny}\nNothing was written.` }
     text = applied.text
     lines.push(`${task}/track.md: ${applied.line}`)
@@ -70,7 +75,7 @@ async function setItems(
   return { result: lines.join('\n') }
 }
 
-function applyItem(text: string, task: string, change: ItemChange): { deny: string } | { text: string; line: string } {
+function applyItem(text: string, task: string, change: ItemChange, now: number | null): { deny: string } | { text: string; line: string } {
   const lines = text.split('\n')
   const items = itemsOf(text).filter(item => item.status !== '')
 
@@ -81,16 +86,18 @@ function applyItem(text: string, task: string, change: ItemChange): { deny: stri
     const line = formatItem(change.status, nextId(items), change.item, change.note)
     const body = text.trimEnd()
 
-    return { text: `${body === '' ? '' : `${body}\n`}${line}\n`, line }
+    return { text: `${body === '' ? '' : `${body}\n`}${line}${trackTimes(now, CLOSED.has(change.status) ? now : null)}\n`, line }
   }
 
   const found = items.find(each => each.id === change.id)
   if (found === undefined) {
     return { deny: `No item #${change.id} in ${task}. Its items:\n${items.map(each => each.line).join('\n')}` }
   }
-  lines[found.index] = formatItem(change.status, change.id, found.name, change.note ?? found.note)
+  const closed = CLOSED.has(change.status) ? (CLOSED.has(found.status) ? found.closed : now) : null
+  const line = formatItem(change.status, change.id, found.name, change.note ?? found.note)
 
-  return { text: lines.join('\n'), line: lines[found.index] ?? '' }
+  lines[found.index] = line + trackTimes(found.created, closed)
+  return { text: lines.join('\n'), line }
 }
 
 // Ids for the track items without one, or with one an earlier item took — added by hand, or written before items had
@@ -105,7 +112,7 @@ export function numberItems(text: string): string {
       seen.add(item.id)
       continue
     }
-    lines[item.index] = formatItem(item.status, next++, item.name, item.note)
+    lines[item.index] = formatItem(item.status, next++, item.name, item.note) + trackTimes(item.created, item.closed)
   }
 
   return lines.join('\n')

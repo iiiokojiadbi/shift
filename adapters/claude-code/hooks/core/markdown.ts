@@ -197,7 +197,8 @@ function isDay(found: RegExpMatchArray, at: { year: number; month: number; day: 
 export function itemsOf(text: string): Item[] {
   return text.split('\n').flatMap((raw, index) => {
     if (!raw.startsWith('- ')) return []
-    const line = raw.trim()
+    const stamp = / <!-- shift-times (\d+|-) (\d+|-) -->$/.exec(raw.trim())
+    const line = stamp ? raw.trim().slice(0, stamp.index) : raw.trim()
     const match = /^- \[([^\]]+)\] *(.*)$/.exec(line)
     const rest = match?.[2] ?? line.slice(2).trim()
     const id = /^#(\d+) +/.exec(rest)
@@ -206,6 +207,8 @@ export function itemsOf(text: string): Item[] {
 
     return [
       {
+        created: stamp && stamp[1] !== '-' ? Number(stamp[1]) : null,
+        closed: stamp && stamp[2] !== '-' ? Number(stamp[2]) : null,
         status: match?.[1] ?? '',
         // An id past the safe integers cannot be counted on: the item is numbered anew.
         id: id === null || !Number.isSafeInteger(Number(id[1])) ? null : Number(id[1]),
@@ -217,6 +220,10 @@ export function itemsOf(text: string): Item[] {
       },
     ]
   })
+}
+
+export function trackTimes(created: number | null, closed: number | null): string {
+  return created === null && closed === null ? '' : ` <!-- shift-times ${created ?? '-'} ${closed ?? '-'} -->`
 }
 
 export function formatItem(status: string, id: number, name: string, note: string | null): string {

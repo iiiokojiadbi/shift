@@ -187,7 +187,7 @@ test('the effective limit sets the soft and final milestones, once each per stre
   expect(small(154_800)).toBeNull()
   expect(small(200_000)).toBeNull()
   expect(small(216_719)).toBeNull()
-  expect(small(216_720)).toContain('nearest stage boundary')
+  expect(small(216_720)).toContain('Shift now')
   expect(small(257_000)).toBeNull()
 
   gauge = { ...FRESH_GAUGE, unassisted: true }

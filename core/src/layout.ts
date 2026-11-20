@@ -15,6 +15,8 @@ export const TRACK_TOOL = 'task_track'
 
 export const STATUS_TOOL = 'shift_status'
 
+export const SIZES_TOOL = 'shift_sizes'
+
 export const SETUP_TOOL = 'shift_setup'
 
 export const OUTLINE_TOOL = 'doc_outline'
@@ -164,6 +166,8 @@ export const HISTORY_MAX = 50
 
 // How many shifts' descriptions go back with the message after a shift.
 export const RECENT_SHIFTS = 10
+
+export const RECENT_CLOSED_ITEMS = 10
 
 // A task whose files went unchanged through this many shifts is named after a shift: waiting may have become stuck.
 export const STUCK_SHIFTS = 5

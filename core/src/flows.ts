@@ -24,7 +24,7 @@ import {
   TRACK_TOOL,
   taskFile,
 } from './layout'
-import { formatItem, formatK, itemsOf, sections } from './markdown'
+import { formatItem, formatK, itemsOf, sections, trackTimes } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
@@ -72,11 +72,27 @@ export type ChangedBy = 'agent' | 'other'
 // The records changed since the mod last looked, each checked by the checks of its file, so what the shift would refuse
 // is told as it is written, not hundreds of K later. The agent's own change is told only when broken; someone else's
 // is told always, so the agent reads it before writing over it. The first look only remembers. Generated map and toc changes have their own delivery slot.
-export async function changedRecords(project: Project, seen: Seen | null, by: ChangedBy): Promise<{ seen: Seen; body: string | null }> {
+export type ConfirmedEdit = (path: string, current: string | null, previous: string | undefined) => boolean
+
+export function recordFingerprint(project: Project, path: string, text: string): string {
+  let observed = text
+  if (path === project.settings.files.shift) observed = withMap(text, '').trim()
+  else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs)) observed = withToc(text) ?? text
+  return String(fingerprint(observed))
+}
+
+export async function changedRecords(
+  project: Project,
+  seen: Seen | null,
+  by: ChangedBy,
+  confirmed?: ConfirmedEdit,
+  deferLinks?: (name: string) => void,
+): Promise<{ seen: Seen; body: string | null }> {
   if (!project.settings.enabled) return { seen: seen ?? {}, body: null }
   // A new stamp alone is not a change: a file rewritten with the same text, or edited and put back, says nothing.
   const now: Seen = Object.create(null)
   const changed: string[] = []
+  const external = new Set<string>()
   for (const [path, stamp] of Object.entries(await recordStamps(project))) {
     const was = seen && Object.hasOwn(seen, path) ? (seen[path] ?? '') : ''
     const at = was.lastIndexOf('#')
@@ -86,18 +102,22 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
     }
     const text = await project.store.read(`${project.root}/${path}`)
     if (text === null) continue
-    let observed = text
-    if (path === project.settings.files.shift) observed = withMap(text, '').trim()
-    else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs)) observed = withToc(text) ?? text
-    const hash = String(fingerprint(observed))
+    const hash = recordFingerprint(project, path, text)
     now[path] = `${stamp}#${hash}`
-    const generated = !was && path === project.settings.files.shift && observed === withMap(null, '').trim()
-    if (seen !== null && was.slice(at + 1) !== hash && !generated) changed.push(path)
+    const generated = !was && path === project.settings.files.shift && withMap(text, '').trim() === withMap(null, '').trim()
+    if (seen !== null && was.slice(at + 1) !== hash && !generated) {
+      changed.push(path)
+      if (by === 'other' && !confirmed?.(path, text, was ? was.slice(at + 1) : undefined)) external.add(path)
+    }
   }
   const lines: string[] = []
   if (by === 'other' && seen) {
     for (const path of Object.keys(seen))
-      if (!(path in now) && !(await project.store.exists(`${project.root}/${path}`)))
+      if (
+        !(path in now) &&
+        !(await project.store.exists(`${project.root}/${path}`)) &&
+        !confirmed?.(path, null, seen[path]?.split('#').pop())
+      )
         lines.push(`\`${path}\` was removed outside your tools.`)
   }
   if (changed.length === 0) return { seen: now, body: lines.join('\n') || null }
@@ -105,9 +125,10 @@ export async function changedRecords(project: Project, seen: Seen | null, by: Ch
   const work = await readRecords(project)
   let broken = false
   for (const path of changed) {
-    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project)
+    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project, deferLinks)
     broken ||= problem !== null
-    if (by === 'other') lines.push(`\`${path}\` changed outside your tools — by the owner or another session: read it before you write it.`)
+    if (external.has(path))
+      lines.push(`\`${path}\` changed outside your tools — by the owner or another session: read it before you write it.`)
     if (problem !== null) lines.push(`\`${path}\`: ${problem}`)
   }
   if (broken) lines.push('The shift refuses until they are fixed; if you are still writing them, go on.')
@@ -255,17 +276,22 @@ function knowledgeText(work: Work): string {
 // Moves a finished or dropped task's folder to the archive and adds its line to the index.
 // A task opened valid by construction: task.md by its sections, track.md with its first items, and its line with the
 // links in TASKS.md — all checked before anything is written, so a refusal leaves the records as they were.
-export async function openTask(project: Project, input: OpenInput): Promise<{ deny: string } | { result: string }> {
+export async function openTask(
+  project: Project,
+  input: OpenInput,
+  now: number | null = null,
+): Promise<{ deny: string } | { result: string }> {
   const { store, root } = project
   const folder = `${root}/${TASKS}/${input.name}`
   if (await store.exists(folder)) return { deny: `${TASKS}/${input.name}/ already exists: set its status with ${TRACK_TOOL}.` }
   const archived = await store.list(`${root}/${ARCHIVE}`, 'dir')
   if (archived.includes(input.name))
     return { deny: `${input.name} is archived: open a task under another name with continues: ${input.name}.` }
+  const initial = input.items.map((item, n) => formatItem('open', n + 1, item.name, item.note))
   const task: TaskFiles = {
     name: input.name,
     task: renderTask(input),
-    track: input.items.map((item, n) => `${formatItem('open', n + 1, item.name, item.note)}\n`).join(''),
+    track: initial.map(line => `${line + trackTimes(now, null)}\n`).join(''),
     notes: [],
   }
   const listPath = `${root}/${TASK_LIST}`
@@ -278,7 +304,7 @@ export async function openTask(project: Project, input: OpenInput): Promise<{ de
   await store.write(`${folder}/${NAMES.track}`, task.track ?? '')
   await store.write(listPath, list)
 
-  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), task.track ?? '') }
+  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), initial.join('\n')) }
 }
 
 function renderTask(input: OpenInput): string {

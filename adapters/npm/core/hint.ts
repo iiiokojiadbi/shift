@@ -67,7 +67,7 @@ function softHint(grown: number, growth: Record<string, number>): string {
 }
 
 function finalHint(tokens: number, limit: number, growth: Record<string, number>): string {
-  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used — close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: check the current records, write your letter, then call \`${TOOL}\`.`
+  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used — close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift now. Check the records, write your letter and call \`${TOOL}\`.`
 }
 
 // Token counts per row are not known, so the growth is counted in characters and named by shares.
@@ -148,7 +148,7 @@ export function renderStatus(current: Gauge, { tokens, window, threshold, hintTa
     `Used: ${formatK(tokens)} of ${formatK(window)} window; ${threshold === undefined ? 'the automatic threshold is unknown' : `the harness lets the history go by itself at ${formatK(threshold)}`}.`,
   ]
   if (gauge.base !== null) lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`)
-  if (tokens >= final) lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`)
+  if (tokens >= final) lines.push(`Past the final hint at ${formatK(final)}: shift now.`)
   else {
     const soft = gauge.hinted === null ? nextSoft(base, tokens, limit, targets) : null
     const next = soft === null ? 'no soft hint before the final' : `next soft hint at ${formatK(soft)}`

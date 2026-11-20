@@ -31,6 +31,7 @@ import {
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
+  RECENT_CLOSED_ITEMS,
   RECENT_SHIFTS,
   RESUME_COMMAND,
   SETTINGS,
@@ -112,7 +113,7 @@ Each fact lives in one place. Your records live in the project directory, not in
 
 const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
 - \`task.md\` — what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map(s => `"${s}"`).join(', ')}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` — the task's tracker: one line per item, \`- [status] #<id> item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived — the track is the task's history;
+- \`track.md\` — the task's tracker: one line per item, \`- [status] #<id> item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived — the track is the task's history. The tools store creation and closure times in a trailing HTML comment. Reopening clears the closure time. After a shift, older closed items remain accessible by reading the track file;
 - \`${NAMES.notes}/\` — notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` — \`- [open] #3 item — see [what it holds](${NAMES.notes}/<file>.md)\` — or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
 
 Open a task with \`${OPEN_TOOL}\`, which writes its folder, its files and its line valid at once. Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
@@ -149,35 +150,17 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
-${BOARD_RULES}
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
-${LIST_RULES}
+\`${OWNER}\` is the owner's standing decisions. Update a rule on the owner's word and quote wording that matters. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
-${TASK_RULES}
-
-A finished or dropped task goes to the archive through \`${ARCHIVE_TOOL}\`, which also takes it out of \`${TASK_LIST}\`; \`${INDEX}\` lists every archived task. A new task may continue an archived one. The project may also have a tracker of its own; it is a different thing — do not link tasks to it.
-
-## Owner's decisions and knowledge
-
-${OWNER_RULES}
-
-\`${KNOWLEDGE}/\` holds traps, lessons, commands and facts, one file per kind (${Object.keys(KINDS).join(', ')}); write an entry when you learn it, read a file when its topic comes up. The layout and entry fields are in \`${GUIDE_TOOL}\`.
-
-${GLOSSARY_RULES}
-
-${SHIFT_RULES}
-
-What goes where:
-
-${PLACES}
+Read \`${GUIDE_TOOL}\` before your first shift in this project. For a record format, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
 ## When to shift
 
-Never before the first hint, never on a small history. A shift costs the owner's limits: the harness builds its cache of the history anew, and the files of the work are read again. A short stretch does not pay for that, nor for its letter and records, and its history still holds what the next step may need. A finished task is not a reason by itself. Until the first hint, go on working; earlier only on the owner's word. \`${STATUS_TOOL}\` says when the next hint comes.
+Keep working until the first hint unless the owner asks for an earlier shift. Each shift rebuilds the history cache and rereads the records. A finished task alone is too early. \`${STATUS_TOOL}\` shows when the next hint comes.
 
-After a hint — at a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step — and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
-
-The mod hints with a "Shift hint" line at the end of a tool result or next to a message: the soft hint when the history has grown by a large share of the room since the last shift, the final one when room is running out. On a small window the final hint is the only one. A hint names what the history grew from most. A soft hint is not an order: you decide.
+A soft hint is optional. Shift at a stage boundary when you can continue from your records. At the final hint, shift now. Check the records, write the letter and call \`${TOOL}\` before starting more work. Use \`continue\` when work remains and you can proceed on your own.
 
 ## Tools
 
@@ -191,11 +174,11 @@ ${doctrineBody(tools)}
 </${MOD}>`
 }
 
-export const GUIDE = `# Shift: how to shift
+export const GUIDE_FLOW = `# Shift: how to shift
 
 A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
 
-First the flow of a shift, then the rules of each record it checks.
+A soft hint leaves the timing to you. At the final hint, start the steps below immediately.
 
 ## How to shift
 
@@ -207,7 +190,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn, nothing more but what the call's result asks: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, with their notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
+After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
 
 ## Letter — \`${LETTER}\`
 
@@ -216,12 +199,12 @@ ${described(LETTER_SECTIONS, {
   'Where I am': 'what you were doing at this moment, the thought you did not finish',
   Next: 'steps: a command or a file and what you expect',
   Unverified: 'and what not to trust',
-  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter — they come back to you whole. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not',
+  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter — the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not',
 })}
 
 ## When the mod refuses
 
-The mod looks at the records around every tool you run. A record you changed — by Edit, a shell command or a script — is checked by the checks of its file, and what is wrong comes once in that tool's result; silence means it is whole. A record changed between your tools — by the owner or another session — is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason — fix it and call again:
+The mod looks at the records around every tool you run. A record you changed — by Edit, a shell command or a script — is checked by the checks of its file, and problems are reported. Note links settle with the next prompt so the note and its link can be written in either order. A record changed between your tools — by the owner or another session — is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason — fix it and call again:
 - no letter at the path, a section missing or empty;
 - no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
@@ -266,11 +249,13 @@ How to read it: frontmatter — \`key: value\` lines between \`---\`; sections �
 
 - \`${HISTORY_TOOL}\` with \`count\` (default ${HISTORY_DEFAULT}) — the last shifts in brief: time, outcome, description, what was done, dropped and archived, and for the last one what is open. The stretch in detail — \`letter.md\`, \`board.md\` and \`tasks/\` of its folder.
 - \`${INDEX}\` — every archived task, one line each.
-- In a new session the owner calls \`/${RESUME_COMMAND}\`: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
+- In a new session use \`/${RESUME_COMMAND}\` or the harness's \`${RESUME_COMMAND}\` tool: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
 
 How the mod is set up in this project — the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts — is \`${SETUP_TOOL}\`.
 
-## What goes where
+`
+
+export const GUIDE_RECORDS = `## What goes where
 
 ${PLACES}
 
@@ -316,6 +301,8 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
+
+export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`
 
 // The tree's rows: the prefix, the name, padded to its level's column, and what it is.
 const row = (prefix: string, name: string, width: number, what: string) => `${prefix}${name.padEnd(width)}${what}`

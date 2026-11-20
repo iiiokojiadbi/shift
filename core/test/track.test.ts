@@ -209,3 +209,27 @@ test('/shift-tasks shows every open task, and the items not closed of those in p
     'no open tasks in .shift/TASKS.md',
   )
 })
+
+test('restored tracks keep open items and the latest closures including a reopened old item', async () => {
+  const { trackPreview } = await import('../src/texts/prompts')
+  const { itemsOf } = await import('../src/markdown')
+  const path = `${R}/tasks/adapters/track.md`
+  const store = memoryStore({ [path]: Array.from({ length: 15 }, (_, i) => `- [done] #${i + 1} legacy-${i + 1}`).join('\n') })
+  const project = await loadProject(store, ROOT)
+  const read = () => store.files.get(path) ?? ''
+  await updateTrack(project, call({ task: 'adapters', item: 'new work', status: 'open' }), 1000)
+  await updateTrack(project, call({ task: 'adapters', id: 1, status: 'open' }), 2000)
+  await updateTrack(project, call({ task: 'adapters', id: 1, status: 'dropped' }), 3000)
+  await updateTrack(project, call({ task: 'adapters', id: 1, status: 'dropped', note: 'reason' }), 4000)
+  const preview = trackPreview(read())
+  expect(preview).toContain('#1 legacy-1 — reason')
+  expect(preview).toContain('#16 new work')
+  expect(preview).toContain('15 closed; latest 10 shown')
+  expect(preview).not.toContain('#2 legacy-2')
+  expect(preview).not.toContain('shift-times')
+  expect(itemsOf(read()).find(i => i.id === 1)?.closed).toBe(3000)
+  expect(itemsOf(read()).find(i => i.id === 16)?.created).toBe(1000)
+  expect(itemsOf(read())).toHaveLength(16)
+  await updateTrack(project, call({ task: 'adapters', id: 1, status: 'in progress' }), 5000)
+  expect(itemsOf(read())[0]?.closed).toBeNull()
+})

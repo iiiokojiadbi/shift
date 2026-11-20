@@ -89,3 +89,22 @@ test('a doctrine built without a session start names the files where the setting
   expect(doctrineBody).not.toContain('.shift/OWNER.md')
   expect(doctrineBody).not.toContain('doc_outline')
 })
+
+test('size table shows only sizes and the three newest available letters', async () => {
+  const project = await memoryProject(
+    Object.fromEntries(['01', '02', '03', '04'].map(n => [`${R}/shifts/202401${n}-000000/letter.md`, 'Private sample'])),
+  )
+  const report = await tool('shift_sizes').run({}, callOn(project))
+  expect(report).toHaveProperty('result')
+  if (!('result' in report)) throw Error('missing report')
+  expect(report.result.match(/\| Saved letter \|/g)).toHaveLength(3)
+  expect(report.result).not.toContain('Private sample')
+  expect(report.result).not.toContain('20240101')
+  expect(report.result).toContain('Session + continue')
+  for (const section of ['flow', 'records']) {
+    const result = await tool('shift_guide').run({ section }, callOn(project))
+    if (!('result' in result)) throw Error('missing guide')
+    expect(result.result.includes('## How to shift')).toBe(section === 'flow')
+    expect(result.result.includes('## What goes where')).toBe(section === 'records')
+  }
+})

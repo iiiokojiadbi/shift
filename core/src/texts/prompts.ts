@@ -4,6 +4,7 @@ import {
   ARCHIVE_TOOL,
   atPlaces,
   BOARD,
+  CLOSED,
   DIR,
   GUIDE_TOOL,
   HISTORY_MAX,
@@ -15,6 +16,7 @@ import {
   NAMES,
   NEXT,
   OWNER,
+  RECENT_CLOSED_ITEMS,
   RESUME_COMMAND,
   SETTINGS,
   SHIFT_COMMAND,
@@ -23,7 +25,7 @@ import {
   TOOL,
   TRACK_TOOL,
 } from '../layout'
-import { frontmatter } from '../markdown'
+import { frontmatter, itemsOf } from '../markdown'
 import { knowledgeMap, listedTasks } from '../records'
 import type { Placement, Settings } from '../settings'
 import type { HandedBack, PendingShift, Recent, SessionFile, ShiftAfter, Stuck, Work } from '../types'
@@ -72,14 +74,14 @@ export function unassistedInstructions(files: Settings['files']): string {
   )
 }
 
-// The board and the tasks in progress, whole, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
+// The board, active tasks with their track previews, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
 // TASKS.md, GLOSSARY.md and SHIFT.md are in the session's own block, fresh after every shift.
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
 export function renderWork(work: Work | null, knowledge: Placement | null, owner: string): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
     fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? 'missing'),
-    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, t.track ?? 'missing'),
+    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? 'missing')),
     ...(t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]),
   ])
 
@@ -90,8 +92,20 @@ export function renderWork(work: Work | null, knowledge: Placement | null, owner
   ].join('\n\n')
 }
 
+export function trackPreview(text: string): string {
+  const items = itemsOf(text)
+  const closed = items.filter(item => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? -1) - (a.closed ?? -1) || b.index - a.index)
+  const omitted = new Set(closed.slice(RECENT_CLOSED_ITEMS).map(item => item.index))
+  const lines = text.split('\n')
+  for (const item of items) lines[item.index] = item.line
+  const preview = lines.filter((_, i) => !omitted.has(i)).join('\n')
+  if (!closed.length) return preview
+  const detail = omitted.size ? `; latest ${RECENT_CLOSED_ITEMS} shown. Read the track file for all items.` : '.'
+  return `${preview.trimEnd()}\n\n${closed.length} closed${detail}`
+}
+
 // A task's notes, by their descriptions: read one when its item comes up; they do not come whole.
-function notesList(task: string, notes: Work['tasks'][number]['notes']): string {
+export function notesList(task: string, notes: Work['tasks'][number]['notes']): string {
   const folder = `${TASKS}/${task}/${NAMES.notes}`
   const rows = notes.map(note => `- ${folder}/${note.name} — ${frontmatter(note.text).get('description') ?? 'no description'}`)
 
@@ -122,7 +136,7 @@ export function fileBlock(path: string, text: string): string {
   return `<file path="${path}">\n${text.trim()}\n</file>`
 }
 
-function inProgress(work: Work): Work['tasks'] {
+export function inProgress(work: Work): Work['tasks'] {
   const doing = new Set(
     listedTasks(work)
       .filter(t => t.status === 'in progress')
@@ -201,7 +215,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
 }
 
 // After a let-go the agent cannot tell its first shift from a later one, and read the guide before every shift.
-const GUIDE_KNOWN = `You have shifted here before: read ${GUIDE_TOOL} again only if a refusal sends you to it.`
+const GUIDE_KNOWN = `You have shifted here before: use ${GUIDE_TOOL} for a specific record format or refusal.`
 
 export function continuePrompt(letter: string, back: HandedBack): string {
   return shiftMessage('Shift done. You continue from where you stopped.', letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`])

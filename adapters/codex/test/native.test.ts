@@ -18,6 +18,7 @@ for (const mode of ['continue', 'wait'])
       await Promise.all([mkdir(records), mkdir(join(root, 'docs')), mkdir(join(home, 'app-server-control'))])
       const requests: string[] = []
       const end = deferred<void>()
+      let hintSeen = false
       const mock = Bun.serve({
         hostname: '127.0.0.1',
         port: 0,
@@ -26,14 +27,21 @@ for (const mode of ['continue', 'wait'])
           const body = await request.json()
           const step = requests.push(JSON.stringify(body.input))
           const id = `response${step}`
+          // Tool hooks can see the preceding usage sample. Keep taking readings through
+          // one tool after the reminder, then check the actual retained model input.
+          const hasHint = requests[step - 1]?.includes('Shift hint: ') === true
+          const finished = step >= 4 && (hintSeen || step >= 16)
+          hintSeen ||= hasHint
           const item =
-            step === 1
+            step === 1 || (step >= 4 && !finished)
               ? {
                   type: 'function_call',
-                  call_id: 'shift-call',
+                  call_id: `fixture-call-${step}`,
                   namespace: 'mcp__shift',
-                  name: 'shift',
-                  arguments: JSON.stringify({ after: mode, about: 'Checked plugin installation', letter: '.shift/letter.md' }),
+                  name: step === 1 ? 'shift' : 'shift_status',
+                  arguments: JSON.stringify(
+                    step === 1 ? { after: mode, about: 'Checked plugin installation', letter: '.shift/letter.md' } : {},
+                  ),
                 }
               : {
                   type: 'message',
@@ -41,11 +49,12 @@ for (const mode of ['continue', 'wait'])
                   id,
                   content: [{ type: 'output_text', text: step === 3 ? 'The shift kept the fixture.' : 'Done.' }],
                 }
-          if (step === 4) end.resolve()
+          if (finished) end.resolve()
+          const tokens = step >= 5 ? 200000 : 200
           const events = [
             { type: 'response.created', response: { id } },
             { type: 'response.output_item.done', item },
-            { type: 'response.completed', response: { id, usage: { input_tokens: 200, output_tokens: 1, total_tokens: 201 } } },
+            { type: 'response.completed', response: { id, usage: { input_tokens: tokens, output_tokens: 1, total_tokens: tokens + 1 } } },
           ]
           return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), {
             headers: { 'content-type': 'text/event-stream' },
@@ -64,6 +73,9 @@ for (const mode of ['continue', 'wait'])
           join(home, 'config.toml'),
           `model = "fixture"
 model_provider = "fixture"
+model_context_window = 272000
+[features]
+untrusted_as_tool_output = true
 [model_providers.fixture]
 name = "fixture"
 base_url = "${mock.url}v1"
@@ -143,6 +155,7 @@ trust_level = "trusted"
         expect(requests[3]?.split('Unique fixture letter body').length).toBe(2)
         expect(requests[3]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[3]?.split('Acceptance marker').length).toBe(2)
+        expect(requests.at(-1)?.match(/Shift hint: /g)).toHaveLength(1)
         const [snapshot] = await readdir(join(records, 'shifts'))
         expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')
       } finally {

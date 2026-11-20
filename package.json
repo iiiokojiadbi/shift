@@ -20,13 +20,16 @@
     "shift:codex": "bun adapters/codex/index.ts",
     "test:codex": "bun test adapters/codex/test",
     "types:codex": "tsc -p adapters/codex",
-    "build:codex": "bun scripts/build-codex.ts"
+    "build:codex": "bun scripts/build-codex.ts",
+    "shift:sizes": "bun scripts/shift-sizes.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@opencode/plugin": "2.1.4",
     "@types/bun": "^1.4.4",
+    "diff": "8.0.4",
+    "gpt-tokenizer": "^4.1.2",
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2"
   }

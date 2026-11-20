@@ -17,9 +17,11 @@ import {
   sessionFiles,
   staleLayout,
   startSession,
+  TOOLS,
   wrap,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
+import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
 import { type MapPrints, observeMap } from './map'
 import { type Fields, fields } from './protocol'
@@ -30,6 +32,7 @@ const fingerprint = (text: string) => createHash('sha256').update(text).digest('
 type HookState = {
   root: string
   looks: Looks
+  editOffset?: number
   context?: ContextReceipt
   doctrineHash?: string
   turn?: string
@@ -80,7 +83,9 @@ async function retainedContext(path: string, receipt: ContextReceipt, marker: st
 async function contextFor(input: Fields, project: Project, state: HookState) {
   const problem = project.problem
   const event = input.hook_event_name
+  const edits = await recentEdits(project, input, state.editOffset)
   const courier: RecordCourier = {
+    confirmedEdit: edits.confirmed,
     project: async () => project,
     looks: async () => state.looks,
     updateLooks: async change => {
@@ -94,12 +99,16 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   }
   // A steer can submit another prompt while this turn's tool is still writing.
   if (event === 'UserPromptSubmit' && sameTurn && state.looks.running > 0) return []
+  if (state.looks.running === 0 || event === 'PostToolUse') state.editOffset = edits.offset
   if (event === 'PreToolUse' || event === 'PostToolUse') {
+    const shiftTool = TOOLS.find(tool => input.tool_name === `mcp__shift__${tool.name}`)
+    const outside = !!edits.confirmed || state.looks.running === 0 || (shiftTool?.writes === false && state.looks.running === 1)
     const notes =
       event === 'PreToolUse'
         ? await beforeTool(courier)
         : await afterToolRecords(courier, [], {
-            own: typeof input.tool_name === 'string' && input.tool_name.startsWith('mcp__shift__'),
+            own: shiftTool?.writes === true,
+            recordSource: outside ? 'other' : 'agent',
             readOnly: false,
           })
     if (!problem || notes.some(note => note.body.includes(problem))) state.reportedProblem = problem

@@ -1,10 +1,12 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { docStamps, followWrite, refreshDocs, settleDocs } from './docs'
-import { type ChangedBy, changedRecords, type Seen } from './flows'
+import { type ChangedBy, type ConfirmedEdit, changedRecords, type Seen } from './flows'
 import type { GaugeKeeper } from './hint'
-import { MOD } from './layout'
+import { DIR, MOD } from './layout'
 import { type Loop, loopHint, loopOffer, waitingNote } from './loop'
 import type { Project } from './project'
+import { noteLinks } from './records'
+import { readTask } from './store'
 import { NOTE_KINDS, type NoteKind } from './texts/prompts'
 import { TOLD } from './texts/rows'
 
@@ -16,11 +18,18 @@ import { TOLD } from './texts/rows'
 // What the mod last saw of the records and how many of the main agent's tools run now: a change seen while one runs
 // may be that tool's own. `written`: the files written since the docs were last settled, from the project's root.
 // `docs`: the documents' stamps as the last prompt saw them, so one a script changed is settled like one written.
-export type Looks = { seen: Seen | null; running: number; written?: readonly string[]; docs?: Record<string, string> }
+export type Looks = {
+  seen: Seen | null
+  running: number
+  pendingLinks?: readonly string[]
+  written?: readonly string[]
+  docs?: Record<string, string>
+}
 
 export const FRESH_LOOKS: Looks = { seen: null, running: 0 }
 
 export type RecordCourier = {
+  confirmedEdit?: ConfirmedEdit
   project(): Promise<Project>
   looks(): Promise<Looks>
   // A change applied to the looks as they are then.
@@ -36,6 +45,8 @@ export type Note = { kind: NoteKind; body: string }
 export type ToolEnd = {
   // The mod's own tool: it writes the records validly, so what it wrote is only remembered.
   own: boolean
+  // How the adapter attributes changes without a file receipt.
+  recordSource?: ChangedBy
   // A tool that ran read-only changed nothing: no look after it.
   readOnly: boolean
   // The file it wrote, absolute, when it wrote one and did not fail: the docs follow it, settled with the next prompt.
@@ -76,7 +87,7 @@ export async function afterToolRecords(courier: RecordCourier, before: readonly 
   await courier.updateLooks(current => ({ ...current, running: Math.max(0, current.running - 1) }))
   if (done === null) return []
   const notes = [...before]
-  const own = done.readOnly ? null : await look(courier, 'agent')
+  const own = done.readOnly ? null : await look(courier, done.recordSource ?? 'agent')
   if (own !== null) await remember(courier, own.seen)
   if (own?.body != null && !done.own) notes.push({ kind: 'records', body: own.body })
   if (done.written !== undefined) await follow(courier, done.written)
@@ -121,12 +132,22 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean) 
   const outside = running === 0 ? await look(courier, 'other') : null
   if (outside?.body === null) await remember(courier, outside.seen)
   if (outside?.body != null) notes.push({ kind: 'records', body: outside.body })
+  const pending = running === 0 ? ((await courier.looks()).pendingLinks ?? []) : []
+  if (pending.length) {
+    const project = await courier.project()
+    const problems = await Promise.all(pending.map(async name => noteLinks(await readTask(project.store, `${project.root}/${DIR}`, name))))
+    const body = problems.filter(Boolean).join('\n')
+    if (body) notes.push({ kind: 'records', body })
+    else await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
+  }
   if (running === 0) await scripted(courier)
   const docs = running === 0 ? await settle(courier) : null
   if (docs !== null) notes.push({ kind: 'docs', body: docs.body })
   return {
     notes,
     delivered: async () => {
+      if (pending.length)
+        await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
       // Kept unless a look since has kept newer records: putting back the older ones would tell their change again.
       if (outside?.body != null)
         await courier.updateLooks(current => (same(current.seen, seen) ? { ...current, seen: outside.seen } : current))
@@ -149,7 +170,12 @@ export async function runEnded(courier: Courier): Promise<void> {
 // tell. A look that fails says nothing: it must never stand between the agent and its tool.
 async function look(courier: RecordCourier, by: ChangedBy): Promise<{ body: string | null; seen: Seen } | null> {
   try {
-    return await changedRecords(await courier.project(), (await courier.looks()).seen, by)
+    const tasks = new Set<string>()
+    const result = await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit, name =>
+      tasks.add(name),
+    )
+    if (tasks.size) await courier.updateLooks(now => ({ ...now, pendingLinks: [...new Set([...(now.pendingLinks ?? []), ...tasks])] }))
+    return result
   } catch {
     return null
   }

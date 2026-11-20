@@ -108,7 +108,12 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
 
 // After the agent wrote one record: only the checks of that file, so a broken record is seen as it is written, not
 // hundreds of K later at the shift. `path` is from the project's root; null for a file that is not a record.
-export function checkWritten(path: string, work: Work, project: Pick<Project, 'settings' | 'problem'>): string | null {
+export function checkWritten(
+  path: string,
+  work: Work,
+  project: Pick<Project, 'settings' | 'problem'>,
+  deferLinks?: (name: string) => void,
+): string | null {
   const { files } = project.settings
   const [dir, name = '', rest] = path.split('/').slice(1)
   const inShift = path.startsWith(`${DIR}/`)
@@ -125,7 +130,7 @@ export function checkWritten(path: string, work: Work, project: Pick<Project, 's
   else if (path === files.glossary) problem = checkGlossary(work.glossary, GLOSSARY)
   else if (inShift && dir === NAMES.tasks && rest !== undefined) {
     const task = work.tasks.find(each => each.name === name)
-    problem = task === undefined ? null : checkTask(task)
+    problem = task === undefined ? null : checkTask(task, deferLinks)
   } else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith('.md')) {
     const file = work.knowledge.find(each => each.name === name)
     problem = file === undefined ? null : checkKnowledge(file)
@@ -160,7 +165,7 @@ function checkBoard(board: string): string | null {
   )
 }
 
-export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): string | null {
+export function checkTask({ name, task, track, notes: notes_ }: TaskFiles, deferLinks?: (name: string) => void): string | null {
   const where = `${TASKS}/${name}/`
   if (task === null) return `${where} has no task.md.`
   if (track === null) return `${where} has no track.md.`
@@ -173,8 +178,15 @@ export function checkTask({ name, task, track, notes: notes_ }: TaskFiles): stri
     return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now. Remove it, and under the task's line there write it as "  - continues: [<name>](archive/<name>/)".`
   const rejected = badRejected(task, `${where}task.md`)
   if (rejected !== null) return rejected
-  const notes = checkNotes(where, task, track, notes_)
-  if (notes !== null) return notes
+  for (const note of notes_)
+    if ((frontmatter(note.text).get('description') ?? '') === '') {
+      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`
+    }
+  const notes = noteLinks({ name, task, track, notes: notes_ })
+  if (notes !== null) {
+    if (!deferLinks) return notes
+    deferLinks(name)
+  }
   const bad = itemsOf(track).filter(item => !(STATUSES as readonly string[]).includes(item.status))
   if (bad.length > 0)
     return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${quote(
@@ -207,7 +219,8 @@ function checkOwner(owner: string | null): string | null {
 
 // A task's notes: each with its description, each linked from track.md or task.md, every link reaching a note. Beside
 // the description a note is free: research, a decision worked out, evidence.
-function checkNotes(where: string, task: string, track: string, notes: TaskFiles['notes']): string | null {
+export function noteLinks({ name, task, track, notes }: TaskFiles): string | null {
+  const where = `${TASKS}/${name}/`
   // The notes the links reach, as Markdown reads a link outside code fences: its `#fragment` and `?query` are not the
   // file's, and `%23` is a `#` in its name.
   const linked = linkTargets(`${task}\n${track}`).flatMap(({ file }) => {
@@ -215,9 +228,6 @@ function checkNotes(where: string, task: string, track: string, notes: TaskFiles
     return path.startsWith(`${NAMES.notes}/`) ? [path.slice(NAMES.notes.length + 1)] : []
   })
   for (const note of notes) {
-    if ((frontmatter(note.text).get('description') ?? '') === '') {
-      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`
-    }
     if (!linked.includes(note.name)) {
       return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in ${NAMES.track}, or from ${NAMES.task}, as [what it holds](${NAMES.notes}/${encodeURIComponent(note.name)}).`
     }

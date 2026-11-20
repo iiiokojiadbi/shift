@@ -15,6 +15,7 @@ var OPEN_TOOL = "task_open";
 var ARCHIVE_TOOL = "task_archive";
 var TRACK_TOOL = "task_track";
 var STATUS_TOOL = "shift_status";
+var SIZES_TOOL = "shift_sizes";
 var SETUP_TOOL = "shift_setup";
 var OUTLINE_TOOL = "doc_outline";
 var MENTIONS_TOOL = "docs_mentioning";
@@ -96,6 +97,7 @@ var ABOUT_MAX = 400;
 var HISTORY_DEFAULT = 10;
 var HISTORY_MAX = 50;
 var RECENT_SHIFTS = 10;
+var RECENT_CLOSED_ITEMS = 10;
 var STUCK_SHIFTS = 5;
 var STUCK_LOOKBACK = 30;
 var NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -250,7 +252,8 @@ function itemsOf(text) {
 `).flatMap((raw, index) => {
     if (!raw.startsWith("- "))
       return [];
-    const line = raw.trim();
+    const stamp = / <!-- shift-times (\d+|-) (\d+|-) -->$/.exec(raw.trim());
+    const line = stamp ? raw.trim().slice(0, stamp.index) : raw.trim();
     const match = /^- \[([^\]]+)\] *(.*)$/.exec(line);
     const rest = match?.[2] ?? line.slice(2).trim();
     const id = /^#(\d+) +/.exec(rest);
@@ -258,6 +261,8 @@ function itemsOf(text) {
     const cut = named.indexOf(" \u2014 ");
     return [
       {
+        created: stamp && stamp[1] !== "-" ? Number(stamp[1]) : null,
+        closed: stamp && stamp[2] !== "-" ? Number(stamp[2]) : null,
         status: match?.[1] ?? "",
         id: id === null || !Number.isSafeInteger(Number(id[1])) ? null : Number(id[1]),
         name: cut === -1 ? named : named.slice(0, cut),
@@ -268,6 +273,9 @@ function itemsOf(text) {
       }
     ];
   });
+}
+function trackTimes(created, closed) {
+  return created === null && closed === null ? "" : ` <!-- shift-times ${created ?? "-"} ${closed ?? "-"} -->`;
 }
 function formatItem(status, id, name, note) {
   return `- [${status}] #${id} ${name}${note === null ? "" : ` \u2014 ${note}`}`;
@@ -1159,7 +1167,7 @@ function checkRecords(work, previous, project) {
   }
   return null;
 }
-function checkWritten(path, work, project) {
+function checkWritten(path, work, project, deferLinks) {
   const { files } = project.settings;
   const [dir, name = "", rest] = path.split("/").slice(1);
   const inShift = path.startsWith(`${DIR}/`);
@@ -1176,7 +1184,7 @@ function checkWritten(path, work, project) {
     problem = checkGlossary(work.glossary, GLOSSARY);
   else if (inShift && dir === NAMES.tasks && rest !== undefined) {
     const task = work.tasks.find((each) => each.name === name);
-    problem = task === undefined ? null : checkTask(task);
+    problem = task === undefined ? null : checkTask(task, deferLinks);
   } else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith(".md")) {
     const file = work.knowledge.find((each) => each.name === name);
     problem = file === undefined ? null : checkKnowledge(file);
@@ -1198,7 +1206,7 @@ function checkBoard(board) {
     return boardMissing;
   return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Move what belongs to one task into that task, keep only decisions in force.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.") ?? badRejected(board, "The board");
 }
-function checkTask({ name, task, track, notes: notes_ }) {
+function checkTask({ name, task, track, notes: notes_ }, deferLinks) {
   const where = `${TASKS}/${name}/`;
   if (task === null)
     return `${where} has no task.md.`;
@@ -1217,9 +1225,16 @@ function checkTask({ name, task, track, notes: notes_ }) {
   const rejected = badRejected(task, `${where}task.md`);
   if (rejected !== null)
     return rejected;
-  const notes = checkNotes(where, task, track, notes_);
-  if (notes !== null)
-    return notes;
+  for (const note of notes_)
+    if ((frontmatter(note.text).get("description") ?? "") === "") {
+      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`;
+    }
+  const notes = noteLinks({ name, task, track, notes: notes_ });
+  if (notes !== null) {
+    if (!deferLinks)
+      return notes;
+    deferLinks(name);
+  }
   const bad = itemsOf(track).filter((item) => !STATUSES.includes(item.status));
   if (bad.length > 0)
     return `Track items without a status (${STATUSES.join(", ")}) in ${where}track.md: ${quote(bad.map((i) => i.line), "; ")}.`;
@@ -1237,16 +1252,14 @@ function checkOwner(owner) {
     return `${OWNER} is empty. No decisions yet \u2014 write "none".`;
   return overLimit(OWNER, owner, OWNER_MAX_LINES, "it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.") ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.");
 }
-function checkNotes(where, task, track, notes) {
+function noteLinks({ name, task, track, notes }) {
+  const where = `${TASKS}/${name}/`;
   const linked = linkTargets(`${task}
 ${track}`).flatMap(({ file }) => {
     const path = file?.replace(/^\.\//, "") ?? "";
     return path.startsWith(`${NAMES.notes}/`) ? [path.slice(NAMES.notes.length + 1)] : [];
   });
   for (const note of notes) {
-    if ((frontmatter(note.text).get("description") ?? "") === "") {
-      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`;
-    }
     if (!linked.includes(note.name)) {
       return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in ${NAMES.track}, or from ${NAMES.task}, as [what it holds](${NAMES.notes}/${encodeURIComponent(note.name)}).`;
     }
@@ -1483,7 +1496,7 @@ function renderWork(work, knowledge, owner) {
     return `There is no board at ${BOARD}.`;
   const tasks = inProgress(work).flatMap((t) => [
     fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? "missing"),
-    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, t.track ?? "missing"),
+    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missing")),
     ...t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]
   ]);
   return [
@@ -1495,6 +1508,23 @@ ${knowledgeMap(work.knowledge)}
   ].join(`
 
 `);
+}
+function trackPreview(text) {
+  const items = itemsOf(text);
+  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? -1) - (a.closed ?? -1) || b.index - a.index);
+  const omitted = new Set(closed.slice(RECENT_CLOSED_ITEMS).map((item) => item.index));
+  const lines = text.split(`
+`);
+  for (const item of items)
+    lines[item.index] = item.line;
+  const preview = lines.filter((_, i) => !omitted.has(i)).join(`
+`);
+  if (!closed.length)
+    return preview;
+  const detail = omitted.size ? `; latest ${RECENT_CLOSED_ITEMS} shown. Read the track file for all items.` : ".";
+  return `${preview.trimEnd()}
+
+${closed.length} closed${detail}`;
 }
 function notesList(task, notes) {
   const folder = `${TASKS}/${task}/${NAMES.notes}`;
@@ -1590,7 +1620,7 @@ function shiftMessage(opening, letter, back, closing = []) {
   ].join(`
 `);
 }
-var GUIDE_KNOWN = `You have shifted here before: read ${GUIDE_TOOL} again only if a refusal sends you to it.`;
+var GUIDE_KNOWN = `You have shifted here before: use ${GUIDE_TOOL} for a specific record format or refusal.`;
 function continuePrompt(letter, back) {
   return shiftMessage("Shift done. You continue from where you stopped.", letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`]);
 }
@@ -1655,11 +1685,11 @@ function renderTasks(tasks) {
 }
 
 // core/src/track.ts
-async function updateTrack(project, input) {
+async function updateTrack(project, input, now = null) {
   const { store, root } = project;
   const done = [];
   if (input.items.length > 0) {
-    const items = await setItems(store, root, input.task, input.items);
+    const items = await setItems(store, root, input.task, input.items, now);
     if ("deny" in items)
       return items;
     done.push(items.result);
@@ -1689,7 +1719,7 @@ async function setTaskStatus(store, root, task, own) {
 `));
   return { result: `${TASK_LIST}: ${lines[at]}` };
 }
-async function setItems(store, root, task, changes) {
+async function setItems(store, root, task, changes, now) {
   const path = taskFile(`${root}/${DIR}`, task, "track");
   const read = await store.read(path);
   if (read === null)
@@ -1697,7 +1727,7 @@ async function setItems(store, root, task, changes) {
   let text = numberItems(read);
   const lines = [];
   for (const [n, change] of changes.entries()) {
-    const applied = applyItem(text, task, change);
+    const applied = applyItem(text, task, change, now);
     if ("deny" in applied)
       return { deny: changes.length === 1 ? applied.deny : `items[${n}]: ${applied.deny}
 Nothing was written.` };
@@ -1711,7 +1741,7 @@ Nothing was written.` };
   return { result: lines.join(`
 `) };
 }
-function applyItem(text, task, change) {
+function applyItem(text, task, change, now) {
   const lines = text.split(`
 `);
   const items = itemsOf(text).filter((item) => item.status !== "");
@@ -1723,7 +1753,7 @@ function applyItem(text, task, change) {
     const line = formatItem(change.status, nextId(items), change.item, change.note);
     const body = text.trimEnd();
     return { text: `${body === "" ? "" : `${body}
-`}${line}
+`}${line}${trackTimes(now, CLOSED.has(change.status) ? now : null)}
 `, line };
   }
   const found = items.find((each) => each.id === change.id);
@@ -1732,9 +1762,11 @@ function applyItem(text, task, change) {
 ${items.map((each) => each.line).join(`
 `)}` };
   }
-  lines[found.index] = formatItem(change.status, change.id, found.name, change.note ?? found.note);
+  const closed = CLOSED.has(change.status) ? CLOSED.has(found.status) ? found.closed : now : null;
+  const line = formatItem(change.status, change.id, found.name, change.note ?? found.note);
+  lines[found.index] = line + trackTimes(found.created, closed);
   return { text: lines.join(`
-`), line: lines[found.index] ?? "" };
+`), line };
 }
 function numberItems(text) {
   const items = itemsOf(text).filter((item) => item.status !== "");
@@ -1747,7 +1779,7 @@ function numberItems(text) {
       seen.add(item.id);
       continue;
     }
-    lines[item.index] = formatItem(item.status, next++, item.name, item.note);
+    lines[item.index] = formatItem(item.status, next++, item.name, item.note) + trackTimes(item.created, item.closed);
   }
   return lines.join(`
 `);
@@ -1769,11 +1801,20 @@ function nextId(items) {
 }
 
 // core/src/flows.ts
-async function changedRecords(project, seen, by) {
+function recordFingerprint(project, path, text) {
+  let observed = text;
+  if (path === project.settings.files.shift)
+    observed = withMap(text, "").trim();
+  else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs))
+    observed = withToc(text) ?? text;
+  return String(fingerprint(observed));
+}
+async function changedRecords(project, seen, by, confirmed, deferLinks) {
   if (!project.settings.enabled)
     return { seen: seen ?? {}, body: null };
   const now = Object.create(null);
   const changed = [];
+  const external = new Set;
   for (const [path, stamp] of Object.entries(await recordStamps(project))) {
     const was = seen && Object.hasOwn(seen, path) ? seen[path] ?? "" : "";
     const at = was.lastIndexOf("#");
@@ -1784,21 +1825,19 @@ async function changedRecords(project, seen, by) {
     const text = await project.store.read(`${project.root}/${path}`);
     if (text === null)
       continue;
-    let observed = text;
-    if (path === project.settings.files.shift)
-      observed = withMap(text, "").trim();
-    else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs))
-      observed = withToc(text) ?? text;
-    const hash = String(fingerprint(observed));
+    const hash = recordFingerprint(project, path, text);
     now[path] = `${stamp}#${hash}`;
-    const generated = !was && path === project.settings.files.shift && observed === withMap(null, "").trim();
-    if (seen !== null && was.slice(at + 1) !== hash && !generated)
+    const generated = !was && path === project.settings.files.shift && withMap(text, "").trim() === withMap(null, "").trim();
+    if (seen !== null && was.slice(at + 1) !== hash && !generated) {
       changed.push(path);
+      if (by === "other" && !confirmed?.(path, text, was ? was.slice(at + 1) : undefined))
+        external.add(path);
+    }
   }
   const lines = [];
   if (by === "other" && seen) {
     for (const path of Object.keys(seen))
-      if (!(path in now) && !await project.store.exists(`${project.root}/${path}`))
+      if (!(path in now) && !await project.store.exists(`${project.root}/${path}`) && !confirmed?.(path, null, seen[path]?.split("#").pop()))
         lines.push(`\`${path}\` was removed outside your tools.`);
   }
   if (changed.length === 0)
@@ -1807,9 +1846,9 @@ async function changedRecords(project, seen, by) {
   const work = await readRecords(project);
   let broken = false;
   for (const path of changed) {
-    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project);
+    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project, deferLinks);
     broken ||= problem !== null;
-    if (by === "other")
+    if (external.has(path))
       lines.push(`\`${path}\` changed outside your tools \u2014 by the owner or another session: read it before you write it.`);
     if (problem !== null)
       lines.push(`\`${path}\`: ${problem}`);
@@ -1931,7 +1970,7 @@ function knowledgeText(work) {
 ${file.text}`).join(`
 `);
 }
-async function openTask(project, input) {
+async function openTask(project, input, now = null) {
   const { store, root } = project;
   const folder = `${root}/${TASKS}/${input.name}`;
   if (await store.exists(folder))
@@ -1939,10 +1978,11 @@ async function openTask(project, input) {
   const archived = await store.list(`${root}/${ARCHIVE}`, "dir");
   if (archived.includes(input.name))
     return { deny: `${input.name} is archived: open a task under another name with continues: ${input.name}.` };
+  const initial = input.items.map((item, n) => formatItem("open", n + 1, item.name, item.note));
   const task = {
     name: input.name,
     task: renderTask(input),
-    track: input.items.map((item, n) => `${formatItem("open", n + 1, item.name, item.note)}
+    track: initial.map((line) => `${line + trackTimes(now, null)}
 `).join(""),
     notes: []
   };
@@ -1955,7 +1995,8 @@ async function openTask(project, input) {
   await store.write(`${folder}/${NAMES.task}`, task.task ?? "");
   await store.write(`${folder}/${NAMES.track}`, task.track ?? "");
   await store.write(listPath, list);
-  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), task.track ?? "") };
+  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), initial.join(`
+`)) };
 }
 function renderTask(input) {
   const body = { Goal: input.goal, "Done when": input.doneWhen };
@@ -2202,7 +2243,7 @@ function softHint(grown, growth) {
   return `Shift hint: the history has grown by ${formatK(grown)} since the last shift.${sources(growth)} This is not an alarm \u2014 running out of room gets a hint of its own. If you are at a stage boundary and the stretch's history is not needed whole any more, shift; otherwise keep working.`;
 }
 function finalHint(tokens, limit, growth) {
-  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used \u2014 close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift at the nearest stage boundary: check the current records, write your letter, then call \`${TOOL}\`.`;
+  return `Shift hint: ${formatK(tokens)} of ${formatK(limit)} used \u2014 close to the point where the harness lets the history go by itself, without your letter.${sources(growth)} Shift now. Check the records, write your letter and call \`${TOOL}\`.`;
 }
 function addGrowth(gauge, source, chars) {
   if (chars <= 0)
@@ -2233,7 +2274,7 @@ function renderStatus(current, { tokens, window, threshold, hintTargets: overrid
   if (gauge.base !== null)
     lines.push(`Since the last shift: +${formatK(Math.max(0, tokens - gauge.base))}.`);
   if (tokens >= final)
-    lines.push(`Past the final hint at ${formatK(final)}: shift at the nearest stage boundary.`);
+    lines.push(`Past the final hint at ${formatK(final)}: shift now.`);
   else {
     const soft = gauge.hinted === null ? nextSoft(base, tokens, limit, targets) : null;
     const next = soft === null ? "no soft hint before the final" : `next soft hint at ${formatK(soft)}`;
@@ -2516,7 +2557,7 @@ async function afterToolRecords(courier, before, done) {
   if (done === null)
     return [];
   const notes = [...before];
-  const own = done.readOnly ? null : await look(courier, "agent");
+  const own = done.readOnly ? null : await look(courier, done.recordSource ?? "agent");
   if (own !== null)
     await remember(courier, own.seen);
   if (own?.body != null && !done.own)
@@ -2557,6 +2598,17 @@ async function promptRecords(courier, runStarts) {
     await remember(courier, outside.seen);
   if (outside?.body != null)
     notes.push({ kind: "records", body: outside.body });
+  const pending = running === 0 ? (await courier.looks()).pendingLinks ?? [] : [];
+  if (pending.length) {
+    const project = await courier.project();
+    const problems = await Promise.all(pending.map(async (name) => noteLinks(await readTask(project.store, `${project.root}/${DIR}`, name))));
+    const body = problems.filter(Boolean).join(`
+`);
+    if (body)
+      notes.push({ kind: "records", body });
+    else
+      await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
+  }
   if (running === 0)
     await scripted(courier);
   const docs = running === 0 ? await settle(courier) : null;
@@ -2565,6 +2617,8 @@ async function promptRecords(courier, runStarts) {
   return {
     notes,
     delivered: async () => {
+      if (pending.length)
+        await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
       if (outside?.body != null)
         await courier.updateLooks((current) => same(current.seen, seen) ? { ...current, seen: outside.seen } : current);
       if (docs !== null) {
@@ -2578,7 +2632,11 @@ async function promptRecords(courier, runStarts) {
 }
 async function look(courier, by) {
   try {
-    return await changedRecords(await courier.project(), (await courier.looks()).seen, by);
+    const tasks = new Set;
+    const result = await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit, (name) => tasks.add(name));
+    if (tasks.size)
+      await courier.updateLooks((now) => ({ ...now, pendingLinks: [...new Set([...now.pendingLinks ?? [], ...tasks])] }));
+    return result;
   } catch {
     return null;
   }
@@ -3051,7 +3109,7 @@ async function loadProject(store, root) {
 }
 // core/src/texts/tools.ts
 var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
-var GUIDE_DESCRIPTION = "How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it once, before your first shift in a project; after that only when a refusal sends you to it \u2014 the steps do not change between shifts.";
+var GUIDE_DESCRIPTION = `How to shift: the steps, the letter, when the mod refuses, the strict structure of about.md, then the rules of the board, the tasks, the archive and the other records a shift checks. Read it once, before your first shift in a project; use section "flow" or "records" to look up one part later.`;
 var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
 var SETUP_SCHEMA = { type: "object", properties: {} };
 var HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count \u2014 how many of the latest (default ${HISTORY_DEFAULT}).`;
@@ -3125,7 +3183,12 @@ var MENTIONS_SCHEMA = {
   properties: { file: { type: "string", description: "The file whose name to look for; a path or just the name." } },
   required: ["file"]
 };
-var GUIDE_SCHEMA = { type: "object", properties: {} };
+var GUIDE_SCHEMA = {
+  type: "object",
+  properties: {
+    section: { type: "string", enum: ["flow", "records"], description: "Optional part to read. Omit for the complete guide." }
+  }
+};
 var HISTORY_SCHEMA = {
   type: "object",
   properties: {
@@ -3176,7 +3239,7 @@ var TOOL_TEXTS = {
   [GUIDE_TOOL]: {
     label: "Shift guide",
     description: GUIDE_DESCRIPTION,
-    brief: "how to shift properly and how the files are laid out. Read it once, before your first shift in a project; after that only when a refusal sends you to it \u2014 the steps do not change between shifts.",
+    brief: "the shift procedure and record formats, optionally by section.",
     schema: GUIDE_SCHEMA
   },
   [TOOL]: { label: "Shift", description: TOOL_DESCRIPTION, brief: "make a shift.", schema: TOOL_SCHEMA },
@@ -3209,6 +3272,12 @@ var TOOL_TEXTS = {
     description: STATUS_DESCRIPTION,
     brief: "how full the history is, when the next hints come, and what it grew from.",
     schema: STATUS_SCHEMA
+  },
+  [SIZES_TOOL]: {
+    label: "Shift sizes",
+    description: "Report estimated token counts by entity for the session and continuation, and for the last three saved letters. Returns sizes and paths only.",
+    brief: "sizes of delivered records and saved letters.",
+    schema: SETUP_SCHEMA
   },
   [SETUP_TOOL]: {
     label: "Shift setup",
@@ -3288,7 +3357,7 @@ Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, re
 Each fact lives in one place. Your records live in the project directory, not in a harness's memory: any agent that opens the project reads them.`;
 var TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
 - \`task.md\` \u2014 what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map((s) => `"${s}"`).join(", ")}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` \u2014 the task's tracker: one line per item, \`- [status] #<id> item \u2014 what matters\`, status: ${STATUSES.join(", ")}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived \u2014 the track is the task's history;
+- \`track.md\` \u2014 the task's tracker: one line per item, \`- [status] #<id> item \u2014 what matters\`, status: ${STATUSES.join(", ")}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived \u2014 the track is the task's history. The tools store creation and closure times in a trailing HTML comment. Reopening clears the closure time. After a shift, older closed items remain accessible by reading the track file;
 - \`${NAMES.notes}/\` \u2014 notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` \u2014 \`- [open] #3 item \u2014 see [what it holds](${NAMES.notes}/<file>.md)\` \u2014 or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
 
 Open a task with \`${OPEN_TOOL}\`, which writes its folder, its files and its line valid at once. Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now \u2014 one task, several, or none.`;
@@ -3320,35 +3389,17 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
-${BOARD_RULES}
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
-${LIST_RULES}
+\`${OWNER}\` is the owner's standing decisions. Update a rule on the owner's word and quote wording that matters. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
-${TASK_RULES}
-
-A finished or dropped task goes to the archive through \`${ARCHIVE_TOOL}\`, which also takes it out of \`${TASK_LIST}\`; \`${INDEX}\` lists every archived task. A new task may continue an archived one. The project may also have a tracker of its own; it is a different thing \u2014 do not link tasks to it.
-
-## Owner's decisions and knowledge
-
-${OWNER_RULES}
-
-\`${KNOWLEDGE}/\` holds traps, lessons, commands and facts, one file per kind (${Object.keys(KINDS).join(", ")}); write an entry when you learn it, read a file when its topic comes up. The layout and entry fields are in \`${GUIDE_TOOL}\`.
-
-${GLOSSARY_RULES}
-
-${SHIFT_RULES}
-
-What goes where:
-
-${PLACES}
+Read \`${GUIDE_TOOL}\` before your first shift in this project. For a record format, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
 ## When to shift
 
-Never before the first hint, never on a small history. A shift costs the owner's limits: the harness builds its cache of the history anew, and the files of the work are read again. A short stretch does not pay for that, nor for its letter and records, and its history still holds what the next step may need. A finished task is not a reason by itself. Until the first hint, go on working; earlier only on the owner's word. \`${STATUS_TOOL}\` says when the next hint comes.
+Keep working until the first hint unless the owner asks for an earlier shift. Each shift rebuilds the history cache and rereads the records. A finished task alone is too early. \`${STATUS_TOOL}\` shows when the next hint comes.
 
-After a hint \u2014 at a stage boundary: an item or a task is done, a commit is made, the plan moved to its next step \u2014 and the stretch's history is not needed whole any more. Not in the middle of a thought that is easier to finish than to write down.
-
-The mod hints with a "Shift hint" line at the end of a tool result or next to a message: the soft hint when the history has grown by a large share of the room since the last shift, the final one when room is running out. On a small window the final hint is the only one. A hint names what the history grew from most. A soft hint is not an order: you decide.
+A soft hint is optional. Shift at a stage boundary when you can continue from your records. At the final hint, shift now. Check the records, write the letter and call \`${TOOL}\` before starting more work. Use \`continue\` when work remains and you can proceed on your own.
 
 ## Tools
 
@@ -3360,11 +3411,11 @@ function doctrine(tools) {
 ${doctrineBody(tools)}
 </${MOD}>`;
 }
-var GUIDE = `# Shift: how to shift
+var GUIDE_FLOW = `# Shift: how to shift
 
 A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
 
-First the flow of a shift, then the rules of each record it checks.
+A soft hint leaves the timing to you. At the final hint, start the steps below immediately.
 
 ## How to shift
 
@@ -3376,7 +3427,7 @@ First the flow of a shift, then the rules of each record it checks.
    - \`about\` \u2014 one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn, nothing more but what the call's result asks: with \`continue\` \u2014 one line; with \`wait\` \u2014 your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
-After the shift, the first message is "Shift done": the board and the tasks in progress, whole, with their notes listed, and the map of knowledge \u2014 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
+After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge \u2014 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
 
 ## Letter \u2014 \`${LETTER}\`
 
@@ -3385,12 +3436,12 @@ ${described(LETTER_SECTIONS, {
   "Where I am": "what you were doing at this moment, the thought you did not finish",
   Next: "steps: a command or a file and what you expect",
   Unverified: "and what not to trust",
-  Hold: "what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter \u2014 they come back to you whole. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not"
+  Hold: "what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter \u2014 the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not"
 })}
 
 ## When the mod refuses
 
-The mod looks at the records around every tool you run. A record you changed \u2014 by Edit, a shell command or a script \u2014 is checked by the checks of its file, and what is wrong comes once in that tool's result; silence means it is whole. A record changed between your tools \u2014 by the owner or another session \u2014 is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason \u2014 fix it and call again:
+The mod looks at the records around every tool you run. A record you changed \u2014 by Edit, a shell command or a script \u2014 is checked by the checks of its file, and problems are reported. Note links settle with the next prompt so the note and its link can be written in either order. A record changed between your tools \u2014 by the owner or another session \u2014 is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason \u2014 fix it and call again:
 - no letter at the path, a section missing or empty;
 - no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
 - no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
@@ -3435,11 +3486,12 @@ How to read it: frontmatter \u2014 \`key: value\` lines between \`---\`; section
 
 - \`${HISTORY_TOOL}\` with \`count\` (default ${HISTORY_DEFAULT}) \u2014 the last shifts in brief: time, outcome, description, what was done, dropped and archived, and for the last one what is open. The stretch in detail \u2014 \`letter.md\`, \`board.md\` and \`tasks/\` of its folder.
 - \`${INDEX}\` \u2014 every archived task, one line each.
-- In a new session the owner calls \`/${RESUME_COMMAND}\`: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
+- In a new session use \`/${RESUME_COMMAND}\` or the harness's \`${RESUME_COMMAND}\` tool: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
 
 How the mod is set up in this project \u2014 the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts \u2014 is \`${SETUP_TOOL}\`.
 
-## What goes where
+`;
+var GUIDE_RECORDS = `## What goes where
 
 ${PLACES}
 
@@ -3485,6 +3537,9 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) \u2014 <about>\` to \`${INDEX}\`, with \`; continues <name>, \u2026\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`;
+var GUIDE = `${GUIDE_FLOW.trimEnd()}
+
+${GUIDE_RECORDS}`;
 var row = (prefix, name, width, what) => `${prefix}${name.padEnd(width)}${what}`;
 var LAYOUT_TREE = [
   `${DIR}/`,
@@ -3544,9 +3599,89 @@ A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their 
 
 The text of records may stay in its language, and the owner is quoted verbatim; section names and entry fields are the ones above.`;
 
+// core/src/sizes.ts
+async function sizeReport(project, counter) {
+  if (!project.settings.enabled)
+    return "Shift is disabled in this project.";
+  const count = counter ?? ((text) => Math.ceil(text.length / 4));
+  const lines = [
+    counter ? "Text tokens (o200k_base)." : "Estimated text tokens (4 characters per token).",
+    "Totals include message framing written by Shift. Detail and saved-letter rows are not additive.",
+    "",
+    "| Delivery | Entity | Tokens |",
+    "|---|---|---:|"
+  ];
+  const row = (group, label, tokens) => lines.push(`| ${group} | ${label.replaceAll("|", "\\|").replace(/[\r\n]/g, " ")} | ${tokens} |`);
+  const files = await sessionFiles(project, { refresh: false });
+  const doctrine = sessionDoctrine(project.settings).doctrine;
+  row("Session", "Doctrine", count(doctrine));
+  for (const file of files) {
+    row("Session", file.path, count(fileBlock(file.path, file.text)));
+    if (file.path === project.settings.files.shift) {
+      const parts = file.text.split(`
+`);
+      const { start, end } = mapBounds(parts);
+      if (end >= 0)
+        row("Included above", "Documentation map", count(parts.slice(start, end + 1).join(`
+`)));
+    }
+  }
+  const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join(`
+
+`));
+  row("Total", "Session", session);
+  const folders = (await shiftNames(project)).reverse();
+  const saved = [];
+  for (const name of folders) {
+    const letter = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.letter}`);
+    if (letter !== null)
+      saved.push({ name, letter });
+    if (saved.length === 3)
+      break;
+  }
+  const dir = `${project.root}/${SHIFTS}/${saved[0]?.name ?? "<next-shift>"}`;
+  const back = await handBack(project, dir);
+  if (back.work) {
+    row("Continue", BOARD, count(back.work.board));
+    for (const task of inProgress(back.work)) {
+      const folder = `${TASKS}/${task.name}`;
+      row("Continue", `${folder}/${NAMES.task}`, count(task.task ?? "missing"));
+      row("Continue", `${folder}/${NAMES.track}`, count(trackPreview(task.track ?? "missing")));
+      if (task.notes.length)
+        row("Continue", `${folder}/notes (descriptions)`, count(notesList(task.name, task.notes)));
+    }
+    row("Continue", "Knowledge index", count(knowledgeMap(back.work.knowledge)));
+  }
+  row("Continue", "Recent shifts", count(renderRecent(back.recent)));
+  if (back.stuck.length)
+    row("Continue", "Unchanged tasks", count(renderStuck(back.stuck)));
+  if (back.remarks)
+    row("Continue", "Document remarks", count(back.remarks));
+  const draft = await project.store.read(`${project.root}/${LETTER}`);
+  const letter = draft ?? saved[0]?.letter ?? "";
+  row("Continue", draft !== null ? "Working letter" : saved.length ? "Latest saved letter" : "Letter (missing)", count(letter));
+  const continuation = count(continuePrompt(letter, back));
+  row("Total", "Continue message", continuation);
+  row("Total", "Session + continue", session + continuation);
+  for (const entry of saved)
+    row("Saved letter", `${SHIFTS}/${entry.name}/${NAMES.letter}`, count(entry.letter));
+  if (!saved.length)
+    lines.push("", "No saved letters.");
+  return lines.join(`
+`);
+}
+
 // core/src/tools.ts
 var ROWS = [
-  { name: GUIDE_TOOL, run: async (_raw, call) => ({ result: atPlaces(GUIDE, (await call.project()).settings.files) }) },
+  {
+    name: GUIDE_TOOL,
+    run: async (raw, call) => {
+      if (raw.section !== undefined && raw.section !== "flow" && raw.section !== "records")
+        return { deny: "section must be flow or records." };
+      const guide = raw.section === "flow" ? GUIDE_FLOW : raw.section === "records" ? GUIDE_RECORDS : GUIDE;
+      return { result: atPlaces(guide.trimEnd(), (await call.project()).settings.files) };
+    }
+  },
   {
     name: TOOL,
     writes: true,
@@ -3573,7 +3708,7 @@ var ROWS = [
     writes: true,
     run: async (raw, call) => {
       const input = parseOpenInput(raw);
-      return typeof input === "string" ? { deny: input } : openTask(await call.project(), input);
+      return typeof input === "string" ? { deny: input } : openTask(await call.project(), input, await call.now());
     }
   },
   {
@@ -3589,7 +3724,7 @@ var ROWS = [
     writes: true,
     run: async (raw, call) => {
       const input = parseTrackInput(raw);
-      return typeof input === "string" ? { deny: input } : updateTrack(await call.project(), input);
+      return typeof input === "string" ? { deny: input } : updateTrack(await call.project(), input, await call.now());
     }
   },
   {
@@ -3600,6 +3735,7 @@ var ROWS = [
     }
   },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
+  { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   { name: SETUP_TOOL, run: async (_raw, call) => ({ result: await setupReport(await call.project(), await call.loaded()) }) },
   {
     name: OUTLINE_TOOL,
@@ -3943,6 +4079,427 @@ import { createReadStream } from "fs";
 import { mkdir as mkdir2, readFile as readFile2, stat as stat2 } from "fs/promises";
 import { createInterface } from "readline";
 
+// adapters/codex/edits.ts
+import { open as open2 } from "fs/promises";
+import { resolve as resolve2 } from "path";
+// node_modules/diff/libesm/util/string.js
+function hasOnlyWinLineEndings(string) {
+  return string.includes(`\r
+`) && !string.startsWith(`
+`) && !string.match(/[^\r]\n/);
+}
+function hasOnlyUnixLineEndings(string) {
+  return !string.includes(`\r
+`) && string.includes(`
+`);
+}
+
+// node_modules/diff/libesm/patch/line-endings.js
+function unixToWin(patch) {
+  if (Array.isArray(patch)) {
+    return patch.map((p) => unixToWin(p));
+  }
+  return Object.assign(Object.assign({}, patch), { hunks: patch.hunks.map((hunk) => Object.assign(Object.assign({}, hunk), { lines: hunk.lines.map((line, i) => {
+    var _a;
+    return line.startsWith("\\") || line.endsWith("\r") || ((_a = hunk.lines[i + 1]) === null || _a === undefined ? undefined : _a.startsWith("\\")) ? line : line + "\r";
+  }) })) });
+}
+function winToUnix(patch) {
+  if (Array.isArray(patch)) {
+    return patch.map((p) => winToUnix(p));
+  }
+  return Object.assign(Object.assign({}, patch), { hunks: patch.hunks.map((hunk) => Object.assign(Object.assign({}, hunk), { lines: hunk.lines.map((line) => line.endsWith("\r") ? line.substring(0, line.length - 1) : line) })) });
+}
+function isUnix(patch) {
+  if (!Array.isArray(patch)) {
+    patch = [patch];
+  }
+  return !patch.some((index) => index.hunks.some((hunk) => hunk.lines.some((line) => !line.startsWith("\\") && line.endsWith("\r"))));
+}
+function isWin(patch) {
+  if (!Array.isArray(patch)) {
+    patch = [patch];
+  }
+  return patch.some((index) => index.hunks.some((hunk) => hunk.lines.some((line) => line.endsWith("\r")))) && patch.every((index) => index.hunks.every((hunk) => hunk.lines.every((line, i) => {
+    var _a;
+    return line.startsWith("\\") || line.endsWith("\r") || ((_a = hunk.lines[i + 1]) === null || _a === undefined ? undefined : _a.startsWith("\\"));
+  })));
+}
+
+// node_modules/diff/libesm/patch/parse.js
+function parsePatch(uniDiff) {
+  const diffstr = uniDiff.split(/\n/), list = [];
+  let i = 0;
+  function parseIndex() {
+    const index = {};
+    list.push(index);
+    while (i < diffstr.length) {
+      const line = diffstr[i];
+      if (/^(---|\+\+\+|@@)\s/.test(line)) {
+        break;
+      }
+      const headerMatch = /^(?:Index:|diff(?: -r \w+)+)\s+/.exec(line);
+      if (headerMatch) {
+        index.index = line.substring(headerMatch[0].length).trim();
+      }
+      i++;
+    }
+    parseFileHeader(index);
+    parseFileHeader(index);
+    index.hunks = [];
+    while (i < diffstr.length) {
+      const line = diffstr[i];
+      if (/^(Index:\s|diff\s|---\s|\+\+\+\s|===================================================================)/.test(line)) {
+        break;
+      } else if (/^@@/.test(line)) {
+        index.hunks.push(parseHunk());
+      } else if (line) {
+        throw new Error("Unknown line " + (i + 1) + " " + JSON.stringify(line));
+      } else {
+        i++;
+      }
+    }
+  }
+  function parseFileHeader(index) {
+    const fileHeaderMatch = /^(---|\+\+\+)\s+/.exec(diffstr[i]);
+    if (fileHeaderMatch) {
+      const prefix = fileHeaderMatch[1], data = diffstr[i].substring(3).trim().split("\t", 2), header = (data[1] || "").trim();
+      let fileName = data[0].replace(/\\\\/g, "\\");
+      if (fileName.startsWith('"') && fileName.endsWith('"')) {
+        fileName = fileName.substr(1, fileName.length - 2);
+      }
+      if (prefix === "---") {
+        index.oldFileName = fileName;
+        index.oldHeader = header;
+      } else {
+        index.newFileName = fileName;
+        index.newHeader = header;
+      }
+      i++;
+    }
+  }
+  function parseHunk() {
+    var _a;
+    const chunkHeaderIndex = i, chunkHeaderLine = diffstr[i++], chunkHeader = chunkHeaderLine.split(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    const hunk = {
+      oldStart: +chunkHeader[1],
+      oldLines: typeof chunkHeader[2] === "undefined" ? 1 : +chunkHeader[2],
+      newStart: +chunkHeader[3],
+      newLines: typeof chunkHeader[4] === "undefined" ? 1 : +chunkHeader[4],
+      lines: []
+    };
+    if (hunk.oldLines === 0) {
+      hunk.oldStart += 1;
+    }
+    if (hunk.newLines === 0) {
+      hunk.newStart += 1;
+    }
+    let addCount = 0, removeCount = 0;
+    for (;i < diffstr.length && (removeCount < hunk.oldLines || addCount < hunk.newLines || ((_a = diffstr[i]) === null || _a === undefined ? undefined : _a.startsWith("\\"))); i++) {
+      const operation = diffstr[i].length == 0 && i != diffstr.length - 1 ? " " : diffstr[i][0];
+      if (operation === "+" || operation === "-" || operation === " " || operation === "\\") {
+        hunk.lines.push(diffstr[i]);
+        if (operation === "+") {
+          addCount++;
+        } else if (operation === "-") {
+          removeCount++;
+        } else if (operation === " ") {
+          addCount++;
+          removeCount++;
+        }
+      } else {
+        throw new Error(`Hunk at line ${chunkHeaderIndex + 1} contained invalid line ${diffstr[i]}`);
+      }
+    }
+    if (!addCount && hunk.newLines === 1) {
+      hunk.newLines = 0;
+    }
+    if (!removeCount && hunk.oldLines === 1) {
+      hunk.oldLines = 0;
+    }
+    if (addCount !== hunk.newLines) {
+      throw new Error("Added line count did not match for hunk at line " + (chunkHeaderIndex + 1));
+    }
+    if (removeCount !== hunk.oldLines) {
+      throw new Error("Removed line count did not match for hunk at line " + (chunkHeaderIndex + 1));
+    }
+    return hunk;
+  }
+  while (i < diffstr.length) {
+    parseIndex();
+  }
+  return list;
+}
+
+// node_modules/diff/libesm/util/distance-iterator.js
+function distance_iterator_default(start, minLine, maxLine) {
+  let wantForward = true, backwardExhausted = false, forwardExhausted = false, localOffset = 1;
+  return function iterator() {
+    if (wantForward && !forwardExhausted) {
+      if (backwardExhausted) {
+        localOffset++;
+      } else {
+        wantForward = false;
+      }
+      if (start + localOffset <= maxLine) {
+        return start + localOffset;
+      }
+      forwardExhausted = true;
+    }
+    if (!backwardExhausted) {
+      if (!forwardExhausted) {
+        wantForward = true;
+      }
+      if (minLine <= start - localOffset) {
+        return start - localOffset++;
+      }
+      backwardExhausted = true;
+      return iterator();
+    }
+    return;
+  };
+}
+
+// node_modules/diff/libesm/patch/apply.js
+function applyPatch(source, patch, options = {}) {
+  let patches;
+  if (typeof patch === "string") {
+    patches = parsePatch(patch);
+  } else if (Array.isArray(patch)) {
+    patches = patch;
+  } else {
+    patches = [patch];
+  }
+  if (patches.length > 1) {
+    throw new Error("applyPatch only works with a single input.");
+  }
+  return applyStructuredPatch(source, patches[0], options);
+}
+function applyStructuredPatch(source, patch, options = {}) {
+  if (options.autoConvertLineEndings || options.autoConvertLineEndings == null) {
+    if (hasOnlyWinLineEndings(source) && isUnix(patch)) {
+      patch = unixToWin(patch);
+    } else if (hasOnlyUnixLineEndings(source) && isWin(patch)) {
+      patch = winToUnix(patch);
+    }
+  }
+  const lines = source.split(`
+`), hunks = patch.hunks, compareLine = options.compareLine || ((lineNumber, line, operation, patchContent) => line === patchContent), fuzzFactor = options.fuzzFactor || 0;
+  let minLine = 0;
+  if (fuzzFactor < 0 || !Number.isInteger(fuzzFactor)) {
+    throw new Error("fuzzFactor must be a non-negative integer");
+  }
+  if (!hunks.length) {
+    return source;
+  }
+  let prevLine = "", removeEOFNL = false, addEOFNL = false;
+  for (let i = 0;i < hunks[hunks.length - 1].lines.length; i++) {
+    const line = hunks[hunks.length - 1].lines[i];
+    if (line[0] == "\\") {
+      if (prevLine[0] == "+") {
+        removeEOFNL = true;
+      } else if (prevLine[0] == "-") {
+        addEOFNL = true;
+      }
+    }
+    prevLine = line;
+  }
+  if (removeEOFNL) {
+    if (addEOFNL) {
+      if (!fuzzFactor && lines[lines.length - 1] == "") {
+        return false;
+      }
+    } else if (lines[lines.length - 1] == "") {
+      lines.pop();
+    } else if (!fuzzFactor) {
+      return false;
+    }
+  } else if (addEOFNL) {
+    if (lines[lines.length - 1] != "") {
+      lines.push("");
+    } else if (!fuzzFactor) {
+      return false;
+    }
+  }
+  function applyHunk(hunkLines, toPos, maxErrors, hunkLinesI = 0, lastContextLineMatched = true, patchedLines = [], patchedLinesLength = 0) {
+    let nConsecutiveOldContextLines = 0;
+    let nextContextLineMustMatch = false;
+    for (;hunkLinesI < hunkLines.length; hunkLinesI++) {
+      const hunkLine = hunkLines[hunkLinesI], operation = hunkLine.length > 0 ? hunkLine[0] : " ", content = hunkLine.length > 0 ? hunkLine.substr(1) : hunkLine;
+      if (operation === "-") {
+        if (compareLine(toPos + 1, lines[toPos], operation, content)) {
+          toPos++;
+          nConsecutiveOldContextLines = 0;
+        } else {
+          if (!maxErrors || lines[toPos] == null) {
+            return null;
+          }
+          patchedLines[patchedLinesLength] = lines[toPos];
+          return applyHunk(hunkLines, toPos + 1, maxErrors - 1, hunkLinesI, false, patchedLines, patchedLinesLength + 1);
+        }
+      }
+      if (operation === "+") {
+        if (!lastContextLineMatched) {
+          return null;
+        }
+        patchedLines[patchedLinesLength] = content;
+        patchedLinesLength++;
+        nConsecutiveOldContextLines = 0;
+        nextContextLineMustMatch = true;
+      }
+      if (operation === " ") {
+        nConsecutiveOldContextLines++;
+        patchedLines[patchedLinesLength] = lines[toPos];
+        if (compareLine(toPos + 1, lines[toPos], operation, content)) {
+          patchedLinesLength++;
+          lastContextLineMatched = true;
+          nextContextLineMustMatch = false;
+          toPos++;
+        } else {
+          if (nextContextLineMustMatch || !maxErrors) {
+            return null;
+          }
+          return lines[toPos] && (applyHunk(hunkLines, toPos + 1, maxErrors - 1, hunkLinesI + 1, false, patchedLines, patchedLinesLength + 1) || applyHunk(hunkLines, toPos + 1, maxErrors - 1, hunkLinesI, false, patchedLines, patchedLinesLength + 1)) || applyHunk(hunkLines, toPos, maxErrors - 1, hunkLinesI + 1, false, patchedLines, patchedLinesLength);
+        }
+      }
+    }
+    patchedLinesLength -= nConsecutiveOldContextLines;
+    toPos -= nConsecutiveOldContextLines;
+    patchedLines.length = patchedLinesLength;
+    return {
+      patchedLines,
+      oldLineLastI: toPos - 1
+    };
+  }
+  const resultLines = [];
+  let prevHunkOffset = 0;
+  for (let i = 0;i < hunks.length; i++) {
+    const hunk = hunks[i];
+    let hunkResult;
+    const maxLine = lines.length - hunk.oldLines + fuzzFactor;
+    let toPos;
+    for (let maxErrors = 0;maxErrors <= fuzzFactor; maxErrors++) {
+      toPos = hunk.oldStart + prevHunkOffset - 1;
+      const iterator = distance_iterator_default(toPos, minLine, maxLine);
+      for (;toPos !== undefined; toPos = iterator()) {
+        hunkResult = applyHunk(hunk.lines, toPos, maxErrors);
+        if (hunkResult) {
+          break;
+        }
+      }
+      if (hunkResult) {
+        break;
+      }
+    }
+    if (!hunkResult) {
+      return false;
+    }
+    for (let i = minLine;i < toPos; i++) {
+      resultLines.push(lines[i]);
+    }
+    for (let i = 0;i < hunkResult.patchedLines.length; i++) {
+      const line = hunkResult.patchedLines[i];
+      resultLines.push(line);
+    }
+    minLine = hunkResult.oldLineLastI + 1;
+    prevHunkOffset = toPos + 1 - hunk.oldStart;
+  }
+  for (let i = minLine;i < lines.length; i++) {
+    resultLines.push(lines[i]);
+  }
+  return resultLines.join(`
+`);
+}
+
+// node_modules/diff/libesm/patch/reverse.js
+function reversePatch(structuredPatch) {
+  if (Array.isArray(structuredPatch)) {
+    return structuredPatch.map((patch) => reversePatch(patch)).reverse();
+  }
+  return Object.assign(Object.assign({}, structuredPatch), { oldFileName: structuredPatch.newFileName, oldHeader: structuredPatch.newHeader, newFileName: structuredPatch.oldFileName, newHeader: structuredPatch.oldHeader, hunks: structuredPatch.hunks.map((hunk) => {
+    return {
+      oldLines: hunk.newLines,
+      oldStart: hunk.newStart,
+      newLines: hunk.oldLines,
+      newStart: hunk.oldStart,
+      lines: hunk.lines.map((l) => {
+        if (l.startsWith("-")) {
+          return `+${l.slice(1)}`;
+        }
+        if (l.startsWith("+")) {
+          return `-${l.slice(1)}`;
+        }
+        return l;
+      })
+    };
+  }) });
+}
+// adapters/codex/edits.ts
+async function recentEdits(project, input, offset) {
+  if (typeof input.transcript_path !== "string")
+    return {};
+  const handle = await open2(input.transcript_path, "r").catch(() => null);
+  if (!handle)
+    return {};
+  try {
+    const { size } = await handle.stat();
+    if (offset === undefined || offset > size || size - offset > 2 * 1024 * 1024)
+      return { offset: size };
+    const bytes = Buffer.alloc(size - offset);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset);
+    const end = bytes.subarray(0, bytesRead).lastIndexOf(10) + 1;
+    const edits = new Map;
+    for (const line of bytes.toString("utf8", 0, end).split(`
+`)) {
+      if (!line.includes('"FileChange"'))
+        continue;
+      try {
+        const row = JSON.parse(line);
+        const event = fields(row.payload);
+        const item = fields(event.item);
+        if (row.type !== "event_msg" || event.thread_id !== input.session_id || event.type !== "item_completed" || item.type !== "FileChange" || item.status !== "completed")
+          continue;
+        for (const [file, change] of Object.entries(fields(item.changes))) {
+          const path = resolve2(project.root, file);
+          const changes = edits.get(path) ?? [];
+          changes.push(fields(change));
+          edits.set(path, changes);
+        }
+      } catch {}
+    }
+    const confirmed = (path, current, previous) => {
+      const changes = edits.get(resolve2(project.root, path));
+      if (!changes)
+        return false;
+      let text = current;
+      for (const change of changes.toReversed()) {
+        if (change.type === "add" && text === change.content)
+          text = null;
+        else if (change.type === "delete" && text === null && typeof change.content === "string")
+          text = change.content;
+        else if (change.type === "update" && !change.move_path && text !== null && typeof change.unified_diff === "string") {
+          try {
+            const [patch] = parsePatch(change.unified_diff);
+            if (!patch?.hunks.length)
+              return false;
+            const prior = applyPatch(text, reversePatch(patch));
+            if (prior === false)
+              return false;
+            text = prior;
+          } catch {
+            return false;
+          }
+        } else
+          return false;
+      }
+      return text === null ? previous === undefined : previous === recordFingerprint(project, path, text);
+    };
+    return { offset: offset + end, confirmed: edits.size ? confirmed : undefined };
+  } finally {
+    await handle.close();
+  }
+}
+
 // adapters/codex/map.ts
 import { createHash } from "crypto";
 var fingerprint2 = (text) => createHash("sha256").update(text).digest("hex");
@@ -4004,7 +4561,9 @@ async function retainedContext(path, receipt, marker) {
 async function contextFor(input, project, state) {
   const problem = project.problem;
   const event = input.hook_event_name;
+  const edits = await recentEdits(project, input, state.editOffset);
   const courier = {
+    confirmedEdit: edits.confirmed,
     project: async () => project,
     looks: async () => state.looks,
     updateLooks: async (change) => {
@@ -4018,9 +4577,14 @@ async function contextFor(input, project, state) {
   }
   if (event === "UserPromptSubmit" && sameTurn && state.looks.running > 0)
     return [];
+  if (state.looks.running === 0 || event === "PostToolUse")
+    state.editOffset = edits.offset;
   if (event === "PreToolUse" || event === "PostToolUse") {
+    const shiftTool = TOOLS.find((tool) => input.tool_name === `mcp__shift__${tool.name}`);
+    const outside = !!edits.confirmed || state.looks.running === 0 || shiftTool?.writes === false && state.looks.running === 1;
     const notes = event === "PreToolUse" ? await beforeTool(courier) : await afterToolRecords(courier, [], {
-      own: typeof input.tool_name === "string" && input.tool_name.startsWith("mcp__shift__"),
+      own: shiftTool?.writes === true,
+      recordSource: outside ? "other" : "agent",
       readOnly: false
     });
     if (!problem || notes.some((note) => note.body.includes(problem)))
@@ -4140,7 +4704,7 @@ var plugin_default = {
 // adapters/codex/session.ts
 import { createReadStream as createReadStream2 } from "fs";
 import { realpath as realpath2, stat as stat3 } from "fs/promises";
-import { isAbsolute, relative, resolve as resolve2, sep } from "path";
+import { isAbsolute, relative, resolve as resolve3, sep } from "path";
 import { createInterface as createInterface2 } from "readline";
 var namespace = "shift";
 async function digest(path, start) {
@@ -4314,7 +4878,7 @@ class Session {
       const file = name === "doc_outline" ? raw.path : name === "shift" ? raw.letter : undefined;
       if (typeof file === "string" && file) {
         const root = await realpath2(this.root);
-        const path = resolve2(root, file);
+        const path = resolve3(root, file);
         const local = relative(root, await realpath2(path).catch(() => path));
         if (isAbsolute(local) || local === ".." || local.startsWith(`..${sep}`))
           throw new Error("The file must be inside this project.");

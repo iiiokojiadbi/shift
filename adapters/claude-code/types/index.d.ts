@@ -42,7 +42,8 @@ declare module 'claude-code' {
   // The mod's own tools, as `tools/list` gives them. The generated MCP entry is left out of tsconfig: it is a snapshot of whatever servers were connected at its last save.
   interface McpToolInputs {
     mcp__shift__shift: { letter: string; after: ShiftAfter; about: string }
-    mcp__shift__shift_guide: Record<never, never>
+    mcp__shift__shift_guide: { section?: 'flow' | 'records' }
+    mcp__shift__shift_sizes: Record<never, never>
     mcp__shift__shift_history: { count?: number }
     mcp__shift__shift_status: Record<never, never>
     mcp__shift__shift_setup: Record<never, never>

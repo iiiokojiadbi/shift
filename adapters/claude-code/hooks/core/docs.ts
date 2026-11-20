@@ -407,7 +407,7 @@ export function withMap(shift: string | null, map: string): string {
   return [...lines.slice(0, start), map, ...lines.slice(end + 1)].join('\n')
 }
 
-function mapBounds(lines: readonly string[]) {
+export function mapBounds(lines: readonly string[]) {
   // The markers on lines of their own, outside code fences: a sentence or an example that names them is the owner's.
   // The opener as any version of the mod wrote it: one comment, the whole line, that starts as the mod's does.
   const opener = `${MAP_START.slice(0, MAP_START.indexOf(' — '))} — `
