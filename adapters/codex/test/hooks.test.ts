@@ -69,6 +69,22 @@ test('installed hooks send targeted changes and actionable diagnostics once', as
   expect(await hook('UserPromptSubmit')).toBe('')
 })
 
+test('resume restores a missing delivery and history replaced while detached', async () => {
+  const { transcript, hook } = await fixture()
+  const resume = () => hook('SessionStart', { source: 'resume' })
+  const marker = 'Unrelated decision marker'
+  const first = await hook('SessionStart', { source: 'startup' })
+  expect(first).toContain(marker)
+  expect(await resume()).toContain(marker)
+  const persist = (row: unknown) => appendFile(transcript, `${JSON.stringify(row)}\n`)
+  await persist({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ text: first }] } })
+  expect(await resume()).toBe('')
+  await persist({ type: 'compacted', payload: { replacement_history: [] } })
+  expect(await resume()).toContain(marker)
+  expect(await hook('SessionStart', { source: 'clear' })).toContain(marker)
+  expect(await hook('SessionStart', { source: 'resume', session_id: 'new-thread' })).toContain(marker)
+})
+
 test('parallel installed hooks claim a threshold once', async () => {
   const { transcript, hook } = await fixture()
   async function usage(tokens: number) {

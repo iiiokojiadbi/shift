@@ -38,7 +38,7 @@ The pre-commit hook runs, by the files staged, the same scripts per package — 
 - **Claude Code** — `adapters/claude-code/tests/shift.test.ts`, the wiring only, over `tests/data.ts` — GENERATED from `core/test/data.ts`, never edit. `stubSession` fakes `$.fs`, `$.process`, the session and the UI over a map; `on('session.id')` may be registered once per test, so a test that changes the session passes it as the last argument.
 - **pi** — `adapters/npm/test/pi.test.ts`: the extension loaded over a stand-in of `ExtensionAPI` in a temporary project. A test that needs real files takes its folder from `scratch()` in `adapters/npm/test/scratch.ts` — under `shift/tests/` in the system's temporary folder — and the file's `afterAll(cleanup)` removes them; a bare `mkdtemp` in `/tmp` was left behind by every run. opencode's entry has no test of its own yet: it is checked live.
 
-- **Codex** — `bun run test:codex` starts an isolated installed CLI with a loopback fixture model. It checks the actual model inputs, the wait and continue transitions, owner input arriving during a shift and the stored digest. The integration cases skip when the CLI is absent.
+- **Codex** — `bun run test:codex` starts an isolated installed CLI with a loopback fixture model. It checks the actual model inputs, the wait and continue transitions, owner input arriving during a shift and the stored digest. The resume test starts separate CLI processes and compares the saved input prefix, instructions, tools and cache key across both reattachments. The integration cases skip when the CLI is absent.
 
 ## Installing for development
 

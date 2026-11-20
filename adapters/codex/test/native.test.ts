@@ -118,7 +118,13 @@ trust_level = "trusted"
           let waiting = false
           while (!waiting && Date.now() < deadline) {
             const dirs = await readdir(join(records, 'shifts')).catch(() => [] as string[])
-            if (dirs[0]) waiting = (await readFile(join(records, 'shifts', dirs[0], 'about.md'), 'utf8')).includes('waiting for the owner')
+            if (dirs[0]) {
+              const about = await readFile(join(records, 'shifts', dirs[0], 'about.md'), 'utf8').catch(error => {
+                if (error.code === 'ENOENT') return ''
+                throw error
+              })
+              waiting = about.includes('waiting for the owner')
+            }
             if (!waiting) await Bun.sleep(25)
           }
           expect(waiting).toBe(true)
@@ -150,3 +156,82 @@ trust_level = "trusted"
   )
 
 type FieldsForHook = { key: string; currentHash: string }
+
+test.skipIf(!Bun.which('codex'))(
+  'resuming a persisted thread preserves the model request prefix and delivers only changes',
+  async () => {
+    const root = await scratch('resume-project')
+    const home = await scratch('resume-profile')
+    const requests: { input: unknown[]; prompt_cache_key?: string; instructions: string; tools: unknown[] }[] = []
+    const mock = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request) {
+        if (request.method !== 'POST') return Response.json({ data: [] })
+        requests.push(await request.json())
+        const id = `response${requests.length}`
+        const events = [
+          { type: 'response.created', response: { id } },
+          {
+            type: 'response.output_item.done',
+            item: { type: 'message', role: 'assistant', id, content: [{ type: 'output_text', text: 'Done.' }] },
+          },
+          { type: 'response.completed', response: { id, usage: { input_tokens: 200, output_tokens: 1, total_tokens: 201 } } },
+        ]
+        return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), {
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      },
+    })
+    const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
+    try {
+      await mkdir(join(root, '.shift'))
+      const owner = join(root, '.shift/OWNER.md')
+      await writeFile(owner, 'Session fixture marker.')
+      await writeFile(
+        join(home, 'config.toml'),
+        `model = "fixture"
+model_provider = "fixture"
+[model_providers.fixture]
+name = "fixture"
+base_url = "${mock.url}v1"
+wire_api = "responses"
+[projects.${JSON.stringify(root)}]
+trust_level = "trusted"
+`,
+      )
+      for (const args of [
+        ['plugin', 'marketplace', 'add', resolve(import.meta.dir, '../../..')],
+        ['plugin', 'add', 'shift@shift'],
+      ])
+        execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })
+      for (const args of [[], ['resume', '--last'], ['resume', '--last']]) {
+        if (requests.length === 2) await writeFile(owner, 'Updated fixture decision.')
+        const child = Bun.spawn(
+          ['codex', 'exec', ...args, '--dangerously-bypass-hook-trust', '--skip-git-repo-check', 'Read the fixture.'],
+          { cwd: root, env, stdout: 'ignore', stderr: 'pipe' },
+        )
+        const [code, errors] = await Promise.all([child.exited, new Response(child.stderr).text()])
+        if (code) throw new Error(errors)
+      }
+      expect(requests).toHaveLength(3)
+      const [first, resumed, changed] = requests
+      if (!first || !resumed || !changed) throw new Error('Missing model request')
+      expect(first.prompt_cache_key).toBeTruthy()
+      for (const [before, after] of [
+        [first, resumed],
+        [resumed, changed],
+      ] as const) {
+        expect(after.prompt_cache_key).toBe(before.prompt_cache_key)
+        expect(after.tools).toEqual(before.tools)
+        expect(after.instructions).toEqual(before.instructions)
+        expect(after.input.slice(0, before.input.length)).toEqual(before.input)
+        expect(JSON.stringify(after.input).split('Session fixture marker.')).toHaveLength(2)
+      }
+      expect(JSON.stringify(changed.input.slice(resumed.input.length))).toContain('OWNER.md` changed outside your tools')
+    } finally {
+      mock.stop(true)
+    }
+  },
+  20000,
+)

@@ -1,5 +1,8 @@
 import { Database } from 'bun:sqlite'
-import { mkdir, readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { mkdir, readFile, stat } from 'node:fs/promises'
+import { createInterface } from 'node:readline'
 import {
   afterToolRecords,
   beforeTool,
@@ -19,17 +22,59 @@ import {
 import { projectAt } from '../npm/store'
 import { freshSample, type Sample, sample } from './gauge'
 import { type MapPrints, observeMap } from './map'
-import type { Fields } from './protocol'
+import { type Fields, fields } from './protocol'
+
+type ContextReceipt = { offset: number; length: number; hash: string }
+const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex')
 
 type HookState = {
   root: string
   looks: Looks
+  context?: ContextReceipt
+  doctrineHash?: string
   turn?: string
   map?: MapPrints
   docsSettings?: string
   warnings?: string[]
   reportedProblem?: string | null
   usage: Sample
+}
+
+// Resume rebuilds model history from the rollout. A checkpoint alone cannot prove the hook output
+// made it into that history: the process may have stopped, or the history may have been replaced.
+async function retainedContext(path: string, receipt: ContextReceipt, marker: string) {
+  const stream = createReadStream(path, { start: receipt.offset, encoding: 'utf8' })
+  const escapedMarker = JSON.stringify(marker).slice(1, -1)
+  let retained = false
+  try {
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+      if (!line.includes(escapedMarker) && !line.includes('"compacted"') && !line.includes('"thread_rolled_back"')) continue
+      let row: Fields
+      try {
+        row = fields(JSON.parse(line))
+      } catch {
+        continue
+      }
+      const item = fields(row.payload)
+      if (row.type === 'compacted' || (row.type === 'event_msg' && item.type === 'thread_rolled_back')) retained = false
+      if (
+        row.type === 'response_item' &&
+        item.type === 'message' &&
+        item.role === 'developer' &&
+        Array.isArray(item.content) &&
+        item.content.some(part => {
+          const text = fields(part).text
+          return typeof text === 'string' && text.startsWith(marker) && fingerprint(text.slice(0, receipt.length)) === receipt.hash
+        })
+      )
+        retained = true
+    }
+    return retained
+  } catch {
+    return false
+  } finally {
+    stream.destroy()
+  }
 }
 
 async function contextFor(input: Fields, project: Project, state: HookState) {
@@ -61,7 +106,15 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
     return notes.map(wrap)
   }
   const start = await startSession(project)
-  const fresh = event === 'SessionStart' || !state.map
+  const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
+  const resume = event === 'SessionStart' && input.source === 'resume'
+  const kept =
+    resume &&
+    transcript &&
+    state.context &&
+    (await retainedContext(transcript, state.context, start.doctrine.slice(0, start.doctrine.indexOf('\n'))))
+  const fresh = !state.map || (event === 'SessionStart' && !kept)
+  const doctrineHash = fingerprint(start.doctrine)
   const warnings = start.rows.map(row => row.text)
   const changedWarnings = warnings.filter(row => fresh || !state.warnings?.includes(row))
   state.warnings = warnings
@@ -84,8 +137,21 @@ async function contextFor(input: Fields, project: Project, state: HookState) {
   const files = await sessionFiles(project, { refresh: false })
   const changes = observeMap(project, state.map, files)
   state.map = changes.prints
-  if (fresh) notes.unshift(start.doctrine, renderSessionFiles(files) ?? '')
-  else notes.push(changes.note)
+  if (fresh) {
+    const block = [start.doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n')
+    const offset = transcript
+      ? await stat(transcript).then(
+          s => s.size,
+          () => undefined,
+        )
+      : undefined
+    state.context = offset === undefined ? undefined : { offset, length: block.length, hash: fingerprint(block) }
+    notes.unshift(block)
+  } else {
+    if (state.doctrineHash !== undefined && state.doctrineHash !== doctrineHash) notes.unshift(start.doctrine)
+    notes.push(changes.note)
+  }
+  state.doctrineHash = doctrineHash
   notes.push(...recordNotes)
   return notes
 }
