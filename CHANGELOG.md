@@ -2,6 +2,24 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.38.0
+
+### Added
+
+- In the Codex terminal, `//unshift review the project` restores the latest letter alongside your request. `//shift` asks the agent to prepare and perform a shift. `//shift_sizes` and `//shift-tasks` print reports without calling the model.
+- The `shift_sizes` tool estimates the context cost of each entity, including up to three saved letters. From a checkout, `bun run shift:sizes [project]` counts the rendered text with the o200k_base tokenizer.
+
+### Changed
+
+- Shift reminders follow the window Codex reports. A 475,000-token window gets a soft hint at 300,000 and a final reminder at 410,000. A 258,400-token window gets one final reminder at 184,800.
+- The standing instructions keep the documentation map and direct the agent to update records and documentation during the work. Record formats are available on demand in `shift_guide`.
+- Restored trackers include every open item, the closed count and up to ten recent closures. The full tracker stays on disk. New items record creation and closure times. Older entries retain their file order.
+
+### Fixed
+
+- Codex restores the session files once after a shift and checks saved history before resending them on resume. Changed documentation entries and record warnings are delivered separately. Concurrent hooks deliver a threshold reminder once.
+- The waiting letter is parked before the adapter announces that the shift is waiting. Completed patch evidence distinguishes the agent's own edits from external edits, including mixed edits to one file. Links between task notes and trackers are checked after the writing turn.
+
 ## 0.37.0
 
 ### Added

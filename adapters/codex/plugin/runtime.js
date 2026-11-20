@@ -4721,7 +4721,7 @@ async function runHook(input, dir, file) {
 // adapters/codex/plugin/.codex-plugin/plugin.json
 var plugin_default = {
   name: "shift",
-  version: "0.37.0",
+  version: "0.38.0",
   description: "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
   hooks: "./hooks/hooks.json",
   mcpServers: "./mcp-servers.json"

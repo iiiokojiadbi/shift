@@ -24,10 +24,10 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 
 ### Codex
 
-Requires Bun on PATH and Codex CLI (tested with 0.170.0). Install the tagged plugin from the repository's marketplace:
+Requires Bun on PATH and Codex CLI (tested with 0.171.0). Install the tagged plugin from the repository's marketplace:
 
 ```sh
-codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.37.0
+codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.38.0
 codex plugin add shift@shift
 ```
 
