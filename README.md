@@ -33,6 +33,8 @@ codex plugin add shift@shift
 
 Start Codex with `codex` as usual. In `/hooks`, review and trust the hooks supplied by `shift@shift`, then open a new thread. The first turn receives SHIFT.md with its documentation map. To let the agent initiate a shift, the TUI needs the local app server. If its daemon is stopped, run `codex app-server daemon start` once and reopen Codex. See [Commands](#commands) for the terminal inputs.
 
+For updates, exit Codex first. In your shell, run `codex plugin marketplace remove shift`, then the two install commands above for the new tag. Reopen your thread with `codex resume` and review the updated hooks in `/hooks`.
+
 ### Claude Code
 
 ```sh

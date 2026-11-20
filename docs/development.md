@@ -79,3 +79,5 @@ The package `@iiiokojiadbi/shift` is `adapters/npm`, one for both harnesses, pub
 ### Codex marketplace
 
 The repository itself is the marketplace. Its index in `.agents/plugins/marketplace.json` selects `adapters/codex/plugin/`. That directory ships the manifest, picker skills, hooks, MCP declaration, license and standalone Bun entry. Each marketplace version gets a matching manifest version, changelog entry and `shift-codex--v<version>` tag. Build the runtime, run the repository checks and verify the tagged Git source in a clean profile before announcing the release. Push the marketplace tag on the same release commit as the npm and catalog tags. Publish the shared GitHub release under `shift--v<version>`.
+
+Update the local Codex installation between runs. A running client can retain hook paths into the previous plugin version, which Codex prunes during installation. Close clients using Shift before replacing the tagged marketplace and adding the plugin from a separate shell. Reopen the thread with `codex resume` and review any modified hooks in `/hooks`.

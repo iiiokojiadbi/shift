@@ -97,7 +97,7 @@ test('size table shows only sizes and the three newest available letters', async
   const report = await tool('shift_sizes').run({}, callOn(project))
   expect(report).toHaveProperty('result')
   if (!('result' in report)) throw Error('missing report')
-  expect(report.result.match(/\| Saved letter \|/g)).toHaveLength(3)
+  expect(report.result.match(/^\s*4 {2}202401\d{2}-000000$/gm)).toHaveLength(3)
   expect(report.result).not.toContain('Private sample')
   expect(report.result).not.toContain('20240101')
   expect(report.result).toContain('Session + continue')
