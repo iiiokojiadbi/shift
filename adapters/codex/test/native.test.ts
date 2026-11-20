@@ -103,9 +103,11 @@ trust_level = "trusted"
         if (!ws) throw new Error('The stock server did not start.')
         const rpc = new Requests(packet => ws?.send(JSON.stringify(packet)))
         const notices: string[] = []
+        const sizeTurnDone = deferred<void>()
         ws.onmessage = e => {
           const packet: Packet = JSON.parse(String(e.data))
           if (rpc.take(packet)) return
+          if (packet.method === 'turn/completed') sizeTurnDone.resolve()
           if (packet.id !== undefined && packet.method === 'mcpServer/elicitation/request' && packet.params?.serverName === 'shift') {
             ws?.send(JSON.stringify({ id: packet.id, result: { action: 'accept', content: {}, _meta: null } }))
             return
@@ -124,7 +126,11 @@ trust_level = "trusted"
         await rpc.call('config/batchWrite', { edits: [{ keyPath: 'hooks.state', value, mergeStrategy: 'upsert' }], reloadUserConfig: true })
         const started = await rpc.call('thread/start', { cwd: root, approvalPolicy: 'on-request' })
         const threadId = fields(started.thread).id
-        await rpc.call('turn/start', { threadId, input: [textInput('Run the fixture.')] })
+        await rpc.call('turn/start', { threadId, input: [textInput('//shift_sizes')] })
+        await sizeTurnDone.promise
+        expect(requests).toHaveLength(0)
+        expect(notices.join('\n')).toContain('Session + continue')
+        await rpc.call('turn/start', { threadId, input: [textInput('//shift')] })
         if (mode === 'wait') {
           const deadline = Date.now() + 6000
           let waiting = false
@@ -149,6 +155,8 @@ trust_level = "trusted"
             throw new Error(`Received ${requests.length} model requests: ${requests[1]?.slice(-1100)}; ${notices.join('\n').slice(-900)}`)
           }),
         ])
+        expect(requests[0]).toContain('The owner asks you to shift now')
+        expect(requests[0]).not.toContain('Estimated text tokens (4 characters per token).')
         expect(requests[0]?.split('Acceptance marker').length).toBe(2)
         expect(requests[0]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[2]).toContain('HOLD-THIS')
@@ -198,13 +206,18 @@ test.skipIf(!Bun.which('codex'))(
     })
     const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
     try {
-      await mkdir(join(root, '.shift'))
+      const folder = join(root, '.shift/shifts/20260101-010101')
+      await mkdir(folder, { recursive: true })
+      const body = `Unique restored letter body. ${'Long fixture line. '.repeat(3000)}End of restored letter.`
+      await writeFile(join(folder, 'letter.md'), LETTER.replace('fixing tests', body))
       const owner = join(root, '.shift/OWNER.md')
       await writeFile(owner, 'Session fixture marker.')
       await writeFile(
         join(home, 'config.toml'),
         `model = "fixture"
 model_provider = "fixture"
+[features]
+untrusted_as_tool_output = true
 [model_providers.fixture]
 name = "fixture"
 base_url = "${mock.url}v1"
@@ -221,7 +234,14 @@ trust_level = "trusted"
       for (const args of [[], ['resume', '--last'], ['resume', '--last']]) {
         if (requests.length === 2) await writeFile(owner, 'Updated fixture decision.')
         const child = Bun.spawn(
-          ['codex', 'exec', ...args, '--dangerously-bypass-hook-trust', '--skip-git-repo-check', 'Read the fixture.'],
+          [
+            'codex',
+            'exec',
+            ...args,
+            '--dangerously-bypass-hook-trust',
+            '--skip-git-repo-check',
+            args.length ? 'Read the fixture.' : '//unshift Review this project.',
+          ],
           { cwd: root, env, stdout: 'ignore', stderr: 'pipe' },
         )
         const [code, errors] = await Promise.all([child.exited, new Response(child.stderr).text()])
@@ -230,6 +250,11 @@ trust_level = "trusted"
       expect(requests).toHaveLength(3)
       const [first, resumed, changed] = requests
       if (!first || !resumed || !changed) throw new Error('Missing model request')
+      const restored = JSON.stringify(first.input)
+      expect(restored.split('Review this project.')).toHaveLength(2)
+      expect(restored).toContain(body)
+      expect(restored.split('Unique restored letter body')).toHaveLength(2)
+      expect(restored.split('End of restored letter.')).toHaveLength(2)
       expect(first.prompt_cache_key).toBeTruthy()
       for (const [before, after] of [
         [first, resumed],

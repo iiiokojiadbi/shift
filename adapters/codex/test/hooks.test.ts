@@ -20,7 +20,7 @@ async function fixture() {
   await writeFile(join(root, 'details.txt'), 'Initial details.')
   const doc = join(root, 'docs/example.md')
   await writeFile(doc, '---\ndescription: A fixture\n---\n# Work\n\n## Setup\n')
-  async function hook(event: string, extra = {}) {
+  async function rawHook(event: string, extra = {}) {
     const input = { session_id: 'scope', cwd: root, transcript_path: transcript, hook_event_name: event, tool_use_id: 'call', ...extra }
     const child = Bun.spawn(['bun', resolve(import.meta.dir, '../plugin/runtime.js'), 'hook'], {
       cwd: root,
@@ -31,10 +31,28 @@ async function fixture() {
     })
     const [output, errors, code] = await Promise.all([new Response(child.stdout).json(), new Response(child.stderr).text(), child.exited])
     if (code) throw new Error(errors)
-    return String(output.hookSpecificOutput?.additionalContext ?? '')
+    return output
   }
-  return { root, home, transcript, doc, hook }
+  const hook = async (event: string, extra = {}) => String((await rawHook(event, extra)).hookSpecificOutput?.additionalContext ?? '')
+  return { root, home, transcript, doc, hook, rawHook }
 }
+
+test('display commands preserve pending notes and only match a complete leading command', async () => {
+  const { root, hook, rawHook } = await fixture()
+  await hook('SessionStart')
+  await appendFile(join(root, '.shift/OWNER.md'), '\nNew decision.')
+  const submit = (prompt: string) => rawHook('UserPromptSubmit', { prompt })
+  expect(await submit('//shift_sizes extra')).toEqual({ continue: false, stopReason: 'Usage: //shift_sizes' })
+  expect((await submit('/shift-tasks')).continue).toBe(false)
+  const next = await hook('UserPromptSubmit', { prompt: 'Please explain //unshift.' })
+  expect(next).toContain('OWNER.md` changed outside')
+  expect(next).not.toContain('No shifts in this project')
+  expect(await submit('//shift_sizes/file')).toEqual({})
+  expect(await submit('///shift')).toEqual({})
+  expect((await submit('//unshift Review my work.')).hookSpecificOutput.additionalContext).toContain('No shifts in this project')
+  await writeFile(join(root, '.shift/settings.toml'), 'enabled = false\n')
+  expect(await submit('//shift')).toEqual({ continue: false, stopReason: 'Shift is disabled in this project.' })
+})
 
 test('installed hooks send targeted changes and actionable diagnostics once', async () => {
   const { root, doc, hook } = await fixture()

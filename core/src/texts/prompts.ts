@@ -240,7 +240,7 @@ export function resumePrompt(letter: string, back: HandedBack, outcome: string |
     back,
     [
       `Past shifts — ${HISTORY_TOOL}; archived tasks — ${INDEX}; how a shift works — ${GUIDE_TOOL}.`,
-      `Check "${NEXT}" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.`,
+      `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`,
     ],
   )
 }

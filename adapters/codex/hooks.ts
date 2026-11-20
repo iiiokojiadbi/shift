@@ -11,13 +11,21 @@ import {
   type Looks,
   type Project,
   promptRecords,
+  RESUME_COMMAND,
   type RecordCourier,
   refreshDocs,
   renderSessionFiles,
+  resumeShift,
+  SHIFT_COMMAND,
+  SHIFT_NOW,
+  SIZES_TOOL,
   sessionFiles,
+  sizeReport,
   staleLayout,
   startSession,
+  TASKS_COMMAND,
   TOOLS,
+  tasksView,
   wrap,
 } from '../../core/src'
 import { projectAt } from '../npm/store'
@@ -194,6 +202,23 @@ export async function sessionState(file: string) {
 // the decision to deliver and its checkpoint. The OS releases the lock if the hook is killed.
 export async function runHook(input: Fields, dir: string, file: string) {
   const project = await projectAt(String(input.cwd))
+  // The terminal reserves single-slash names. A double slash arrives as ordinary user input.
+  const prompt = input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' ? input.prompt.trim() : ''
+  const match = /^\/\/?([^/\s]+)(?=\s|$)/.exec(prompt)
+  const command = match?.[1]
+  if (!project.settings.enabled && [SHIFT_COMMAND, RESUME_COMMAND, SIZES_TOOL, TASKS_COMMAND].some(name => name === command))
+    return { continue: false, stopReason: 'Shift is disabled in this project.' }
+  if (command === SIZES_TOOL || command === TASKS_COMMAND) {
+    // Stop before observing a turn, so a display-only command cannot consume a pending note or hint.
+    let report: string
+    try {
+      if (match?.[0] !== prompt) report = `Usage: //${command}`
+      else report = command === SIZES_TOOL ? await sizeReport(project) : await tasksView(project)
+    } catch (error) {
+      report = `Could not display //${command}: ${String(error)}`
+    }
+    return { continue: false, stopReason: report }
+  }
   const tool = input.hook_event_name === 'PreToolUse' || input.hook_event_name === 'PostToolUse'
   if (tool && !project.settings.enabled) return {}
   await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -206,6 +231,11 @@ export async function runHook(input: Fields, dir: string, file: string) {
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() }
     const notes = project.settings.enabled ? await contextFor(input, project, state) : []
+    if (command === SHIFT_COMMAND) notes.push(SHIFT_NOW(''))
+    if (command === RESUME_COMMAND) {
+      const last = await resumeShift(project)
+      notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`)
+    }
     if (project.settings.enabled && input.hook_event_name !== 'PreToolUse' && typeof input.transcript_path === 'string') {
       const hint = await sample(state.usage, input.transcript_path, input.source === 'compact')
       if (hint) notes.push(wrap({ kind: 'hint', body: hint }))

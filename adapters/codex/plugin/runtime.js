@@ -20,6 +20,8 @@ var SETUP_TOOL = "shift_setup";
 var OUTLINE_TOOL = "doc_outline";
 var MENTIONS_TOOL = "docs_mentioning";
 var RESUME_COMMAND = "unshift";
+var TASKS_COMMAND = "shift-tasks";
+var SHIFT_COMMAND = "shift";
 var BOARD_MAX_LINES = 150;
 var OWNER_MAX_LINES = 150;
 var TASKS_MAX_LINES = 150;
@@ -1631,10 +1633,11 @@ function waitContext(letter, back) {
 function resumePrompt(letter, back, outcome = null) {
   return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
     `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
-    `Check "${NEXT}" against what is on disk now and continue from the first step not done; a message from the owner after this one goes first.`
+    `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
   ]);
 }
 var RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`;
+var SHIFT_NOW = (words) => `<${MOD} note="from the owner's /${SHIFT_COMMAND}">The owner asks you to shift now, whether a hint has come or not. Bring the step in hand to a point the letter can name, keep your records, write the letter and call ${TOOL}; choose after as the work needs.${words === "" ? "" : ` The owner's words: ${words}`}</${MOD}>`;
 var TURN_END = {
   continue: "End the turn with one line and do nothing more",
   wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
@@ -4664,6 +4667,23 @@ async function sessionState(file) {
 }
 async function runHook(input, dir, file) {
   const project = await projectAt(String(input.cwd));
+  const prompt = input.hook_event_name === "UserPromptSubmit" && typeof input.prompt === "string" ? input.prompt.trim() : "";
+  const match = /^\/\/?([^/\s]+)(?=\s|$)/.exec(prompt);
+  const command = match?.[1];
+  if (!project.settings.enabled && [SHIFT_COMMAND, RESUME_COMMAND, SIZES_TOOL, TASKS_COMMAND].some((name) => name === command))
+    return { continue: false, stopReason: "Shift is disabled in this project." };
+  if (command === SIZES_TOOL || command === TASKS_COMMAND) {
+    let report;
+    try {
+      if (match?.[0] !== prompt)
+        report = `Usage: //${command}`;
+      else
+        report = command === SIZES_TOOL ? await sizeReport(project) : await tasksView(project);
+    } catch (error) {
+      report = `Could not display //${command}: ${String(error)}`;
+    }
+    return { continue: false, stopReason: report };
+  }
   const tool = input.hook_event_name === "PreToolUse" || input.hook_event_name === "PostToolUse";
   if (tool && !project.settings.enabled)
     return {};
@@ -4677,6 +4697,12 @@ async function runHook(input, dir, file) {
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() };
     const notes = project.settings.enabled ? await contextFor(input, project, state) : [];
+    if (command === SHIFT_COMMAND)
+      notes.push(SHIFT_NOW(""));
+    if (command === RESUME_COMMAND) {
+      const last = await resumeShift(project);
+      notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`);
+    }
     if (project.settings.enabled && input.hook_event_name !== "PreToolUse" && typeof input.transcript_path === "string") {
       const hint = await sample(state.usage, input.transcript_path, input.source === "compact");
       if (hint)

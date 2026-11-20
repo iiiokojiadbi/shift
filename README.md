@@ -31,7 +31,7 @@ codex plugin marketplace add iiiokojiadbi/shift --ref shift-codex--v0.37.0
 codex plugin add shift@shift
 ```
 
-Start Codex with `codex` as usual. In `/hooks`, review and trust the hooks supplied by `shift@shift`, then open a new thread. The first turn receives SHIFT.md with its documentation map. To let the agent initiate a shift, the TUI needs the local app server. If its daemon is stopped, run `codex app-server daemon start` once and reopen Codex. Ask for `unshift` to pick up the latest letter or `shift_tasks` to list the work.
+Start Codex with `codex` as usual. In `/hooks`, review and trust the hooks supplied by `shift@shift`, then open a new thread. The first turn receives SHIFT.md with its documentation map. To let the agent initiate a shift, the TUI needs the local app server. If its daemon is stopped, run `codex app-server daemon start` once and reopen Codex. See [Commands](#commands) for the terminal inputs.
 
 ### Claude Code
 
@@ -57,6 +57,19 @@ opencode plugin add @iiiokojiadbi/shift
 The same npm package as pi's; opencode 2.x.
 
 ## Commands
+
+**Codex terminal.** Type these in the message box after trusting the plugin hooks. CLI 0.171.0 reserves the single-slash menu for built-in commands. Two slashes send the input to the plugin.
+
+| Input | Result |
+|---|---|
+| `//unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board and active tasks in the same turn. Omit the request to continue from the letter. |
+| `//shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `//shift continue`. |
+| `//shift_sizes` | Prints estimated token counts by entity and for up to three saved letters. |
+| `//shift-tasks` | Prints the current tasks. |
+
+Both reports appear under **Hook stopped**, before any model call. The regular single-slash spelling also works if you type a space before the slash.
+
+**Claude Code, pi and opencode**
 
 - `/shift [words]` — ask the agent to shift now, hint or not. The words go to it with the ask.
 - `/unshift [words]` — in a fresh session, pick up the last shift: the letter, the board and the tasks in progress go to the agent. The words become your message after the letter.
