@@ -41,6 +41,10 @@ The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a sn
 
 ## Board, tasks, archive
 
+The private task runtime stores a new task as a Beads issue. `task_open` accepts labels, an optional epic parent, blockers and initial items. The supplied name becomes a stable `shift-<name>` ID. In-progress work is assigned to the calling chat. Use `status: open` for unclaimed work. `task_query` lists ready work, filters by label, shows the current card or reads comments and issue history. A card includes its open items, recent closures and comment count.
+
+`task_manage` claims, releases, takes over or reopens a task, edits its card and labels, adjusts blockers, or adds a comment. Another chat can comment on claimed work. `task_track` applies a batch of item changes in one issue update. A private write lock serializes the revision check with the mutation across processes. A concurrent change asks the caller to reread. Closing work preserves its graph and history. The file layouts below describe legacy tasks during the transition.
+
 The topic of work changes, and a single board lost what was done. So each line of work is a task, split by meaning, with its own `task.md` (a title and "Goal", "Done when", "Owner decisions", "Decisions", "Dead ends") and `track.md` (items `- [status] name — note`).
 
 - **TASKS.md** lists every open task, one line each with `in progress`, `deferred` or `waiting for owner`, and under a line its links: `needs` an open task it cannot finish without, `after` an archived one it stands on, `continues` an archived one it picks up. From it alone the agent knows whether it does one task, several or none, and why something waits. On the board the tasks crowded out the decisions and the links had nowhere to go.

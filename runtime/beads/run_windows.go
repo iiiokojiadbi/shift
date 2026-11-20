@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -41,4 +43,23 @@ func runChild(cmd *exec.Cmd) error {
 		return fmt.Errorf("join task job: %w", err)
 	}
 	return cmd.Run()
+}
+
+// An exclusive handle is released by the kernel when the launcher exits.
+func workspaceLock(path string) (*os.File, error) {
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		handle, err := syscall.CreateFile(name, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_ALWAYS, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+		if err == nil {
+			return os.NewFile(uintptr(handle), path), nil
+		}
+		if err != syscall.Errno(32) || time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }

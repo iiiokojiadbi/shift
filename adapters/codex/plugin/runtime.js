@@ -12,6 +12,8 @@ var TOOL = "shift";
 var GUIDE_TOOL = "shift_guide";
 var HISTORY_TOOL = "shift_history";
 var OPEN_TOOL = "task_open";
+var MANAGE_TOOL = "task_manage";
+var QUERY_TOOL = "task_query";
 var ARCHIVE_TOOL = "task_archive";
 var TRACK_TOOL = "task_track";
 var STATUS_TOOL = "shift_status";
@@ -3005,12 +3007,12 @@ function splitLines(raw, key) {
   }
   return lines;
 }
-function parseOpenInput(raw) {
+function parseOpenInput(raw, graph = false) {
   const name = taskName(raw, "name");
   if (typeof name !== "string")
     return name.problem;
   const status = text(raw, "status") || "in progress";
-  if (!FOCUS.includes(status))
+  if (!(graph && status === "open") && !FOCUS.includes(status))
     return `status is one of ${quote(FOCUS)}.`;
   const fields = { title: text(raw, "title"), goal: text(raw, "goal"), doneWhen: text(raw, "done_when") };
   for (const [key, value] of [
@@ -3345,7 +3347,7 @@ var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use sec
 var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
 var SETUP_SCHEMA = { type: "object", properties: {} };
 var HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count \u2014 how many of the latest (default ${HISTORY_DEFAULT}).`;
-var OPEN_DESCRIPTION = `Open a task instead of creating its files by hand: writes ${TASKS}/<name>/${NAMES.task} with its sections, ${NAMES.track} with the first items, and the task's line with its links in ${TASK_LIST}, all checked first \u2014 a refusal writes nothing. Decisions, dead ends and owner decisions start as "none".`;
+var OPEN_DESCRIPTION = "Create a private task or epic with a stable ID, goal, acceptance criteria, items, labels and optional blockers. Work opened in progress belongs to this chat.";
 var LINK_LINES = (what) => ({
   type: "array",
   items: { type: "string" },
@@ -3354,14 +3356,21 @@ var LINK_LINES = (what) => ({
 var OPEN_SCHEMA = {
   type: "object",
   properties: {
-    name: { type: "string", description: `The folder name in ${TASKS}/: ${NAME_RULE}.` },
-    title: { type: "string", description: "One line: the task.md's # title." },
+    name: { type: "string", description: `Stable task name: ${NAME_RULE}.` },
+    kind: { type: "string", enum: ["task", "epic"] },
+    parent: { type: "string", description: "Optional open epic ID." },
+    labels: { type: "array", items: { type: "string" } },
+    title: { type: "string", description: "One-line task title." },
     goal: { type: "string", description: 'What the task is for: the "Goal" section.' },
     done_when: { type: "string", description: 'When it is finished: the "Done when" section.' },
-    status: { type: "string", enum: [...FOCUS], description: "in progress by default; deferred or waiting carries its reason in about." },
+    status: {
+      type: "string",
+      enum: [...FOCUS, "open"],
+      description: "in progress claims the task by default. open leaves it available; deferred or waiting carries its reason in about."
+    },
     about: {
       type: "string",
-      description: `One line up to ${ABOUT_MAX} characters after the task's line in ${TASK_LIST}: what it is, and why it waits if it does.`
+      description: `One line up to ${ABOUT_MAX} characters describing the task and why it waits, if applicable.`
     },
     items: {
       type: "array",
@@ -3374,12 +3383,12 @@ var OPEN_SCHEMA = {
   },
   required: ["name", "title", "goal", "done_when", "about"]
 };
-var ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`;
-var TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With id: the track item with that id, the number in its "#<id>". With item: a new item with that text, given the next id; its text differs from every item's in the track, case aside. Without either: the task's own status in ${TASK_LIST}. status \u2014 for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note \u2014 replaces what follows " \u2014 ": what matters, or the reason a task is deferred or waits (required then). Several items at once \u2014 when a stage closes one item and opens the next: items, a list of {id or item, status, note}, applied together or not at all; status beside items is then the task's own.`;
+var ARCHIVE_DESCRIPTION = "Close a finished or dropped task. Give the outcome and reason. Its ID, comments and history remain available.";
+var TRACK_DESCRIPTION = "Add an item or update it by short numeric ID. Apply several changes atomically with items. Pass status alone to update the task status. Use note for the reason a task waits or is deferred.";
 var TRACK_SCHEMA = {
   type: "object",
   properties: {
-    task: { type: "string", description: `The task's folder name in ${TASKS}/.` },
+    task: { type: "string", description: "The task ID or short name." },
     id: { type: "integer", description: 'The track item to change: the number in its "#<id>".' },
     item: { type: "string", description: "The text of a new track item; what matters goes in note." },
     status: { type: "string", enum: [...new Set([...STATUSES, ...FOCUS])] },
@@ -3454,7 +3463,7 @@ var TOOL_SCHEMA = {
 var ARCHIVE_SCHEMA = {
   type: "object",
   properties: {
-    name: { type: "string", description: `The task's folder name in ${TASKS}/.` },
+    name: { type: "string", description: "The task ID or short name." },
     outcome: {
       type: "string",
       enum: [...OUTCOMES],
@@ -3478,8 +3487,42 @@ var TOOL_TEXTS = {
   [OPEN_TOOL]: {
     label: "Open a task",
     description: OPEN_DESCRIPTION,
-    brief: `open a task: its folder, task.md, track.md and its line in \`${TASK_LIST}\`, checked before anything is written.`,
+    brief: `open a task or epic with its goal, links and first items.`,
     schema: OPEN_SCHEMA
+  },
+  [MANAGE_TOOL]: {
+    label: "Manage a task",
+    description: "Claim a task for this chat, explicitly take it over, release or reopen it, edit its card or labels, or append a comment. An epic and its children have independent claims.",
+    brief: "claim, reopen or edit a task, set labels and add comments.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["claim", "takeover", "release", "reopen", "edit", "comment", "block", "unblock"] },
+        task: { type: "string" },
+        target: { type: "string", description: "The blocker for block or unblock." },
+        text: { type: "string" },
+        goal: { type: "string" },
+        title: { type: "string" },
+        done_when: { type: "string" },
+        decisions: { type: "string" },
+        evidence: { type: "string" },
+        labels: { type: "array", items: { type: "string" } }
+      },
+      required: ["action", "task"]
+    }
+  },
+  [QUERY_TOOL]: {
+    label: "Read tasks",
+    description: "List your tasks, ready work, open or closed tasks. Show a task card with its blockers, read comments or inspect its history by ID. Filter lists by labels.",
+    brief: "list ready work and read task cards, comments or history.",
+    schema: {
+      type: "object",
+      properties: {
+        view: { type: "string", enum: ["mine", "ready", "open", "closed", "show", "comments", "history"] },
+        task: { type: "string" },
+        labels: { type: "array", items: { type: "string" } }
+      }
+    }
   },
   [ARCHIVE_TOOL]: {
     label: "Archive a task",
@@ -3490,7 +3533,7 @@ var TOOL_TEXTS = {
   [TRACK_TOOL]: {
     label: "Task status",
     description: TRACK_DESCRIPTION,
-    brief: `set a track item's status by its id or add an item, several at once with items; without either, the task's own status in \`${TASK_LIST}\`.`,
+    brief: "update items by short ID, add new ones, or change the task status.",
     schema: TRACK_SCHEMA
   },
   [HISTORY_TOOL]: {
@@ -3919,6 +3962,265 @@ async function sizeReport(project, counter) {
 `);
 }
 
+// core/src/taskgraph.ts
+var graphPath = (project) => `${project.root}/.shift/beads/.beads/metadata.json`;
+function taskId(raw) {
+  if (typeof raw !== "string" || !NAME.test(raw))
+    throw new Error("Pass a task ID or its short name.");
+  return raw.startsWith("shift-") ? raw : `shift-${raw}`;
+}
+function labels(raw) {
+  if (raw === undefined)
+    return [];
+  if (!Array.isArray(raw) || raw.some((each) => typeof each !== "string" || !each.trim() || /[,\r\n]/.test(each)))
+    throw new Error("Pass labels as an array of nonempty names without commas.");
+  return [...new Set(raw.map((each) => each.trim()))];
+}
+async function graphCommand(project, args, actor, expected = []) {
+  if (!project.store.beads)
+    throw new Error("The private task runtime is unavailable.");
+  const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args;
+  if (!expected.length)
+    return project.store.beads(project.root, invocation);
+  const revisions = expected.map((task) => {
+    if (!task.revision)
+      throw new Error(`Missing revision for ${task.id}.`);
+    return { id: task.id, revision: task.revision };
+  });
+  return project.store.beads(project.root, ["shift-checked", JSON.stringify(revisions), ...invocation]);
+}
+async function graphTask(project, id) {
+  if (!await project.store.exists(graphPath(project)))
+    throw new Error("No task workspace yet.");
+  const rows = JSON.parse(await graphCommand(project, ["show", taskId(id), "--brief-deps", "--json"]));
+  if (rows.length !== 1 || rows[0]?.id !== taskId(id))
+    throw new Error(`No exact task ${taskId(id)}.`);
+  return rows[0];
+}
+function line(task) {
+  return `${task.id} [${task.status}] ${task.title}${task.assignee ? ` \xB7 ${task.assignee}` : ""}${task.labels?.length ? ` \xB7 ${task.labels.join(", ")}` : ""}`;
+}
+function taskCard(task) {
+  const items = task.metadata?.items ?? [];
+  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? 0) - (a.closed ?? 0) || b.id - a.id);
+  const links = task.metadata?.links ?? [];
+  return [
+    line(task),
+    task.description && `Goal: ${task.description}`,
+    task.acceptance_criteria && `Done when: ${task.acceptance_criteria}`,
+    task.design && `Decisions: ${task.design}`,
+    task.notes && `Evidence: ${task.notes}`,
+    task.metadata?.about,
+    ...(task.dependencies ?? []).map((edge) => {
+      const link = links.find((each) => taskId(each.name) === edge.id);
+      return `${link?.kind ?? edge.dependency_type}: ${edge.id} [${edge.status}] ${edge.title}${link?.why ? ` \u2014 ${link.why}` : ""}`;
+    }),
+    ...[...items.filter((item) => !CLOSED.has(item.status)), ...closed.slice(0, RECENT_CLOSED_ITEMS)].map((item) => `#${item.id} [${item.status}] ${item.name}${item.note ? ` \u2014 ${item.note}` : ""}`),
+    `${closed.length} closed items \xB7 ${task.comment_count ?? 0} comments`
+  ].filter(Boolean).join(`
+`);
+}
+async function createGraphTask(project, input, raw, actor, now) {
+  const tags = labels(raw.labels);
+  const id = taskId(input.name);
+  const kind = raw.kind ?? "task";
+  if (kind !== "task" && kind !== "epic")
+    throw new Error("kind must be task or epic.");
+  const parent = raw.parent === undefined ? null : taskId(raw.parent);
+  const names = input.items.map((each) => each.name.toLowerCase());
+  if (names.length !== new Set(names).size)
+    throw new Error("Each initial item needs a distinct name.");
+  if (!await project.store.exists(graphPath(project)))
+    await graphCommand(project, ["init", "--init-if-missing", "--non-interactive", "--skip-hooks", "--skip-agents", "--prefix", "shift"]);
+  const deps = [];
+  const expected = [];
+  for (const link of input.links) {
+    const target = await graphTask(project, link.name);
+    if (link.kind === "needs" === (target.status === "closed"))
+      throw new Error(`${link.kind}: ${target.id} is ${target.status}.`);
+    expected.push(target);
+    deps.push(`${link.kind === "needs" ? "blocked-by" : "related"}:${target.id}`);
+  }
+  if (parent) {
+    const epic = await graphTask(project, parent);
+    if (epic.issue_type !== "epic" || epic.status === "closed")
+      throw new Error(`Parent ${parent} must be an open epic.`);
+    expected.push(epic);
+    deps.push(`parent-child:${parent}`);
+  }
+  const items = input.items.map((each, i) => ({ ...each, id: i + 1, status: "open", created: now, closed: null }));
+  const status = input.status === "in progress" ? "in_progress" : input.status === "waiting for owner" ? "blocked" : input.status;
+  const args = [
+    "create",
+    `--id=${id}`,
+    `--title=${input.title}`,
+    `--description=${input.goal}`,
+    `--acceptance=${input.doneWhen}`,
+    `--type=${kind}`,
+    `--status=${status}`,
+    `--metadata=${JSON.stringify({ items, about: input.about, links: input.links })}`,
+    "--json"
+  ];
+  if (status === "in_progress")
+    args.push(`--assignee=${actor}`);
+  if (tags.length)
+    args.push(`--labels=${tags.join(",")}`);
+  if (deps.length)
+    args.push(`--deps=${deps.join(",")}`);
+  const task = JSON.parse(await graphCommand(project, args, actor, expected));
+  return `${line(task)}${items.length ? `
+${items.map((each) => `#${each.id} ${each.name}`).join(`
+`)}` : ""}`;
+}
+async function queryGraph(project, raw, actor) {
+  const view = raw.view ?? "mine";
+  if (view === "show")
+    return taskCard(await graphTask(project, taskId(raw.task)));
+  if (view === "history" || view === "comments") {
+    const text = await graphCommand(project, [view, taskId(raw.task), "--json"]);
+    return text.trim();
+  }
+  if (!["mine", "ready", "open", "closed"].includes(String(view)))
+    throw new Error("Choose mine, ready, open, closed, show, comments or history.");
+  const tags = labels(raw.labels);
+  if (!await project.store.exists(graphPath(project)))
+    return "No tasks.";
+  const args = [view === "ready" ? "ready" : "list", "--json", "--brief", "--limit=0"];
+  if (view === "closed")
+    args.push("--status=closed", "--all");
+  if (view === "mine")
+    args.push(`--assignee=${actor}`);
+  if (tags.length)
+    args.push(`--label=${tags.join(",")}`);
+  const tasks = JSON.parse(await graphCommand(project, args));
+  return tasks.map(line).join(`
+`) || "No tasks.";
+}
+function editable(task, actor) {
+  if (task.status === "closed")
+    throw new Error(`Reopen ${task.id} before editing it.`);
+  if (task.assignee && task.assignee !== actor)
+    throw new Error(`${task.id} belongs to ${task.assignee}. Take over explicitly to edit it.`);
+}
+async function trackGraph(project, input, actor, now) {
+  const task = await graphTask(project, input.task);
+  editable(task, actor);
+  const items = (task.metadata?.items ?? []).map((each) => ({ ...each }));
+  const receipts = [];
+  let next = items.reduce((max, item) => Math.max(item.id, max), 0) + 1;
+  for (const change of input.items) {
+    let item;
+    if ("id" in change) {
+      const found = items.find((each) => each.id === change.id);
+      if (!found)
+        throw new Error(`${task.id} has no item #${change.id}. Nothing written.`);
+      item = found;
+    } else {
+      if (items.some((each) => each.name.toLowerCase() === change.item.toLowerCase()))
+        throw new Error(`Duplicate item: ${change.item}. Nothing written.`);
+      item = { id: next++, name: change.item, status: change.status, created: now, closed: null, note: null };
+      items.push(item);
+    }
+    item.status = change.status;
+    item.note = change.note ?? item.note;
+    item.closed = CLOSED.has(change.status) ? item.closed ?? now : null;
+    receipts.push(`#${item.id} [${item.status}]`);
+  }
+  const args = [
+    "update",
+    task.id,
+    `--metadata=${JSON.stringify({ ...task.metadata, items, ...input.own?.note ? { about: input.own.note } : {} })}`
+  ];
+  if (input.own) {
+    const status = input.own.status === "in progress" ? "in_progress" : input.own.status === "deferred" ? "deferred" : "blocked";
+    args.push(`--status=${status}`, `--assignee=${status === "in_progress" ? actor : ""}`);
+    receipts.push(status);
+  }
+  await graphCommand(project, args, actor, [task]);
+  return `${task.id}: ${receipts.join(", ")}`;
+}
+async function closeGraph(project, input, actor) {
+  const task = await graphTask(project, input.name);
+  editable(task, actor);
+  if (input.outcome === "done" && task.metadata?.items?.some((each) => !CLOSED.has(each.status)))
+    throw new Error("Close the remaining items first.");
+  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`], actor, [task]);
+  return `${task.id} closed (${input.outcome}).`;
+}
+async function manageGraph(project, raw, actor) {
+  const task = await graphTask(project, taskId(raw.task));
+  const action = raw.action;
+  let args;
+  if (action === "reopen") {
+    if (task.status !== "closed")
+      throw new Error(`${task.id} is already open.`);
+    args = ["reopen", task.id];
+  } else {
+    if (task.status === "closed")
+      throw new Error(`Reopen ${task.id} before editing it.`);
+    switch (action) {
+      case "comment": {
+        if (typeof raw.text !== "string" || !raw.text.trim())
+          throw new Error("Pass a nonempty comment in text.");
+        args = ["comments", "add", `--author=${actor}`, "--", task.id, raw.text];
+        break;
+      }
+      case "block":
+      case "unblock": {
+        editable(task, actor);
+        const target = await graphTask(project, taskId(raw.target));
+        if (target.id === task.id)
+          throw new Error("A task cannot block itself.");
+        if (action === "block" && target.status === "closed")
+          throw new Error(`${target.id} is already closed.`);
+        if (action === "unblock" && !task.dependencies?.some((each) => each.id === target.id && each.dependency_type === "blocks"))
+          throw new Error(`${target.id} is not an active blocker of ${task.id}.`);
+        args = ["dep", action === "block" ? "add" : "remove", task.id, target.id];
+        await graphCommand(project, args, actor, [task, target]);
+        return `${task.id}: ${action} ${target.id}.`;
+      }
+      case "takeover":
+        args = ["update", task.id, "--force", `--assignee=${actor}`, "--status=in_progress"];
+        break;
+      case "claim":
+        editable(task, actor);
+        args = ["update", task.id, "--claim"];
+        break;
+      case "release":
+        editable(task, actor);
+        args = ["update", task.id, "--assignee=", "--status=open"];
+        break;
+      case "edit": {
+        editable(task, actor);
+        args = ["update", task.id];
+        for (const [key, flag] of [
+          ["goal", "description"],
+          ["done_when", "acceptance"],
+          ["title", "title"],
+          ["decisions", "design"],
+          ["evidence", "notes"]
+        ]) {
+          const value = raw[key];
+          if (value !== undefined) {
+            if (typeof value !== "string" || !value.trim())
+              throw new Error(`${key} needs text.`);
+            args.push(`--${flag}=${value}`);
+          }
+        }
+        if (raw.labels !== undefined)
+          args.push(`--set-labels=${labels(raw.labels).join(",")}`);
+        if (args.length === 2)
+          throw new Error("Provide at least one field or labels to edit.");
+        break;
+      }
+      default:
+        throw new Error("Choose claim, takeover, release, reopen, edit or comment.");
+    }
+  }
+  await graphCommand(project, args, actor, [task]);
+  return `${task.id}: ${action} completed.`;
+}
+
 // core/src/tools.ts
 var ROWS = [
   {
@@ -3955,8 +4257,38 @@ var ROWS = [
     name: OPEN_TOOL,
     writes: true,
     run: async (raw, call) => {
-      const input = parseOpenInput(raw);
-      return typeof input === "string" ? { deny: input } : openTask(await call.project(), input, await call.now());
+      const project = await call.project();
+      const input = parseOpenInput(raw, Boolean(project.store.beads));
+      if (typeof input === "string")
+        return { deny: input };
+      if (!project.store.beads)
+        return openTask(project, input, await call.now());
+      try {
+        return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
+  {
+    name: MANAGE_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      try {
+        return { result: await manageGraph(await call.project(), raw, await call.sessionId()) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
+  {
+    name: QUERY_TOOL,
+    run: async (raw, call) => {
+      try {
+        return { result: await queryGraph(await call.project(), raw, await call.sessionId()) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
     }
   },
   {
@@ -3964,7 +4296,16 @@ var ROWS = [
     writes: true,
     run: async (raw, call) => {
       const input = parseArchiveInput(raw);
-      return typeof input === "string" ? { deny: input } : archiveTask(await call.project(), input);
+      if (typeof input === "string")
+        return { deny: input };
+      const project = await call.project();
+      if (!project.store.beads || !await project.store.exists(graphPath(project)))
+        return archiveTask(project, input);
+      try {
+        return { result: await closeGraph(project, input, await call.sessionId()) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
     }
   },
   {
@@ -3972,7 +4313,16 @@ var ROWS = [
     writes: true,
     run: async (raw, call) => {
       const input = parseTrackInput(raw);
-      return typeof input === "string" ? { deny: input } : updateTrack(await call.project(), input, await call.now());
+      if (typeof input === "string")
+        return { deny: input };
+      const project = await call.project();
+      if (!project.store.beads || !await project.store.exists(graphPath(project)))
+        return updateTrack(project, input, await call.now());
+      try {
+        return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
     }
   },
   {

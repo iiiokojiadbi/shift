@@ -7,10 +7,12 @@ import {
   DIR,
   GUIDE_TOOL,
   HISTORY_TOOL,
+  MANAGE_TOOL,
   MENTIONS_TOOL,
   MOD,
   OPEN_TOOL,
   OUTLINE_TOOL,
+  QUERY_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
@@ -22,6 +24,7 @@ import type { Project } from './project'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
 import { sizeReport } from './sizes'
+import { closeGraph, createGraphTask, graphPath, manageGraph, queryGraph, trackGraph } from './taskgraph'
 import { doctrine, doctrineBody, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
 import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
@@ -93,9 +96,36 @@ const ROWS: readonly Row[] = [
     name: OPEN_TOOL,
     writes: true,
     run: async (raw, call) => {
-      const input = parseOpenInput(raw)
-
-      return typeof input === 'string' ? { deny: input } : openTask(await call.project(), input, await call.now())
+      const project = await call.project()
+      const input = parseOpenInput(raw, Boolean(project.store.beads))
+      if (typeof input === 'string') return { deny: input }
+      if (!project.store.beads) return openTask(project, input, await call.now())
+      try {
+        return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
+  {
+    name: MANAGE_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      try {
+        return { result: await manageGraph(await call.project(), raw, await call.sessionId()) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
+  {
+    name: QUERY_TOOL,
+    run: async (raw, call) => {
+      try {
+        return { result: await queryGraph(await call.project(), raw, await call.sessionId()) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
     },
   },
   {
@@ -104,7 +134,14 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       const input = parseArchiveInput(raw)
 
-      return typeof input === 'string' ? { deny: input } : archiveTask(await call.project(), input)
+      if (typeof input === 'string') return { deny: input }
+      const project = await call.project()
+      if (!project.store.beads || !(await project.store.exists(graphPath(project)))) return archiveTask(project, input)
+      try {
+        return { result: await closeGraph(project, input, await call.sessionId()) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
     },
   },
   {
@@ -113,7 +150,14 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       const input = parseTrackInput(raw)
 
-      return typeof input === 'string' ? { deny: input } : updateTrack(await call.project(), input, await call.now())
+      if (typeof input === 'string') return { deny: input }
+      const project = await call.project()
+      if (!project.store.beads || !(await project.store.exists(graphPath(project)))) return updateTrack(project, input, await call.now())
+      try {
+        return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
     },
   },
   {

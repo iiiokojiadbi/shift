@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -188,12 +189,63 @@ func run(args []string) error {
 	if _, err := os.Lstat(redirect); !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("cannot use a redirected or unreadable private workspace: %s", redirect)
 	}
-	cmd := exec.Command(bd, args[1:]...)
+	var expected []struct {
+		ID       string `json:"id"`
+		Revision string `json:"revision"`
+	}
+	commands := args[1:]
+	if commands[0] == "shift-checked" {
+		if len(commands) < 3 {
+			return errors.New("missing checked task operation")
+		}
+		if err := json.Unmarshal([]byte(commands[1]), &expected); err != nil {
+			return err
+		}
+		commands = commands[2:]
+	}
+	switch commands[0] {
+	case "list", "ready", "show", "history":
+	default:
+		lock, err := workspaceLock(filepath.Join(workspace, "write.lock"))
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
+	}
+	cmd := exec.Command(bd, commands...)
 	cmd.Dir = workspace
 	cmd.Env = []string{"HOME=" + profile, "USERPROFILE=" + profile, "BEADS_DIR=" + data, "BD_DISABLE_METRICS=1", "GIT_CEILING_DIRECTORIES=" + filepath.Dir(workspace), "GIT_CONFIG_NOSYSTEM=1", "DOLT_ROOT_PATH=" + profile}
 	for _, key := range []string{"PATH", "SYSTEMROOT", "WINDIR", "TMP", "TEMP", "TMPDIR", "LANG", "LC_ALL"} {
 		if v, ok := os.LookupEnv(key); ok {
 			cmd.Env = append(cmd.Env, key+"="+v)
+		}
+	}
+	if len(expected) > 0 {
+		lookup := []string{"show", "--brief-deps", "--json"}
+		for _, entry := range expected {
+			lookup = append(lookup, "--id="+entry.ID)
+		}
+		probe := exec.Command(bd, lookup...)
+		probe.Dir, probe.Env, probe.Stderr = cmd.Dir, cmd.Env, os.Stderr
+		out, err := probe.Output()
+		if err != nil {
+			return err
+		}
+		var issues []struct {
+			ID       string `json:"id"`
+			Revision string `json:"revision"`
+		}
+		if err = json.Unmarshal(out, &issues); err != nil {
+			return err
+		}
+		current := map[string]string{}
+		for _, entry := range issues {
+			current[entry.ID] = entry.Revision
+		}
+		for _, entry := range expected {
+			if entry.Revision == "" || current[entry.ID] != entry.Revision {
+				return errors.New("a task changed during this operation; reread it and retry")
+			}
 		}
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

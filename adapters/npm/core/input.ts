@@ -86,11 +86,11 @@ function splitLines(raw: Record<string, unknown>, key: string): { name: string; 
   return lines
 }
 
-export function parseOpenInput(raw: Record<string, unknown>): OpenInput | string {
+export function parseOpenInput(raw: Record<string, unknown>, graph = false): OpenInput | string {
   const name = taskName(raw, 'name')
   if (typeof name !== 'string') return name.problem
   const status = text(raw, 'status') || 'in progress'
-  if (!(FOCUS as readonly string[]).includes(status)) return `status is one of ${quote(FOCUS)}.`
+  if (!(graph && status === 'open') && !(FOCUS as readonly string[]).includes(status)) return `status is one of ${quote(FOCUS)}.`
   const fields = { title: text(raw, 'title'), goal: text(raw, 'goal'), doneWhen: text(raw, 'done_when') }
   for (const [key, value] of [
     ['title', fields.title],

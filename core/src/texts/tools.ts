@@ -1,31 +1,27 @@
 import {
   ABOUT_MAX,
   AFTER,
-  ARCHIVE,
   ARCHIVE_TOOL,
   FOCUS,
   GUIDE_TOOL,
   HISTORY_DEFAULT,
   HISTORY_MAX,
   HISTORY_TOOL,
-  INDEX,
   LETTER,
+  MANAGE_TOOL,
   MENTIONS_TOOL,
   NAME_RULE,
-  NAMES,
   OPEN_TOOL,
   OUTCOMES,
   OUTLINE_TOOL,
+  QUERY_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
   STATUSES,
-  TASK_LIST,
-  TASKS,
   TOOL,
   TRACK_TOOL,
 } from '../layout'
-import { quote } from '../markdown'
 
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read. Only the main agent shifts: a subagent's call is refused.`
 
@@ -44,7 +40,8 @@ export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
 export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
-export const OPEN_DESCRIPTION = `Open a task instead of creating its files by hand: writes ${TASKS}/<name>/${NAMES.task} with its sections, ${NAMES.track} with the first items, and the task's line with its links in ${TASK_LIST}, all checked first — a refusal writes nothing. Decisions, dead ends and owner decisions start as "none".`
+export const OPEN_DESCRIPTION =
+  'Create a private task or epic with a stable ID, goal, acceptance criteria, items, labels and optional blockers. Work opened in progress belongs to this chat.'
 
 const LINK_LINES = (what: string) => ({
   type: 'array',
@@ -55,14 +52,21 @@ const LINK_LINES = (what: string) => ({
 export const OPEN_SCHEMA = {
   type: 'object',
   properties: {
-    name: { type: 'string', description: `The folder name in ${TASKS}/: ${NAME_RULE}.` },
-    title: { type: 'string', description: "One line: the task.md's # title." },
+    name: { type: 'string', description: `Stable task name: ${NAME_RULE}.` },
+    kind: { type: 'string', enum: ['task', 'epic'] },
+    parent: { type: 'string', description: 'Optional open epic ID.' },
+    labels: { type: 'array', items: { type: 'string' } },
+    title: { type: 'string', description: 'One-line task title.' },
     goal: { type: 'string', description: 'What the task is for: the "Goal" section.' },
     done_when: { type: 'string', description: 'When it is finished: the "Done when" section.' },
-    status: { type: 'string', enum: [...FOCUS], description: 'in progress by default; deferred or waiting carries its reason in about.' },
+    status: {
+      type: 'string',
+      enum: [...FOCUS, 'open'],
+      description: 'in progress claims the task by default. open leaves it available; deferred or waiting carries its reason in about.',
+    },
     about: {
       type: 'string',
-      description: `One line up to ${ABOUT_MAX} characters after the task's line in ${TASK_LIST}: what it is, and why it waits if it does.`,
+      description: `One line up to ${ABOUT_MAX} characters describing the task and why it waits, if applicable.`,
     },
     items: {
       type: 'array',
@@ -76,14 +80,14 @@ export const OPEN_SCHEMA = {
   required: ['name', 'title', 'goal', 'done_when', 'about'],
 }
 
-export const ARCHIVE_DESCRIPTION = `Archive a finished or dropped task: moves ${TASKS}/<name>/ to ${ARCHIVE}/<name>/ and adds its line to ${INDEX}. It also takes the task out of ${TASK_LIST}.`
-
-export const TRACK_DESCRIPTION = `Set a status instead of editing the records by hand. With id: the track item with that id, the number in its "#<id>". With item: a new item with that text, given the next id; its text differs from every item's in the track, case aside. Without either: the task's own status in ${TASK_LIST}. status — for an item ${quote(STATUSES)}; for a task ${quote(FOCUS)}. note — replaces what follows " — ": what matters, or the reason a task is deferred or waits (required then). Several items at once — when a stage closes one item and opens the next: items, a list of {id or item, status, note}, applied together or not at all; status beside items is then the task's own.`
-
+export const ARCHIVE_DESCRIPTION =
+  'Close a finished or dropped task. Give the outcome and reason. Its ID, comments and history remain available.'
+export const TRACK_DESCRIPTION =
+  'Add an item or update it by short numeric ID. Apply several changes atomically with items. Pass status alone to update the task status. Use note for the reason a task waits or is deferred.'
 export const TRACK_SCHEMA = {
   type: 'object',
   properties: {
-    task: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
+    task: { type: 'string', description: 'The task ID or short name.' },
     id: { type: 'integer', description: 'The track item to change: the number in its "#<id>".' },
     item: { type: 'string', description: 'The text of a new track item; what matters goes in note.' },
     status: { type: 'string', enum: [...new Set([...STATUSES, ...FOCUS])] },
@@ -171,7 +175,7 @@ export const TOOL_SCHEMA = {
 export const ARCHIVE_SCHEMA = {
   type: 'object',
   properties: {
-    name: { type: 'string', description: `The task's folder name in ${TASKS}/.` },
+    name: { type: 'string', description: 'The task ID or short name.' },
     outcome: {
       type: 'string',
       enum: [...OUTCOMES],
@@ -200,8 +204,44 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [OPEN_TOOL]: {
     label: 'Open a task',
     description: OPEN_DESCRIPTION,
-    brief: `open a task: its folder, task.md, track.md and its line in \`${TASK_LIST}\`, checked before anything is written.`,
+    brief: `open a task or epic with its goal, links and first items.`,
     schema: OPEN_SCHEMA,
+  },
+  [MANAGE_TOOL]: {
+    label: 'Manage a task',
+    description:
+      'Claim a task for this chat, explicitly take it over, release or reopen it, edit its card or labels, or append a comment. An epic and its children have independent claims.',
+    brief: 'claim, reopen or edit a task, set labels and add comments.',
+    schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['claim', 'takeover', 'release', 'reopen', 'edit', 'comment', 'block', 'unblock'] },
+        task: { type: 'string' },
+        target: { type: 'string', description: 'The blocker for block or unblock.' },
+        text: { type: 'string' },
+        goal: { type: 'string' },
+        title: { type: 'string' },
+        done_when: { type: 'string' },
+        decisions: { type: 'string' },
+        evidence: { type: 'string' },
+        labels: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['action', 'task'],
+    },
+  },
+  [QUERY_TOOL]: {
+    label: 'Read tasks',
+    description:
+      'List your tasks, ready work, open or closed tasks. Show a task card with its blockers, read comments or inspect its history by ID. Filter lists by labels.',
+    brief: 'list ready work and read task cards, comments or history.',
+    schema: {
+      type: 'object',
+      properties: {
+        view: { type: 'string', enum: ['mine', 'ready', 'open', 'closed', 'show', 'comments', 'history'] },
+        task: { type: 'string' },
+        labels: { type: 'array', items: { type: 'string' } },
+      },
+    },
   },
   [ARCHIVE_TOOL]: {
     label: 'Archive a task',
@@ -212,7 +252,7 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   [TRACK_TOOL]: {
     label: 'Task status',
     description: TRACK_DESCRIPTION,
-    brief: `set a track item's status by its id or add an item, several at once with items; without either, the task's own status in \`${TASK_LIST}\`.`,
+    brief: 'update items by short ID, add new ones, or change the task status.',
     schema: TRACK_SCHEMA,
   },
   [HISTORY_TOOL]: {

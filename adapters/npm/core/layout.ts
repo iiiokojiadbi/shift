@@ -10,6 +10,10 @@ export const HISTORY_TOOL = 'shift_history'
 
 export const OPEN_TOOL = 'task_open'
 
+export const MANAGE_TOOL = 'task_manage'
+
+export const QUERY_TOOL = 'task_query'
+
 export const ARCHIVE_TOOL = 'task_archive'
 
 export const TRACK_TOOL = 'task_track'
