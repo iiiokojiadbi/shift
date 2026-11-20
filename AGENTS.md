@@ -29,7 +29,7 @@ The documents live in `docs/` and this file; the mod keeps them — a toc in eac
 - `docs/research.md` — what the design stands on from outside;
 - `docs/archive/` — superseded design notes, kept for reasoning.
 
-Keep it yourself, as part of the work, not on request: a change to how the mod works, its interfaces, a harness's behaviour or the release goes into its document in the same commit; `docs_mentioning` names the documents that mention a changed file. Only the important parts — what a reader could not see from the code and would get wrong without: design, interfaces, reasons, traps, procedures. No dates, no history, no changelog — that is what git and `.shift/` are for; a fact lives in one place, and a document links to another instead of repeating it. A new document gets a `description:` that says what is in it and when to open it.
+Keep it yourself, as part of the work, not on request: a change to how the mod works, its interfaces, a harness's behaviour or the release goes into its document in the same commit; choose the document by the behavior that changed, then use `docs_mentioning` to find further references by filename. Only the important parts — what a reader could not see from the code and would get wrong without: design, interfaces, reasons, traps, procedures. No dates, no history, no changelog — that is what git and `.shift/` are for; a fact lives in one place, and a document links to another instead of repeating it. A new document gets a `description:` that says what is in it and when to open it.
 
 ## Tree
 

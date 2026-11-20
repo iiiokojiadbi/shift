@@ -17,7 +17,7 @@ export type Settings = {
 }
 
 // The project's documents the mod keeps: the folders, relative to the project's root (none — the mod touches no
-// document), how long the map in SHIFT.md may be, whether each document carries a toc, and the limits a document is
+// document), whether each document carries a toc, and the limits a document is
 // checked against after an edit (null — no such check).
 export type DocsSettings = {
   dirs: string[]
@@ -113,7 +113,7 @@ export const SETTING_KEYS: readonly Key[] = [
     since: '0.4.3',
     kind: 'limit',
     at: ['docs', 'maxChars'],
-    about: 'how long the map may be: past it the sections go, then the descriptions, and the map says so',
+    about: 'legacy setting accepted for compatibility; the map shows every active document with its sections at any size',
   },
   {
     key: 'docs.max_pinned',

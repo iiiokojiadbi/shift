@@ -20,6 +20,7 @@ import {
   KNOWLEDGE_MAX_LINES,
   LETTER,
   LETTER_SECTIONS,
+  MENTIONS_TOOL,
   MOD,
   NAME_RULE,
   NAMES,
@@ -28,6 +29,7 @@ import {
   OLD_OWNER,
   OLD_TASKS_SECTION,
   OPEN_TOOL,
+  OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
@@ -131,7 +133,7 @@ Unconfirmed: is a stretch ever longer than a session?
 
 Each field is one line. \`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` — words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` — ask, then drop the line. Only this project's words; no general programming terms.`
 
-const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document the settings name — a folder of them, or one such as \`AGENTS.md\` — with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder or a document of the settings with nothing to list is named in the map as \`no such folder\`, \`no documents\` or \`no such file\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
+const SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word — where each kind of knowledge goes, how the documents are kept — and a map of the documents the mod writes between its markers. The map lists each document the settings name — a folder of them, or one such as \`AGENTS.md\` — with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. With \`archived: true\` in its frontmatter, the entry shows its path, archive status, description and pins. Use \`${OUTLINE_TOOL}\` for its sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such — give it one. A folder or a document of the settings with nothing to list is named in the map as \`no such folder\`, \`no documents\` or \`no such file\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
 
 A \`> [!IMPORTANT]\` block in one of those documents is pinned: the map shows it under its document with its section, so it is in front of you in every session without opening the document. Pin only what you would get wrong in any task without it, in a line or two; change it in the document, never in the map. Nothing is pinned until you pin it. Past \`[docs] max_pinned\` the map says so and still shows every block — unpin what is not needed in every task.
 
@@ -146,13 +148,13 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled — fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, update its document alongside the change, following the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled — fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
 Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. Update a rule on the owner's word and quote wording that matters. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For a record format, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 

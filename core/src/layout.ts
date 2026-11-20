@@ -41,7 +41,7 @@ export const TASKS_MAX_LINES = 150
 // GLOSSARY.md comes into every session whole.
 export const GLOSSARY_MAX_LINES = 400
 
-// The docs map in SHIFT.md, in characters; past it only folders and file names are listed.
+// Historical default for the accepted docs.max_chars setting.
 export const DOCS_MAP_MAX_CHARS = 100000
 
 // The pinned blocks of the docs, in characters; past it the map says so, and shows them all still.

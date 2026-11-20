@@ -108,7 +108,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `[files]` `shift`, `owner`, `glossary` | where `SHIFT.md`, `OWNER.md` and `GLOSSARY.md` live |
 | `[files]` `always` | the project's own files loaded whole into every session |
 | `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` turns the map off |
-| `[docs]` `toc`, `max_chars`, `max_pinned`, `max_description`, `max_lines` | a toc in each document, and the limits of the map and the documents |
+| `[docs]` `toc`, `max_pinned`, `max_description`, `max_lines` | document tocs and checks for pins, descriptions and file length |
 
 ## Documentation
 

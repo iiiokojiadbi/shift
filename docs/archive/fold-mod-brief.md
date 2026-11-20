@@ -1,5 +1,6 @@
 ---
-description: The superseded first brief: a pointwise fold of the history, its research and risks. Only for why the shift replaced it.
+archived: true
+description: Why the original pointwise fold was replaced by a whole shift, including experiments and risks.
 ---
 
 # fold-mod: brief for the agent who will build the MVP

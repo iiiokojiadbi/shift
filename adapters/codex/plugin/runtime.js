@@ -695,7 +695,7 @@ function entryName(entry) {
   return isFile(entry) ? `\`${entry}\`` : `\`${entry}/\``;
 }
 function renderMap(docs, settings, missing) {
-  const { dirs, maxChars } = settings;
+  const { dirs } = settings;
   if (dirs.length === 0) {
     const off = "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it.";
     return [MAP_START, "", `## Documents`, "", off, "", MAP_END].join(`
@@ -711,34 +711,16 @@ function renderMap(docs, settings, missing) {
     folders.set(folder, [...folders.get(folder) ?? [], doc]);
   }
   const sorted = [...folders].sort(([a], [b]) => a.localeCompare(b));
-  const listed = (sections) => sorted.map(([folder, inside]) => [
+  const body = sorted.map(([folder, inside]) => [
     `### ${folder}/`,
     "",
     ...inside.flatMap((doc) => [
-      `- \`${doc.path}\` \u2014 ${doc.description ?? "no description: add `description:` to its frontmatter"}`,
-      ...!sections || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(" \xB7 ")}`],
+      `- \`${doc.path}\` \u2014 ${doc.archived ? "[archived] " : ""}${doc.description ?? "no description: add `description:` to its frontmatter"}`,
+      ...doc.archived || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(" \xB7 ")}`],
       ...pinRows(doc.pins)
     ])
   ].join(`
 `));
-  const size = (body) => body.join(`
-
-`).length;
-  const full = listed(true);
-  const described = listed(false);
-  const over = `the full map is ${size(full)} characters, over \`[docs] max_chars = ${maxChars}\` in the settings`;
-  const back = "Tell the owner: they may raise `[docs] max_chars`; shorter descriptions and fewer `##` sections also bring the map back whole.";
-  const [body, note] = size(full) <= maxChars ? [full, "Open a document for numbers, commands and names: the map only points."] : size(described) <= maxChars ? [
-    described,
-    `Cut down: ${over}. Dropped at this level: the \`sections:\` line of every document \u2014 open a document for its \`##\` sections. Whole: every document with its description. ${back}`
-  ] : [
-    sorted.map(([folder, inside]) => [
-      `- \`${folder}/\` \u2014 ${inside.length} docs: ${inside.map((doc) => basename(doc.path)).join(", ")}`,
-      ...inside.flatMap((doc) => doc.pins.length === 0 ? [] : [`  \`${doc.path}\`:`, ...pinRows(doc.pins, "  ")])
-    ].join(`
-`)),
-    `Cut down: ${over}, and ${size(described)} without the sections. Dropped at this level: the description and the sections of every document \u2014 read a document's frontmatter \`description:\` for what it holds. Whole: every folder with its file names. ${back}`
-  ];
   const nothing = empty.length === 0 ? [] : ["", "Nothing to list:", ...empty];
   const pins = pinnedOver(docs, settings);
   return [
@@ -746,7 +728,7 @@ function renderMap(docs, settings, missing) {
     "",
     `## Documents`,
     "",
-    note,
+    "Open a document for numbers, commands and names: the map only points.",
     ...pins === null ? [] : ["", pins],
     "",
     body.join(`
@@ -837,11 +819,11 @@ async function refreshDocs(project, { tocs = true } = {}) {
     await store.write(shift, map);
   return docs;
 }
-function pinRows(pins, indent = "") {
+function pinRows(pins) {
   return pins.flatMap((pin) => [
-    `${indent}  pinned${pin.section === null ? "" : ` (${pin.section})`}:`,
+    `  pinned${pin.section === null ? "" : ` (${pin.section})`}:`,
     ...pin.text.split(`
-`).map((line) => line.trim().replace(/^[-*+] +/, "")).filter((line) => line !== "").map((line) => `${indent}    \xB7 ${line}`)
+`).map((line) => line.trim().replace(/^[-*+] +/, "")).filter((line) => line !== "").map((line) => `    \xB7 ${line}`)
   ]);
 }
 function pinnedOver(docs, settings) {
@@ -849,9 +831,11 @@ function pinnedOver(docs, settings) {
   return size <= settings.maxPinned ? null : `Pinned: ${size} characters, over \`[docs] max_pinned = ${settings.maxPinned}\` in the settings \u2014 every block still shows. Unpin what is not needed in every task, or tell the owner to raise the limit.`;
 }
 function readDoc(path, text) {
+  const meta = frontmatter(text);
   return {
     path,
-    description: description(text),
+    description: meta.get("description") || null,
+    archived: meta.get("archived") === "true",
     sections: outline(text).filter((h) => h.level === 2).map((h) => h.title),
     pins: pinned(text)
   };
@@ -2962,7 +2946,7 @@ var SETTING_KEYS = [
     since: "0.4.3",
     kind: "limit",
     at: ["docs", "maxChars"],
-    about: "how long the map may be: past it the sections go, then the descriptions, and the map says so"
+    about: "legacy setting accepted for compatibility; the map shows every active document with its sections at any size"
   },
   {
     key: "docs.max_pinned",
@@ -3376,7 +3360,7 @@ Unconfirmed: is a stretch ever longer than a session?
 \`\`\`
 
 Each field is one line. \`Means\` says what the thing is, not what it does, in one or two sentences; \`Avoid\` \u2014 words not to use for it, so one thing has one name; \`Variants\` and \`Where\` as needed. Labels are in English; the term and its meaning in the language the term lives in. Write an article as a term settles in the talk, not at a shift. A meaning you inferred and did not check with the owner carries \`Unconfirmed: <what to ask>\` \u2014 ask, then drop the line. Only this project's words; no general programming terms.`;
-var SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word \u2014 where each kind of knowledge goes, how the documents are kept \u2014 and a map of the documents the mod writes between its markers. The map lists each document the settings name \u2014 a folder of them, or one such as \`AGENTS.md\` \u2014 with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such \u2014 give it one. A folder or a document of the settings with nothing to list is named in the map as \`no such folder\`, \`no documents\` or \`no such file\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
+var SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: rules written on the owner's word \u2014 where each kind of knowledge goes, how the documents are kept \u2014 and a map of the documents the mod writes between its markers. The map lists each document the settings name \u2014 a folder of them, or one such as \`AGENTS.md\` \u2014 with its \`description:\` (frontmatter: what is in the file and when to open it) and its \`##\` sections. With \`archived: true\` in its frontmatter, the entry shows its path, archive status, description and pins. Use \`${OUTLINE_TOOL}\` for its sections. The map only points: numbers, commands and names come from the document itself. A document without a description shows as such \u2014 give it one. A folder or a document of the settings with nothing to list is named in the map as \`no such folder\`, \`no documents\` or \`no such file\`: the project has no docs there, do not go searching. With \`[docs] dirs = []\` the owner turned the map off: leave the project's docs as they are.
 
 A \`> [!IMPORTANT]\` block in one of those documents is pinned: the map shows it under its document with its section, so it is in front of you in every session without opening the document. Pin only what you would get wrong in any task without it, in a line or two; change it in the document, never in the map. Nothing is pinned until you pin it. Past \`[docs] max_pinned\` the map says so and still shows every block \u2014 unpin what is not needed in every task.
 
@@ -3388,13 +3372,13 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled \u2014 fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, update its document alongside the change, following the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` is the state of the work: the goal, the decisions and the dead ends. \`${TASK_LIST}\` says which tasks are open and which you are doing now; each task has its own folder with a description and a tracker. Keep them as you go, not before a shift: took a task, finished an item, dropped one, made a decision, heard the owner's decision, hit a dead end, a term settled \u2014 fix the board, \`${TASK_LIST}\`, \`${OWNER}\`, \`${GLOSSARY}\` or the task right away. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
 Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. Update a rule on the owner's word and quote wording that matters. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For a record format, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 

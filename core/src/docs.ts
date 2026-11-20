@@ -257,7 +257,7 @@ function escapeRegExp(text: string): string {
 export const MAP_START = `<!-- ${MOD}:docs — written by the mod from each document's description and ## headings; edit those, not this -->`
 export const MAP_END = `<!-- /${MOD}:docs -->`
 
-export type Doc = { path: string; description: string | null; sections: string[]; pins: Pin[] }
+export type Doc = { path: string; description: string | null; archived?: boolean; sections: string[]; pins: Pin[] }
 
 // Every document the settings name, from the project's root, sorted: each .md file under a folder — a missing folder
 // has none, a hidden one is skipped — and a named document that is there.
@@ -315,14 +315,9 @@ function entryName(entry: string): string {
   return isFile(entry) ? `\`${entry}\`` : `\`${entry}/\``
 }
 
-// The block itself; past `[docs] max_chars` first without the sections, then only folders and file names, so it never
-// crowds the session and loses the descriptions last. A map cut down says so, and what this level dropped, so the
-// agent knows what it does not see. A folder of the
-// settings with nothing to list is named with why — no such folder, or no documents in it — so the agent knows the
-// project has no docs there and does not go searching. `[docs] dirs = []` is the owner turning the map off — the
-// project's docs may be shared with people and not the agent's to describe — and the block says just that.
+// Each active entry keeps its sections regardless of the size of its siblings.
 export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing: readonly string[]): string {
-  const { dirs, maxChars } = settings
+  const { dirs } = settings
   if (dirs.length === 0) {
     const off =
       "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it."
@@ -341,41 +336,17 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
   }
   // A folder before the folders inside it.
   const sorted = [...folders].sort(([a], [b]) => a.localeCompare(b))
-  const listed = (sections: boolean): string[] =>
-    sorted.map(([folder, inside]) =>
-      [
-        `### ${folder}/`,
-        '',
-        ...inside.flatMap(doc => [
-          `- \`${doc.path}\` — ${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
-          ...(!sections || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
-          ...pinRows(doc.pins),
-        ]),
-      ].join('\n'),
-    )
-  const size = (body: string[]): number => body.join('\n\n').length
-  const full = listed(true)
-  const described = listed(false)
-  const over = `the full map is ${size(full)} characters, over \`[docs] max_chars = ${maxChars}\` in the settings`
-  const back =
-    'Tell the owner: they may raise `[docs] max_chars`; shorter descriptions and fewer `##` sections also bring the map back whole.'
-  const [body, note] =
-    size(full) <= maxChars
-      ? [full, 'Open a document for numbers, commands and names: the map only points.']
-      : size(described) <= maxChars
-        ? [
-            described,
-            `Cut down: ${over}. Dropped at this level: the \`sections:\` line of every document — open a document for its \`##\` sections. Whole: every document with its description. ${back}`,
-          ]
-        : [
-            sorted.map(([folder, inside]) =>
-              [
-                `- \`${folder}/\` — ${inside.length} docs: ${inside.map(doc => basename(doc.path)).join(', ')}`,
-                ...inside.flatMap(doc => (doc.pins.length === 0 ? [] : [`  \`${doc.path}\`:`, ...pinRows(doc.pins, '  ')])),
-              ].join('\n'),
-            ),
-            `Cut down: ${over}, and ${size(described)} without the sections. Dropped at this level: the description and the sections of every document — read a document's frontmatter \`description:\` for what it holds. Whole: every folder with its file names. ${back}`,
-          ]
+  const body = sorted.map(([folder, inside]) =>
+    [
+      `### ${folder}/`,
+      '',
+      ...inside.flatMap(doc => [
+        `- \`${doc.path}\` — ${doc.archived ? '[archived] ' : ''}${doc.description ?? 'no description: add `description:` to its frontmatter'}`,
+        ...(doc.archived || doc.sections.length === 0 ? [] : [`  sections: ${doc.sections.join(' · ')}`]),
+        ...pinRows(doc.pins),
+      ]),
+    ].join('\n'),
+  )
   const nothing = empty.length === 0 ? [] : ['', 'Nothing to list:', ...empty]
   const pins = pinnedOver(docs, settings)
 
@@ -384,7 +355,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
     '',
     `## Documents`,
     '',
-    note,
+    'Open a document for numbers, commands and names: the map only points.',
     ...(pins === null ? [] : ['', pins]),
     '',
     body.join('\n\n'),
@@ -419,7 +390,7 @@ export function mapBounds(lines: readonly string[]) {
 }
 
 // Group the rendered map by its actual entries, including the sections and pins under each.
-// A reduced map uses folder entries. Rules and map-level notices can be refreshed by path.
+// Older maps can contain folder entries. Rules and map-level notices can be refreshed by path.
 export function mapParts(text: string) {
   const lines = text.split('\n')
   const { start, end } = mapBounds(lines)
@@ -468,14 +439,14 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
 
 // A document's pinned blocks under its entry, each with the section it is in: the label on a line of its own, then
 // every line of the block under it starting with " · ", a list item's own marker replaced.
-function pinRows(pins: readonly Pin[], indent = ''): string[] {
+function pinRows(pins: readonly Pin[]): string[] {
   return pins.flatMap(pin => [
-    `${indent}  pinned${pin.section === null ? '' : ` (${pin.section})`}:`,
+    `  pinned${pin.section === null ? '' : ` (${pin.section})`}:`,
     ...pin.text
       .split('\n')
       .map(line => line.trim().replace(/^[-*+] +/, ''))
       .filter(line => line !== '')
-      .map(line => `${indent}    · ${line}`),
+      .map(line => `    · ${line}`),
   ])
 }
 
@@ -490,9 +461,11 @@ export function pinnedOver(docs: readonly Doc[], settings: DocsSettings): string
 
 // What the map shows of a document.
 function readDoc(path: string, text: string): Doc {
+  const meta = frontmatter(text)
   return {
     path,
-    description: description(text),
+    description: meta.get('description') || null,
+    archived: meta.get('archived') === 'true',
     sections: outline(text)
       .filter(h => h.level === 2)
       .map(h => h.title),

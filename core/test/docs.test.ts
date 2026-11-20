@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
-import { docOutline, docsMentioning, docsReport, followWrite, outline, renderMap, settleDocs, withToc } from '../src/docs'
+import { docOutline, docsMentioning, docsReport, followWrite, outline, settleDocs, withToc } from '../src/docs'
 import { sessionFiles } from '../src/flows'
 import { pinned } from '../src/markdown'
 import { loadProject, type Project } from '../src/project'
-import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
+import { parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
 import type { Store } from '../src/store'
 import { renderSessionFiles } from '../src/texts/prompts'
@@ -193,7 +193,7 @@ test('a document at the root named in [docs] dirs is kept like a folder of them'
   expect(await docsMentioning(await at(store), 'docs/a.md')).toBe('No document in `docs/`, `AGENTS.md`, `README.md` mentions `a.md`.')
 })
 
-test('a > [!IMPORTANT] block is pinned under its document with its section, at every level of the map; past the limit it is told, never refused', async () => {
+test('a > [!IMPORTANT] block is pinned under its document with its section, in active and archived entries; past the limit it is told, never refused', async () => {
   const PINNED = [
     '---',
     'description: releases',
@@ -234,7 +234,11 @@ test('a > [!IMPORTANT] block is pinned under its document with its section, at e
   expect(map).toContain('every block still shows')
   expect(await docsReport(await at(store))).toContain('- Pinned: 59 characters')
 
-  const docs = [{ path: 'docs/dev.md', description: 'd'.repeat(500), sections: ['s'], pins: pinned(PINNED) }]
-  const folders = renderMap(docs, { ...DEFAULT_SETTINGS.docs, maxChars: 50 }, [])
-  expect(folders).toContain('- `docs/` — 1 docs: dev.md\n  `docs/dev.md`:\n    pinned:\n      · Users get only tagged releases.')
+  store.files.set(`${ROOT}/docs/dev.md`, PINNED.replace('description: releases', 'archived: true\ndescription: releases'))
+  await afterWrite(await at(store), `${ROOT}/docs/dev.md`)
+  const archived = store.files.get(`${R}/SHIFT.md`) ?? ''
+  expect(archived).toContain('- `docs/dev.md` — [archived] releases\n  pinned:')
+  expect(archived).toContain('  pinned (Release):\n    · Tag first,')
+  expect(archived).not.toContain('sections: Release')
+  expect(await docOutline(await at(store), 'docs/dev.md')).toContain('Release')
 })
