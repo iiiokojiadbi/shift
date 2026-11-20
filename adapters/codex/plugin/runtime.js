@@ -1459,7 +1459,7 @@ var OPENED = (name, line, track) => `Opened ${TASKS}/${name}/ with ${NAMES.task}
 ${line}
 ${track === "" ? "" : `Its items, each changed with ${TRACK_TOOL} by its id:
 ${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`;
-var ARCHIVED = (name) => `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`;
+var ARCHIVED = (name) => `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Keep a decision on the board only while other work needs it after a shift.`;
 function compactInstructions(shift) {
   const focus = shift.focus ?? [];
   return [
@@ -1482,17 +1482,25 @@ function renderWork(work, knowledge, owner) {
   if (work === null)
     return `There is no board at ${BOARD}.`;
   const tasks = inProgress(work).flatMap((t) => [
-    fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? "missing"),
-    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missing")),
+    `**Task \xB7 ${t.name}**
+
+${fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? "missing")}`,
+    `**Tracker \xB7 ${t.name}**
+
+${fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missing"))}`,
     ...t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]
   ]);
   return [
-    fileBlock(BOARD, work.board),
+    `**Board**
+
+${fileBlock(BOARD, work.board)}`,
     ...tasks.length === 0 ? ["No task is in progress."] : tasks,
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">
 ${knowledgeMap(work.knowledge)}
 </knowledge>`
   ].join(`
+
+---
 
 `);
 }
@@ -3525,7 +3533,7 @@ var BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: "what the project is for and how that changed, briefly",
+  Goal: "the current purpose of the project in a sentence or two",
   Decisions: "yours, for the whole project, with the reason; a decision may name what it turned down: `rejected: <option> \u2014 <why>`",
   "Dead ends": "approaches tried and ruled out for the whole project, and why"
 })}
@@ -3603,7 +3611,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the current Goal and only Decisions and Dead ends another task still needs after a shift. Remove entries covered by a mapped document once its reasoning is preserved there. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -3758,7 +3766,7 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 - \`outcome\` \u2014 \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
 - \`about\` \u2014 one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
 
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) \u2014 <about>\` to \`${INDEX}\`, with \`; continues <name>, \u2026\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
+The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) \u2014 <about>\` to \`${INDEX}\`, with \`; continues <name>, \u2026\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Keep a decision on the board only while other work needs it after a shift.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}

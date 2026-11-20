@@ -159,6 +159,8 @@ test('resume says why there is nothing, else hands the letter last', async () =>
   store.files.set(`${R}/shifts/20260101-000000/letter.md`, LETTER)
   const resumed = await resumeShift(store)
   expect(resumed.text).toBe('Picking up shift 20260101-000000.')
+  expect(resumed.prompt).toContain('</file>\n\n---\n\n**Task · tests**\n\n<file path=".shift/tasks/tests/task.md">')
+  expect(resumed.prompt).toContain('</file>\n\n---\n\n**Tracker · tests**\n\n<file path=".shift/tasks/tests/track.md">')
   expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
 })
 

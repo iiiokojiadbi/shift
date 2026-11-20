@@ -63,7 +63,7 @@ const BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: 'what the project is for and how that changed, briefly',
+  Goal: 'the current purpose of the project in a sentence or two',
   Decisions: 'yours, for the whole project, with the reason; a decision may name what it turned down: `rejected: <option> — <why>`',
   'Dead ends': 'approaches tried and ruled out for the whole project, and why',
 })}
@@ -152,7 +152,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` come into every session whole; the board, the letter and the tasks in progress come after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the board current, with Goal, Decisions and Dead ends. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
+Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. Keep the current Goal and only Decisions and Dead ends another task still needs after a shift. Remove entries covered by a mapped document once its reasoning is preserved there. Keep a task's decisions in its folder. Write a short linked note when an item needs evidence. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -310,7 +310,7 @@ When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
 - \`outcome\` — \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
 - \`about\` — one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
 
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Then lift to the board any of its decisions that still bind beyond it.
+The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Keep a decision on the board only while other work needs it after a shift.
 
 To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
 

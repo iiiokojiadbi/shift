@@ -44,7 +44,7 @@ export const OPENED = (name: string, line: string, track: string) =>
   `Opened ${TASKS}/${name}/ with ${NAMES.task} and ${NAMES.track}, and its line in ${TASK_LIST}:\n${line}\n${track === '' ? '' : `Its items, each changed with ${TRACK_TOOL} by its id:\n${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`
 
 export const ARCHIVED = (name: string) =>
-  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Lift to the board any of its decisions that still bind beyond it.`
+  `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Keep a decision on the board only while other work needs it after a shift.`
 
 // What the engine's summarizer is told; the model never sees this framing.
 export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' | 'owner' | 'dir' | 'focus'>): string {
@@ -81,16 +81,16 @@ export function unassistedInstructions(files: Settings['files']): string {
 export function renderWork(work: Work | null, knowledge: Placement | null, owner: string): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
-    fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? 'missing'),
-    fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? 'missing')),
+    `**Task · ${t.name}**\n\n${fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? 'missing')}`,
+    `**Tracker · ${t.name}**\n\n${fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? 'missing'))}`,
     ...(t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]),
   ])
 
   return [
-    fileBlock(BOARD, work.board),
+    `**Board**\n\n${fileBlock(BOARD, work.board)}`,
     ...(tasks.length === 0 ? ['No task is in progress.'] : tasks),
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
-  ].join('\n\n')
+  ].join('\n\n---\n\n')
 }
 
 export function trackPreview(text: string): string {
