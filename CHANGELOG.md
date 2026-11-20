@@ -2,6 +2,18 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.39.0
+
+### Added
+
+- Mark a document with `archived: true` in its frontmatter to show a short reference in the documentation map. Its path, description and pins stay visible, and `doc_outline` provides its full outline.
+- The records section of `shift_guide` explains how to maintain documentation during work, reconcile owner decisions in place and keep the board useful after a shift.
+
+### Changed
+
+- Active documents keep their descriptions and sections at every map size. Existing `[docs] max_chars` values remain valid and no longer truncate the map.
+- Codex users can follow the `codex-stable` marketplace branch and upgrade between sessions with `codex plugin marketplace upgrade shift`.
+
 ## 0.38.2
 
 ### Changed
