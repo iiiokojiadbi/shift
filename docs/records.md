@@ -16,7 +16,7 @@ description: The records the agent keeps in .shift/ and why each is shaped so: t
 
 A record is a state, not a diary. Agents write dates and append everywhere, and working files turn into long logs nobody cleans; so every record has fixed sections, a line limit and no dates, and the mod refuses a shift that breaks them. The past is kept by the shift folders, so removing a line is always safe.
 
-The rules as the model reads them live in one place, `core/src/texts/doctrine.ts`: the short doctrine in the system prompt and the full `shift_guide`, read once per project: after a let-go the agent cannot tell its first shift from a later one, so the message after a shift says the guide is known. This document is why they are so.
+The rules as the model reads them live in one place, `core/src/texts/doctrine.ts`: the short doctrine in the system prompt and the full `shift_guide`, read once per project: after a let-go the agent cannot tell its first shift from a later one, so the message after a shift says the guide is known. Its `records` section also explains how to choose and revise the document for a behavior change, with examples of what belongs on the board and in an owner rule.
 
 ## Layout
 

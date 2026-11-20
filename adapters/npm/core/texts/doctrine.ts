@@ -156,7 +156,7 @@ Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
-Read \`${GUIDE_TOOL}\` before your first shift in this project. For a record format, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
+Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
 ## When to shift
 
@@ -260,6 +260,16 @@ How the mod is set up in this project — the settings, the files of the session
 export const GUIDE_RECORDS = `## What goes where
 
 ${PLACES}
+
+## Writing project documentation during work
+
+When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
+
+1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
+2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
+3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
+4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
+5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.
 
 ## Board — \`${BOARD}\`
 
