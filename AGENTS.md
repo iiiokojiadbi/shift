@@ -10,7 +10,7 @@ description: The project's map and the rules for every change: what shift is, wh
 - Rules for every change
 <!-- /toc -->
 
-An agent decides by itself when to **shift**: at a stage boundary it updates its board and current tasks, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter, board and active tasks back with all open items and their recent closures and continues from where it stopped. The agent does not change — only what is in front of it does.
+An agent decides by itself when to **shift**: at a stage boundary it updates its board and current tasks, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter and board back and continues from where it stopped. The agent does not change — only what is in front of it does.
 
 The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, a private Beads task graph and an independent archive for shift records.
 
@@ -22,7 +22,7 @@ The documents live in `docs/` and this file; the mod keeps them — a toc in eac
 
 - `docs/concept.md` — the idea, the loop, how the model sees it, open questions;
 - `docs/records.md` — what the agent keeps in `.shift/` and why;
-- [Task storage and shift history roadmap](docs/beads-roadmap.md) — the planned move to private Beads tasks, independent shift snapshots and guided migration. Open before changing either storage path.
+- [Task storage and shift history roadmap](docs/beads-roadmap.md) — the project command, independent shift history and compatibility checks. Open before changing either storage path.
 - `docs/hints.md` — when the mod hints a shift, the gauge;
 - `docs/architecture.md` — the core's modules, the ports, where a change goes;
 - `docs/adapters.md` — each harness's slots and the facts about it;
@@ -44,7 +44,6 @@ core/                      shared logic, pure TypeScript, no harness imports —
   src/hint.ts              when to hint, the gauge over a port, shift_status
   src/delivery.ts          every note to the agent: the two slots, a tool's result and the next prompt, and the owner's rows
   src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files, the records changed around a tool
-  src/taskgraph.ts         task cards, claims, items, dependencies and comments
   src/saved.ts migration.ts    history operations and legacy transfer over the bundled runtime
   src/about.ts             about.md: written and read back by one module
   src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks

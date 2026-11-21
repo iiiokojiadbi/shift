@@ -2,7 +2,7 @@ import type { EngineInterface, PromptSubmitArgs } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import type { LetGoDone } from '../types/index'
 import { loadFiles } from './context'
-import { afterTurn, FRESH_LOOP, type Loop, type Project, sessionDoctrine } from './core/index'
+import { afterTurn, FRESH_LOOP, type Loop, type Project, startSession } from './core/index'
 import { projectOf } from './disk'
 
 // The engine lists a module's state from atoms declared in the same file, so each file declares the ones it touches.
@@ -98,5 +98,6 @@ async function compactWithMessage($: EngineInterface, instructions: string, mess
 async function refresh($: EngineInterface, project: Project): Promise<void> {
   // The tocs are not refreshed here: a document a script changed gets its toc with the next prompt's note.
   await loadFiles($, project, false)
-  await update($, doctrineText, () => sessionDoctrine(project.settings).doctrine)
+  const start = await startSession(project)
+  await update($, doctrineText, () => start.doctrine)
 }

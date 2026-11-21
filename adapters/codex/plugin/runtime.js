@@ -12,11 +12,7 @@ var TOOL = "shift";
 var GUIDE_TOOL = "shift_guide";
 var MIGRATE_TOOL = "shift_migrate";
 var HISTORY_TOOL = "shift_history";
-var OPEN_TOOL = "task_open";
-var MANAGE_TOOL = "task_manage";
-var QUERY_TOOL = "task_query";
 var ARCHIVE_TOOL = "task_archive";
-var TRACK_TOOL = "task_track";
 var STATUS_TOOL = "shift_status";
 var SIZES_TOOL = "shift_sizes";
 var SETUP_TOOL = "shift_setup";
@@ -86,7 +82,6 @@ var NEXT = LETTER_SECTIONS[1];
 var HOLD = LETTER_SECTIONS[3];
 var OLD_TASKS_SECTION = "Tasks";
 var AFTER = ["continue", "wait"];
-var OUTCOMES = ["done", "dropped"];
 var FOCUS = ["in progress", "deferred", "waiting for owner"];
 var OPEN = ["in progress", "open"];
 var CLOSING = ["done", "dropped"];
@@ -379,38 +374,6 @@ function shiftFill(text, sessionId) {
   const about = readAbout(text);
   return about.session === sessionId && about.shifted ? about.tokensAfter : null;
 }
-// core/src/archive.ts
-function checkArchive(input, task, archived) {
-  const where = `${TASKS}/${input.name}/`;
-  if (archived)
-    return `${ARCHIVE}/${input.name}/ already exists: pick another name for the task before archiving it.`;
-  if (task.task === null)
-    return `${where}task.md is missing: is "${input.name}" the task's folder name?`;
-  if (title(task.task) === null)
-    return `${where}task.md has no "# <title>" line.`;
-  if (input.outcome === "done") {
-    const open = itemsOf(task.track ?? "").filter((item) => !CLOSED.has(item.status));
-    if (open.length > 0) {
-      return `Not every item is closed: ${quote(open.map((i) => i.line), "; ")}. Close them as done or dropped, or archive the task as dropped.`;
-    }
-  }
-  return null;
-}
-function indexLine(input, task, continues) {
-  const about = continues.length === 0 ? input.about : input.about.replace(/\.$/, "");
-  const tail = continues.length === 0 ? "" : `; continues ${continues.join(", ")}`;
-  return `- [${input.outcome}] [${title(task) ?? input.name}](${input.name}/) \u2014 ${about}${tail}`;
-}
-function addToIndex(index, line) {
-  const head = index === null || index.trim() === "" ? `# Archive
-
-One line per archived task: outcome, title, what it was and how it ended.
-` : `${index.trimEnd()}
-`;
-  return `${head}${index === null || index.trim() === "" ? `
-` : ""}${line}
-`;
-}
 // core/src/beads.ts
 function beadsExecutable(platform, arch) {
   const system = platform.toLowerCase();
@@ -420,6 +383,17 @@ function beadsExecutable(platform, arch) {
   if (!cpu || os !== "linux" && os !== "darwin" && !(os === "windows" && cpu === "amd64"))
     return null;
   return `shift-bd-${os}_${cpu}${os === "windows" ? ".exe" : ""}`;
+}
+async function installSbd(project) {
+  if (!project.store.beads)
+    throw new Error("The bundled runtime is unavailable.");
+  const path = (await project.store.beads(project.root, ["shift-install-sbd"])).trim();
+  if (path !== "./.shift/bin/sbd" && path !== "./.shift/bin/sbd.exe")
+    throw new Error("The bundled runtime did not confirm the sbd command.");
+  return path;
+}
+function taskInstructions(command) {
+  return command ? `For tasks, run \`${command} prime\` from the project root. Use \`${command}\` wherever Beads shows \`bd\`.` : 'For tasks, call shift_setup(section="sbd") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.';
 }
 // core/src/paths.ts
 function dirname(path) {
@@ -930,9 +904,6 @@ function words(list) {
 // core/src/tasks.ts
 var LINKS = ["needs", "after", "continues"];
 var TASK_LINE = /^- \[([^\]]+)\] \[([^\]]+)\]\(tasks\/([^)/]+)\/?\) \u2014 (.+)$/;
-function formatTaskLine(status, label, name, about) {
-  return `- [${status}] [${label}](tasks/${name}/) \u2014 ${about}`;
-}
 function taskLine(line) {
   const [, status = "", label = "", name = "", about = ""] = TASK_LINE.exec(line.trimEnd()) ?? [];
   return name === "" ? null : { status, label, name, about };
@@ -1040,70 +1011,6 @@ function needsCycle(tasks) {
   }
   return null;
 }
-function archivedLink(line, name) {
-  const moved = line.replaceAll(`](tasks/${name}/)`, `](archive/${name}/)`).replaceAll(`](tasks/${name})`, `](archive/${name}/)`);
-  const needs = /^(\s+)- needs: (.+)$/.exec(moved);
-  if (moved === line || needs === null)
-    return [moved];
-  const [, indent = "", rest = ""] = needs;
-  const cut = rest.indexOf(" \u2014 ");
-  const targets = [...(cut === -1 ? rest : rest.slice(0, cut)).matchAll(/\[[^\]]*\]\([^)]*\)/g)].map((found) => found[0]);
-  const why = cut === -1 ? "" : rest.slice(cut);
-  const done = targets.filter((target) => target.includes(`](archive/${name}/)`));
-  const open = targets.filter((target) => !done.includes(target));
-  if (open.length === 0)
-    return [`${indent}- after: ${rest}`];
-  return [`${indent}- needs: ${open.join(", ")}${why}`, `${indent}- after: ${done.join(", ")}`];
-}
-function withTask(text, input, archived) {
-  const lines = [
-    formatTaskLine(input.status, input.name, input.name, input.about),
-    ...input.links.map((link) => {
-      const place = archived.includes(link.name) ? "archive" : "tasks";
-      return `  - ${link.kind}: [${link.name}](${place}/${link.name}/)${link.why === null ? "" : ` \u2014 ${link.why}`}`;
-    })
-  ];
-  if (text === null)
-    return `# Tasks
-
-${lines.join(`
-`)}
-`;
-  const kept = text.split(`
-`).filter((line) => line.trim() !== "none").join(`
-`).trimEnd();
-  return `${kept}
-${/^- \[/m.test(kept) ? "" : `
-`}${lines.join(`
-`)}
-`;
-}
-function archiveInList(text, name) {
-  const out = [];
-  let skipping = false;
-  for (const line of text.split(`
-`)) {
-    const task = taskLine(line);
-    if (task !== null)
-      skipping = task.name === name;
-    else if (line.trim() !== "" && !LINK_LINE.test(line))
-      skipping = false;
-    if (skipping && line.trim() !== "")
-      continue;
-    out.push(...archivedLink(line, name));
-  }
-  const kept = out.join(`
-`);
-  const left = parseTaskList(kept);
-  const isEmpty = Array.isArray(left) && left.length === 0 && !/^none$/m.test(kept);
-  if (!isEmpty)
-    return kept;
-  return kept.trim() === "" ? `none
-` : `${kept.trimEnd()}
-
-none
-`;
-}
 
 // core/src/records.ts
 function checkLetter(text) {
@@ -1209,7 +1116,7 @@ function checkBoard(board) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`;
   }
   if (sections(board).has(OLD_TASKS_SECTION)) {
-    return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it \u2014 see ${GUIDE_TOOL}. Move them there and remove the section.`;
+    return `The board has a "## ${OLD_TASKS_SECTION}" section: keep the project focus in Goal. Preserve any task details in the project tracker before removing this section. See ${GUIDE_TOOL}.`;
   }
   const boardMissing = missingSections(board, BOARD_SECTIONS, "The board");
   if (boardMissing !== null)
@@ -1382,326 +1289,6 @@ No about.md.`;
 `);
 }
 
-// core/src/taskgraph.ts
-var graphPath = (project) => `${project.root}/.shift/beads/.beads/metadata.json`;
-function taskId(raw) {
-  if (typeof raw !== "string" || !NAME.test(raw))
-    throw new Error("Pass a task ID or its short name.");
-  return raw.startsWith("shift-") ? raw : `shift-${raw}`;
-}
-function labels(raw) {
-  if (raw === undefined)
-    return [];
-  if (!Array.isArray(raw) || raw.some((each) => typeof each !== "string" || !each.trim() || /[,\r\n]/.test(each)))
-    throw new Error("Pass labels as an array of nonempty names without commas.");
-  return [...new Set(raw.map((each) => each.trim()))];
-}
-async function graphCommand(project, args, actor, expected = []) {
-  if (!project.store.beads)
-    throw new Error("The private task runtime is unavailable.");
-  const invocation = actor ? [...args.slice(0, 1), `--actor=${actor}`, ...args.slice(1)] : args;
-  return project.store.beads(project.root, ["shift-task"], JSON.stringify({ args: invocation, expected: expected.map(taskGuard) }));
-}
-function taskGuard(task) {
-  if (!task.revision)
-    throw new Error(`Missing revision for ${task.id}.`);
-  return {
-    id: task.id,
-    revision: task.revision,
-    labels: task.labels,
-    comment_count: task.comment_count,
-    dependent_count: task.dependent_count,
-    dependencies: task.dependencies?.map(({ id, dependency_type }) => ({ id, dependency_type }))
-  };
-}
-async function graphTask(project, id) {
-  if (!await project.store.exists(graphPath(project)))
-    throw new Error("No task workspace yet.");
-  const rows = JSON.parse(await graphCommand(project, ["show", taskId(id), "--brief-deps", "--json"]));
-  if (rows.length !== 1 || rows[0]?.id !== taskId(id))
-    throw new Error(`No exact task ${taskId(id)}.`);
-  return rows[0];
-}
-function line(task) {
-  return `${task.id} [${task.status}] ${task.title}${task.assignee ? ` \xB7 ${task.assignee}` : ""}${task.labels?.length ? ` \xB7 ${task.labels.join(", ")}` : ""}`;
-}
-function taskCard(task) {
-  const items = task.metadata?.items ?? [];
-  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? 0) - (a.closed ?? 0) || b.id - a.id);
-  const links = task.metadata?.links ?? [];
-  return [
-    line(task),
-    task.description && `Goal: ${task.description}`,
-    task.acceptance_criteria && `Done when: ${task.acceptance_criteria}`,
-    task.design && `Decisions: ${task.design}`,
-    task.notes && `Evidence: ${task.notes}`,
-    task.metadata?.about,
-    ...(task.dependencies ?? []).map((edge) => {
-      const link = links.find((each) => taskId(each.name) === edge.id);
-      return `${link?.kind ?? edge.dependency_type}: ${edge.id} [${edge.status}] ${edge.title}${link?.why ? ` \u2014 ${link.why}` : ""}`;
-    }),
-    ...[...items.filter((item) => !CLOSED.has(item.status)), ...closed.slice(0, RECENT_CLOSED_ITEMS)].map((item) => `#${item.id} [${item.status}] ${item.name}${item.note ? ` \u2014 ${item.note}` : ""}`),
-    `${closed.length} closed items \xB7 ${task.comment_count ?? 0} comments`
-  ].filter(Boolean).join(`
-`);
-}
-async function createGraphTask(project, input, raw, actor, now) {
-  const tags = labels(raw.labels);
-  const id = taskId(input.name);
-  const kind = raw.kind ?? "task";
-  if (kind !== "task" && kind !== "epic")
-    throw new Error("kind must be task or epic.");
-  const parent = raw.parent === undefined ? null : taskId(raw.parent);
-  const names = input.items.map((each) => each.name.toLowerCase());
-  if (names.length !== new Set(names).size)
-    throw new Error("Each initial item needs a distinct name.");
-  if (!await project.store.exists(graphPath(project)))
-    await graphCommand(project, ["init", "--init-if-missing", "--non-interactive", "--skip-hooks", "--skip-agents", "--prefix", "shift"]);
-  const deps = [];
-  const expected = [];
-  for (const link of input.links) {
-    const target = await graphTask(project, link.name);
-    if (link.kind === "needs" === (target.status === "closed"))
-      throw new Error(`${link.kind}: ${target.id} is ${target.status}.`);
-    expected.push(target);
-    deps.push(`${link.kind === "needs" ? "blocked-by" : "related"}:${target.id}`);
-  }
-  if (parent) {
-    const epic = await graphTask(project, parent);
-    if (epic.issue_type !== "epic" || epic.status === "closed")
-      throw new Error(`Parent ${parent} must be an open epic.`);
-    expected.push(epic);
-    deps.push(`parent-child:${parent}`);
-  }
-  const items = input.items.map((each, i) => ({ ...each, id: i + 1, status: "open", created: now, closed: null }));
-  const status = input.status === "in progress" ? "in_progress" : input.status === "waiting for owner" ? "blocked" : input.status;
-  const args = [
-    "create",
-    `--id=${id}`,
-    `--title=${input.title}`,
-    `--description=${input.goal}`,
-    `--acceptance=${input.doneWhen}`,
-    `--type=${kind}`,
-    `--status=${status}`,
-    `--metadata=${JSON.stringify({ items, about: input.about, links: input.links })}`,
-    "--json"
-  ];
-  if (status === "in_progress")
-    args.push(`--assignee=${actor}`);
-  if (tags.length)
-    args.push(`--labels=${tags.join(",")}`);
-  if (deps.length)
-    args.push(`--deps=${deps.join(",")}`);
-  const task = JSON.parse(await graphCommand(project, args, actor, expected));
-  return `${line(task)}${items.length ? `
-${items.map((each) => `#${each.id} ${each.name}`).join(`
-`)}` : ""}`;
-}
-async function queryGraph(project, raw, actor) {
-  const view = raw.view ?? "mine";
-  if (view === "show") {
-    const task = await graphTask(project, taskId(raw.task));
-    const card = taskCard(task);
-    if (task.issue_type !== "epic")
-      return card;
-    const result = JSON.parse(await graphCommand(project, ["show", task.id, "--children", "--json"]));
-    const children = result[task.id] ?? [];
-    return [card, ...children.map((child) => `child: ${line(child)}`)].join(`
-`);
-  }
-  if (view === "history" || view === "comments") {
-    const text = await graphCommand(project, [view, taskId(raw.task), "--json"]);
-    return text.trim();
-  }
-  if (!["mine", "ready", "open", "closed", "cards"].includes(String(view)))
-    throw new Error("Choose mine, ready, open, closed, show, comments or history.");
-  const tags = labels(raw.labels);
-  if (!await project.store.exists(graphPath(project)))
-    return "No tasks.";
-  const args = [view === "ready" ? "ready" : "list", "--json", "--brief", "--limit=0"];
-  if (view === "closed")
-    args.push("--status=closed", "--all");
-  if (view === "mine" || view === "cards")
-    args.push(`--assignee=${actor}`);
-  if (tags.length)
-    args.push(`--label=${tags.join(",")}`);
-  const tasks = JSON.parse(await graphCommand(project, args));
-  if (view === "cards") {
-    if (!tasks.length)
-      return "No tasks claimed by this chat.";
-    const cards = [];
-    for (let i = 0;i < tasks.length; i += 64) {
-      const ids = tasks.slice(i, i + 64).map((t) => `--id=${t.id}`);
-      const full = JSON.parse(await graphCommand(project, ["show", "--brief-deps", "--json", ...ids]));
-      cards.push(...full.map(taskCard));
-    }
-    return cards.join(`
-
-`);
-  }
-  return tasks.map(line).join(`
-`) || "No tasks.";
-}
-function editable(task, actor) {
-  if (task.status === "closed")
-    throw new Error(`Reopen ${task.id} before editing it.`);
-  if (task.assignee && task.assignee !== actor)
-    throw new Error(`${task.id} belongs to ${task.assignee}. Take over explicitly to edit it.`);
-}
-async function trackGraph(project, input, actor, now) {
-  const task = await graphTask(project, input.task);
-  editable(task, actor);
-  const items = (task.metadata?.items ?? []).map((each) => ({ ...each }));
-  const receipts = [];
-  let next = items.reduce((max, item) => Math.max(item.id, max), 0) + 1;
-  for (const change of input.items) {
-    let item;
-    if ("id" in change) {
-      const found = items.find((each) => each.id === change.id);
-      if (!found)
-        throw new Error(`${task.id} has no item #${change.id}. Nothing written.`);
-      item = found;
-    } else {
-      if (items.some((each) => each.name.toLowerCase() === change.item.toLowerCase()))
-        throw new Error(`Duplicate item: ${change.item}. Nothing written.`);
-      item = { id: next++, name: change.item, status: change.status, created: now, closed: null, note: null };
-      items.push(item);
-    }
-    item.status = change.status;
-    item.note = change.note ?? item.note;
-    item.closed = CLOSED.has(change.status) ? item.closed ?? now : null;
-    receipts.push(`#${item.id} [${item.status}]`);
-  }
-  const args = [
-    "update",
-    task.id,
-    `--metadata=${JSON.stringify({ ...task.metadata, items, ...input.own?.note ? { about: input.own.note } : {} })}`
-  ];
-  if (input.own) {
-    const status = input.own.status === "in progress" ? "in_progress" : input.own.status === "deferred" ? "deferred" : "blocked";
-    args.push(`--status=${status}`, `--assignee=${status === "in_progress" ? actor : ""}`);
-    receipts.push(status);
-  }
-  await graphCommand(project, args, actor, [task]);
-  return `${task.id}: ${receipts.join(", ")}`;
-}
-async function closeGraph(project, input, actor) {
-  const task = await graphTask(project, input.name);
-  editable(task, actor);
-  if (input.outcome === "done" && task.metadata?.items?.some((each) => !CLOSED.has(each.status)))
-    throw new Error("Close the remaining items first.");
-  await graphCommand(project, ["close", task.id, `--reason=${input.outcome}: ${input.about}`, ...input.outcome === "dropped" ? ["--force"] : []], actor, [task]);
-  return `${task.id} closed (${input.outcome}).`;
-}
-async function manageGraph(project, raw, actor) {
-  const task = await graphTask(project, taskId(raw.task));
-  const action = raw.action;
-  let args;
-  if (action === "reopen") {
-    if (task.status !== "closed")
-      throw new Error(`${task.id} is already open.`);
-    args = ["reopen", task.id];
-  } else {
-    if (task.status === "closed")
-      throw new Error(`Reopen ${task.id} before editing it.`);
-    switch (action) {
-      case "comment": {
-        if (typeof raw.text !== "string" || !raw.text.trim())
-          throw new Error("Pass a nonempty comment in text.");
-        args = ["comments", "add", `--author=${actor}`, "--", task.id, raw.text];
-        break;
-      }
-      case "block":
-      case "unblock": {
-        editable(task, actor);
-        const target = await graphTask(project, taskId(raw.target));
-        if (target.id === task.id)
-          throw new Error("A task cannot block itself.");
-        if (action === "block" && target.status === "closed")
-          throw new Error(`${target.id} is already closed.`);
-        if (action === "unblock" && !task.dependencies?.some((each) => each.id === target.id && each.dependency_type === "blocks"))
-          throw new Error(`${target.id} is not an active blocker of ${task.id}.`);
-        args = ["dep", action === "block" ? "add" : "remove", task.id, target.id];
-        await graphCommand(project, args, actor, [task, target]);
-        return `${task.id}: ${action} ${target.id}.`;
-      }
-      case "takeover":
-        args = ["update", task.id, "--force", `--assignee=${actor}`, "--status=in_progress"];
-        break;
-      case "claim":
-        editable(task, actor);
-        args = ["update", task.id, "--claim"];
-        break;
-      case "release":
-        editable(task, actor);
-        args = ["update", task.id, "--assignee=", "--status=open"];
-        break;
-      case "edit": {
-        editable(task, actor);
-        args = ["update", task.id];
-        for (const [key, flag] of [
-          ["goal", "description"],
-          ["done_when", "acceptance"],
-          ["title", "title"],
-          ["decisions", "design"],
-          ["evidence", "notes"]
-        ]) {
-          const value = raw[key];
-          if (value !== undefined) {
-            if (typeof value !== "string" || !value.trim())
-              throw new Error(`${key} needs text.`);
-            args.push(`--${flag}=${value}`);
-          }
-        }
-        if (raw.labels !== undefined)
-          args.push(`--set-labels=${labels(raw.labels).join(",")}`);
-        if (args.length === 2)
-          throw new Error("Provide at least one field or labels to edit.");
-        break;
-      }
-      default:
-        throw new Error("Choose claim, takeover, release, reopen, edit or comment.");
-    }
-  }
-  await graphCommand(project, args, actor, [task]);
-  return `${task.id}: ${action} completed.`;
-}
-async function graphGeneration(p) {
-  if (!await p.store.exists(graphPath(p)))
-    return "";
-  const status = JSON.parse(await graphCommand(p, ["vc", "status", "--json"]));
-  if (typeof status.commit !== "string" || !status.commit)
-    throw new Error("Missing private graph generation.");
-  return status.commit;
-}
-async function commentChanges(project, previous, lastManifest) {
-  const actor = project.actor;
-  if (!actor || !project.store.beads)
-    return null;
-  if (!await project.store.exists(graphPath(project)))
-    return previous && !Object.keys(previous).length && !lastManifest ? null : { counts: {}, manifest: undefined, notes: [] };
-  const raw = await project.store.read(`${project.root}/.shift/beads/.beads/embeddeddolt/shift/.dolt/noms/manifest`);
-  const manifest = raw?.match(/^5:__DOLT__:[0-9a-v]{32}:[0-9a-v]{32}:/)?.[0];
-  if (manifest && manifest === lastManifest && previous)
-    return null;
-  const tasks = JSON.parse(await graphCommand(project, ["list", `--assignee=${actor}`, "--json", "--brief", "--limit=0"]));
-  const counts = { ...previous };
-  const notes = [];
-  for (const task of tasks) {
-    const count = task.comment_count ?? 0;
-    counts[task.id] = count;
-    const prior = previous ? previous[task.id] ?? 0 : undefined;
-    if (prior === undefined || count <= prior)
-      continue;
-    const outside = JSON.parse(await graphCommand(project, ["shift-comment-count", task.id, actor, String(prior), String(count)]));
-    if (outside)
-      notes.push(`${task.id}: ${outside} new external comment${outside === 1 ? "" : "s"}. Read with task_query(view="comments").`);
-  }
-  if (previous && lastManifest === manifest && tasks.every((t) => previous[t.id] === counts[t.id]))
-    return null;
-  return { counts, notes, manifest };
-}
-
 // core/src/saved.ts
 var ARCHIVE_DB = `${DIR}/history.db`;
 var NEXT_SAVED = "s-0000000000000000";
@@ -1728,9 +1315,7 @@ function readSaved(p, id, file) {
 async function usesNewStorage(p) {
   if (!p.store.beads)
     return false;
-  if (await hasArchive(p) || await p.store.exists(graphPath(p)) || await p.store.exists(`${p.root}/${DIR}/migration.json`))
-    return true;
-  return !await legacyExists(p);
+  return await hasArchive(p) || await p.store.exists(`${p.root}/${DIR}/migration.json`) || !await legacyExists(p);
 }
 async function legacyExists(p) {
   const roots = [TASK_LIST, SHIFTS, TASKS, ARCHIVE];
@@ -1760,8 +1345,7 @@ async function historyAction(p, raw) {
     if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 50)
       throw new Error("count must be between 1 and 50.");
     const shifts = await hasArchive(p) ? await archiveCall(p, { action: "search", query: text, limit }) : [];
-    const tasks = await p.store.exists(graphPath(p)) ? JSON.parse(await graphCommand(p, ["search", `--query=${text}`, `--limit=${limit}`, "--json"])) : [];
-    return [...tasks.map((t) => `task \xB7 ${t.id} \xB7 ${t.title}`), ...shifts.map((hit) => `shift \xB7 ${hit}`)].join(`
+    return shifts.map((hit) => `shift \xB7 ${hit}`).join(`
 `) || "No matches.";
   }
   const id = String(raw.id ?? "");
@@ -1808,6 +1392,19 @@ async function historyAction(p, raw) {
 }
 
 // core/src/migration.ts
+async function destination(p, requested, allowShortName = false) {
+  const run = p.store.beads;
+  if (!requested || !run)
+    throw new Error("Pass the stable Beads ID of the transferred issue.");
+  const rows = JSON.parse(await run(p.root, ["show", `--id=${requested}`, "--brief-deps", "--json"]));
+  const id = Array.isArray(rows) && rows.length === 1 ? rows[0]?.id : null;
+  if (id !== requested && !(allowShortName && id === `shift-${requested}`))
+    throw new Error(`No exact Beads issue ${requested}.`);
+  const { revision, status, labels, comment_count, dependent_count, dependencies } = rows[0];
+  if (status === "closed" || !revision)
+    throw new Error(`Reopen and check ${id} before cleanup.`);
+  return { id, revision, labels, comment_count, dependent_count, dependencies };
+}
 async function transferState(p) {
   const path = `${p.root}/${DIR}/migration.json`;
   const text = await p.store.read(path);
@@ -1865,7 +1462,7 @@ async function migrationNote(p) {
     return null;
   const names = new Set([...typeof parsed === "string" ? [] : parsed.map((t) => t.name), ...folders]);
   return [
-    "Legacy records need migration. Run shift_migrate with action start. Transfer each current task through the task tools, then confirm its stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.",
+    "Legacy records need migration. Run shift_migrate with action start. Use the project sbd command to transfer each current issue and confirm its full stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.",
     ...state?.recovery ? [state.recovery.trim()] : [],
     ...[...names].map((name) => `- ${name}: ${state?.confirmed[name] ?? "transfer pending"}`),
     ...typeof parsed === "string" ? [parsed] : []
@@ -1900,9 +1497,7 @@ async function migrateRecords(p, raw) {
       const name = String(raw.task ?? "");
       if (!names.has(name))
         throw new Error("Choose a current legacy task.");
-      const target = await graphTask(p, taskId(raw.target ?? name));
-      if (target.status === "closed")
-        throw new Error("Transfer the current task into an open graph task.");
+      const target = await destination(p, String(raw.target ?? name), true);
       if (Object.entries(state.confirmed).some(([n, id]) => n !== name && id === target.id))
         throw new Error("Each legacy task needs its own stable ID.");
       Object.assign(req, { task: name, target: target.id });
@@ -1918,10 +1513,7 @@ async function migrateRecords(p, raw) {
         const target = state.confirmed[name];
         if (!target)
           throw new Error(`Transfer and confirm ${name} first.`);
-        const task = await graphTask(p, target);
-        if (task.status === "closed" || !task.revision)
-          throw new Error(`Reopen and check ${target} before cleanup.`);
-        expected.push(taskGuard(task));
+        expected.push(await destination(p, target));
       }
       Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id });
       req.protected = [
@@ -2048,16 +1640,11 @@ var NOTE_KINDS = {
   map: "changes to the documentation map",
   docs: "the mod's check of the files written in the last run"
 };
-var OPENED = (name, line, track) => `Opened ${TASKS}/${name}/ with ${NAMES.task} and ${NAMES.track}, and its line in ${TASK_LIST}:
-${line}
-${track === "" ? "" : `Its items, each changed with ${TRACK_TOOL} by its id:
-${track}`}Its decisions, dead ends and owner decisions say "none" until there are some; add items as you go with ${TRACK_TOOL}.`;
-var ARCHIVED = (name) => `Archived to ${ARCHIVE}/${name}/, its line is in ${INDEX}, and ${TASK_LIST} no longer lists it: links to it now point into the archive. Review board entries affected by this task. Keep only the choices and failed approaches other tasks still need.`;
 function compactInstructions(shift) {
   const focus = shift.focus ?? [];
   return [
     "The agent is shifting: it continues this same work right after, from its own letter.",
-    isSaved(shift.dir) ? `Its board (${shift.board}), current task cards and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.` : `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
+    isSaved(shift.dir) ? `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.` : `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     "Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.",
     "Do not write next steps or a plan.",
     ...focus.length === 0 ? [] : [
@@ -2071,7 +1658,7 @@ function compactInstructions(shift) {
   ].join(`
 `);
 }
-function renderWork(work, knowledge, owner, liveTasks) {
+function renderWork(work, knowledge, owner, legacyTasks = true) {
   if (work === null)
     return `There is no board at ${BOARD}.`;
   const tasks = inProgress(work).flatMap((t) => [
@@ -2087,7 +1674,7 @@ ${fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missin
     `**Board**
 
 ${fileBlock(BOARD, work.board)}`,
-    ...liveTasks === undefined ? tasks.length === 0 ? ["No task is in progress."] : tasks : [liveTasks],
+    ...legacyTasks ? tasks.length === 0 ? ["No task is in progress."] : tasks : [],
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">
 ${knowledgeMap(work.knowledge)}
 </knowledge>`
@@ -2177,20 +1764,21 @@ function renderRecent(recent) {
 }
 function renderStuck(stuck) {
   return [
-    `Tasks unchanged through the last shifts \u2014 still right? Ask the owner, change the status, or archive the task as dropped with ${ARCHIVE_TOOL}:`,
+    `Tasks unchanged through the last shifts \u2014 still right? Ask the owner, change the status, or transfer the current work through shift_migrate:`,
     ...stuck.map((task) => `- ${task.name} (${task.status}) \u2014 ${task.shifts} shifts`)
   ].join(`
 `);
 }
 function shiftMessage(opening, letter, back, closing = []) {
   const { work, recent, dir, remarks } = back;
+  const saved = isSaved(dir);
   return [
-    back.liveTasks === undefined ? `<${MOD} folder="${dir}/">` : `<${MOD} id="${dir}">`,
+    saved ? `<${MOD} id="${dir}">` : `<${MOD} folder="${dir}/">`,
     opening,
     "",
-    "The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:",
+    saved ? "Your current board and knowledge map follow. The session files were read again after this shift." : "The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:",
     "",
-    renderWork(work, back.knowledge, back.owner, back.liveTasks),
+    renderWork(work, back.knowledge, back.owner, !saved),
     "",
     renderRecent(recent),
     "",
@@ -2198,11 +1786,11 @@ function shiftMessage(opening, letter, back, closing = []) {
     ...remarks === null ? [] : ["Documents with remarks from the mod \u2014 fix them as the work passes by them:", "", remarks, ""],
     "Your letter to yourself, written right before the shift:",
     "",
-    back.liveTasks === undefined ? `<letter path="${dir}/${NAMES.letter}">` : `<letter shift="${dir}">`,
+    saved ? `<letter shift="${dir}">` : `<letter path="${dir}/${NAMES.letter}">`,
     letter.trim(),
     "</letter>",
     "",
-    back.liveTasks === undefined ? `The letter and the snapshots of this shift: ${dir}/.` : `Read saved records with shift_history using ID ${dir}.`,
+    saved ? `Read saved records with shift_history using ID ${dir}.` : `The letter and the snapshots of this shift: ${dir}/.`,
     ...back.migrationReceipt ? [
       `After checking this letter, finish the transfer with shift_migrate(action="cleanup", id="${dir}", receipt="${back.migrationReceipt}").`
     ] : [],
@@ -2221,7 +1809,7 @@ function waitContext(letter, back) {
 }
 function resumePrompt(letter, back, outcome = null) {
   return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
-    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${isSaved(back.dir) ? "task_query" : INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
+    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${isSaved(back.dir) ? "the project Beads command in your session instructions" : INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
     `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
   ]);
 }
@@ -2243,7 +1831,7 @@ var NOT_MADE_NOTE = (name, why) => `<${MOD} note="from the mod: the shift was no
 Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; its saved records remain in history. Go on from where you stopped, and shift again later.
 </${MOD}>`;
 var UNSETTLED_NOTE = (name, why, dir) => `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD} and ${isSaved(dir) ? "the current task cards" : TASK_LIST}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD}${isSaved(dir) ? "" : ` and ${TASK_LIST}`}, and continue from "${NEXT}".
 </${MOD}>`;
 var HELD_NOTE = (texts) => `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? "this message" : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? "it" : "them"} back to reach you after your letter. ${texts.length === 1 ? "It goes" : "They go"} first, before "${NEXT}".</${MOD}>
 
@@ -2278,89 +1866,6 @@ function renderTasks(tasks) {
 }
 
 // core/src/track.ts
-async function updateTrack(project, input, now = null) {
-  const { store, root } = project;
-  const done = [];
-  if (input.items.length > 0) {
-    const items = await setItems(store, root, input.task, input.items, now);
-    if ("deny" in items)
-      return items;
-    done.push(items.result);
-  }
-  if (input.own !== null) {
-    const own = await setTaskStatus(store, root, input.task, input.own);
-    if ("deny" in own)
-      return done.length === 0 ? own : { deny: `${done.join(`
-`)}
-
-The items are set, the task's line is not: ${own.deny}` };
-    done.push(own.result);
-  }
-  return { result: done.join(`
-`) };
-}
-async function setTaskStatus(store, root, task, own) {
-  const path = `${root}/${TASK_LIST}`;
-  const lines = (await store.read(path) ?? "").split(`
-`);
-  const at = lines.findIndex((line) => taskLine(line)?.name === task);
-  const found = taskLine(lines[at] ?? "");
-  if (found === null)
-    return { deny: `No line for ${task} in ${TASK_LIST}: open the task there first.` };
-  lines[at] = formatTaskLine(own.status, found.label, found.name, own.note ?? found.about);
-  await store.write(path, lines.join(`
-`));
-  return { result: `${TASK_LIST}: ${lines[at]}` };
-}
-async function setItems(store, root, task, changes, now) {
-  const path = taskFile(`${root}/${DIR}`, task, "track");
-  const read = await store.read(path);
-  if (read === null)
-    return { deny: `No ${TASKS}/${task}/track.md: the task is not open.` };
-  let text = numberItems(read);
-  const lines = [];
-  for (const [n, change] of changes.entries()) {
-    const applied = applyItem(text, task, change, now);
-    if ("deny" in applied)
-      return { deny: changes.length === 1 ? applied.deny : `items[${n}]: ${applied.deny}
-Nothing was written.` };
-    text = applied.text;
-    lines.push(`${task}/track.md: ${applied.line}`);
-  }
-  await store.write(path, text);
-  const closed = itemsOf(text).every((each) => each.status === "" || CLOSED.has(each.status));
-  if (closed)
-    lines.push(`Every item of ${task} is closed: archive it with ${ARCHIVE_TOOL} when the task is over.`);
-  return { result: lines.join(`
-`) };
-}
-function applyItem(text, task, change, now) {
-  const lines = text.split(`
-`);
-  const items = itemsOf(text).filter((item) => item.status !== "");
-  if ("item" in change) {
-    const wanted = change.item.toLowerCase();
-    const same = items.find((each) => each.name.toLowerCase() === wanted);
-    if (same !== undefined)
-      return { deny: `"${change.item}" is already an item of ${task}: #${same.id}.` };
-    const line = formatItem(change.status, nextId(items), change.item, change.note);
-    const body = text.trimEnd();
-    return { text: `${body === "" ? "" : `${body}
-`}${line}${trackTimes(now, CLOSED.has(change.status) ? now : null)}
-`, line };
-  }
-  const found = items.find((each) => each.id === change.id);
-  if (found === undefined) {
-    return { deny: `No item #${change.id} in ${task}. Its items:
-${items.map((each) => each.line).join(`
-`)}` };
-  }
-  const closed = CLOSED.has(change.status) ? CLOSED.has(found.status) ? found.closed : now : null;
-  const line = formatItem(change.status, change.id, found.name, change.note ?? found.note);
-  lines[found.index] = line + trackTimes(found.created, closed);
-  return { text: lines.join(`
-`), line };
-}
 function numberItems(text) {
   const items = itemsOf(text).filter((item) => item.status !== "");
   let next = nextId(items);
@@ -2451,11 +1956,13 @@ async function changedRecords(project, seen, by, confirmed, deferLinks) {
   return { seen: now, body: lines.length === 0 ? null : lines.join(`
 `) };
 }
-async function recordStamps({ store, root, settings }) {
+async function recordStamps(project) {
+  const { store, root, settings } = project;
+  const legacy = !await usesNewStorage(project);
   const stamped = async (dir, only) => Object.fromEntries(Object.entries(await store.stamps(join(root, dir))).filter(([name]) => only ? only(name) : name.endsWith(".md")).map(([name, stamp]) => [join(dir, name), stamp]));
   const own = new Set([
     BOARD,
-    TASK_LIST,
+    ...legacy ? [TASK_LIST] : [],
     LETTER,
     SETTINGS,
     settings.files.owner,
@@ -2463,7 +1970,7 @@ async function recordStamps({ store, root, settings }) {
     settings.files.shift,
     ...settings.files.always
   ]);
-  const tasks = await store.list(`${root}/${TASKS}`, "dir");
+  const tasks = legacy ? await store.list(`${root}/${TASKS}`, "dir") : [];
   const parts = await Promise.all([
     ...[...new Set([...own].map(dirname))].map((dir) => stamped(dir, (name) => own.has(join(dir, name)))),
     ...tasks.flatMap((name) => [
@@ -2519,7 +2026,7 @@ async function acceptShift(project, call) {
   const kept = await keepRecordsOut(project);
   if ("deny" in kept)
     return kept;
-  const index = await store.read(`${root}/${INDEX}`);
+  const index = modern ? null : await store.read(`${root}/${INDEX}`);
   const dir = modern ? "" : await freeShiftDir(project, shiftDir(root, call.at));
   const shift = {
     after: input.after,
@@ -2545,8 +2052,7 @@ async function acceptShift(project, call) {
       key: JSON.stringify([call.sessionId, call.at]),
       files,
       about,
-      compare,
-      generation: await graphGeneration(project)
+      compare
     });
     if (!shift.dir)
       return { deny: "Nothing changed in the records since the last shift. Record progress before shifting." };
@@ -2592,65 +2098,6 @@ function knowledgeText(work) {
   return work.knowledge.map((file) => `${file.name}
 ${file.text}`).join(`
 `);
-}
-async function openTask(project, input, now = null) {
-  const { store, root } = project;
-  const folder = `${root}/${TASKS}/${input.name}`;
-  if (await store.exists(folder))
-    return { deny: `${TASKS}/${input.name}/ already exists: set its status with ${TRACK_TOOL}.` };
-  const archived = await store.list(`${root}/${ARCHIVE}`, "dir");
-  if (archived.includes(input.name))
-    return { deny: `${input.name} is archived: open a task under another name with continues: ${input.name}.` };
-  const initial = input.items.map((item, n) => formatItem("open", n + 1, item.name, item.note));
-  const task = {
-    name: input.name,
-    task: renderTask(input),
-    track: initial.map((line) => `${line + trackTimes(now, null)}
-`).join(""),
-    notes: []
-  };
-  const listPath = `${root}/${TASK_LIST}`;
-  const list = withTask(await store.read(listPath), input, archived);
-  const folders = [...await store.list(`${root}/${TASKS}`, "dir"), input.name];
-  const problem = checkTask(task) ?? checkTaskList(list, folders, archived);
-  if (problem !== null)
-    return { deny: `Nothing was written. ${problem}` };
-  await store.write(`${folder}/${NAMES.task}`, task.task ?? "");
-  await store.write(`${folder}/${NAMES.track}`, task.track ?? "");
-  await store.write(listPath, list);
-  return { result: OPENED(input.name, formatTaskLine(input.status, input.name, input.name, input.about), initial.join(`
-`)) };
-}
-function renderTask(input) {
-  const body = { Goal: input.goal, "Done when": input.doneWhen };
-  return `# ${input.title}
-${TASK_SECTIONS.map((section) => `
-## ${section}
-
-${body[section] ?? "none"}
-`).join("")}`;
-}
-async function archiveTask(project, input) {
-  const { store, root } = project;
-  const from = `${root}/${TASKS}/${input.name}`;
-  const to = `${root}/${ARCHIVE}/${input.name}`;
-  const task = await readTask(store, `${root}/${DIR}`, input.name);
-  const problem = checkArchive(input, task, await store.exists(to));
-  if (problem !== null)
-    return { deny: problem };
-  const listPath = `${root}/${TASK_LIST}`;
-  const list = await store.read(listPath);
-  const listed = list === null ? [] : parseTaskList(list);
-  const entry = typeof listed === "string" ? undefined : listed.find((t) => t.name === input.name);
-  const continued = (entry?.links ?? []).filter((link) => link.kind === "continues").map((link) => link.name);
-  const failed = await store.move(from, to);
-  if (failed !== null)
-    return { deny: `Could not move ${from} to ${to}: ${failed}` };
-  const index = await store.read(`${root}/${INDEX}`);
-  await store.write(`${root}/${INDEX}`, addToIndex(index, indexLine(input, task.task ?? "", continued)));
-  if (list !== null)
-    await store.write(listPath, archiveInList(list, input.name));
-  return { result: ARCHIVED(input.name) };
 }
 async function shiftHistory(project, count) {
   const { entries, total } = await lastShifts(project, count);
@@ -2699,7 +2146,7 @@ async function handBack(project, dir, actor, preview = true) {
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),
-    ...isSaved(dir) ? { liveTasks: await liveTasks(project, actor), migrationReceipt: await migrationReceipt(project, dir) } : {}
+    ...isSaved(dir) ? { migrationReceipt: await migrationReceipt(project, dir) } : {}
   };
 }
 async function stuckTasks(project) {
@@ -2779,8 +2226,7 @@ async function settleShift(project, letGo, back) {
     const prompt = continuePrompt(shift.letter, handed);
     return { after: "continue", prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) };
   }
-  const waitBack = isSaved(shift.dir) ? { ...handed, liveTasks: "The current task cards accompany the next prompt." } : handed;
-  const note = { context: waitContext(shift.letter, waitBack), dir: shift.dir, files };
+  const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files };
   await letGo.parkWait?.(note);
   await outcome(OUTCOME.waiting(shrank, "waiting for the owner"));
   return { after: "wait", note, row: WAITING(name, shrank) };
@@ -2821,7 +2267,7 @@ async function keepRecordsOut(project) {
 `);
   return { excluded: file };
 }
-async function sessionFiles(project, { refresh = true, includeClaims = true } = {}) {
+async function sessionFiles(project, { refresh = true } = {}) {
   const { store, root, settings } = project;
   if (!settings.enabled || await staleLayout(project) !== null)
     return [];
@@ -2838,12 +2284,7 @@ async function sessionFiles(project, { refresh = true, includeClaims = true } = 
     ])
   ];
   const loaded = await Promise.all(paths.map(async (path) => ({ path, text: await store.read(`${root}/${path}`) })));
-  const files = loaded.filter((file) => file.text !== null);
-  if (includeClaims && modern && project.actor && await store.exists(graphPath(project))) {
-    const list = await queryGraph(project, { view: "mine" }, project.actor);
-    files.push({ path: "beads:claimed", text: list });
-  }
-  return files;
+  return loaded.filter((file) => file.text !== null);
 }
 async function staleLayout({ store, root }) {
   if (await store.exists(`${root}/${OLD_DIR}`)) {
@@ -2854,14 +2295,15 @@ async function staleLayout({ store, root }) {
   }
   return null;
 }
-async function liveTasks(project, actor = project.actor) {
-  if (!actor || !await project.store.exists(graphPath(project)))
-    return "No tasks claimed by this chat.";
-  return queryGraph(project, { view: "cards" }, actor);
-}
-async function tasksView(project, actor = project.actor) {
-  if (await usesNewStorage(project))
-    return actor ? liveTasks(project, actor) : queryGraph(project, { view: "open" }, "");
+async function tasksView(project) {
+  if (await usesNewStorage(project)) {
+    try {
+      return `Run ${await installSbd(project)} list from the project root to see tasks.`;
+    } catch (error) {
+      return `${taskInstructions()}
+${String(error)}`;
+    }
+  }
   const { store, root } = project;
   const parsed = parseTaskList(await store.read(`${root}/${TASK_LIST}`) ?? "");
   if (typeof parsed === "string")
@@ -3509,20 +2951,18 @@ async function promptRecords(courier, runStarts, parkedWait = false, submitted =
   if (runStarts)
     await courier.updateLooks((current) => ({ ...current, running: 0 }));
   const notes = [];
-  const { running } = await courier.looks();
-  const { seen, comments, commentManifest, refreshClaims, claimDigest } = await courier.looks();
+  const { seen, running, migrationChecked } = await courier.looks();
   const project = await courier.project();
-  const needsCheck = !(await courier.looks()).migrationChecked;
+  const needsCheck = !migrationChecked;
   const migration = needsCheck ? await migrationNote(project) : null;
   if (migration)
     notes.push({ kind: "records", body: migration });
   else if (needsCheck)
     await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
   const session = project.actor;
-  const durableWait = running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? session }) : "";
+  const durableWait = running === 0 && parkedWait && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? session }) : "";
   let waiting = parkedWait && durableWait !== alreadyDelivered ? durableWait : "";
   let recovery = "";
-  let includeCards = !!waiting;
   if (waiting) {
     const saved = await readSaved(project, waiting, NAMES.letter);
     if (readAbout(saved.about).after === "continue") {
@@ -3532,31 +2972,8 @@ Shift done.`) && submitted.includes(letter.trim()))
         waiting = "";
       else
         recovery = continuePrompt(letter, await handBack(project, waiting, session));
-      includeCards = false;
     }
   }
-  let digest = claimDigest;
-  let offeredCards = false;
-  if (session && (includeCards || !durableWait && refreshClaims && await project.store.exists(graphPath(project)))) {
-    const cards = await queryGraph(project, { view: "cards" }, session);
-    digest = textFingerprint(cards);
-    if (waiting || digest !== claimDigest) {
-      notes.push({ kind: "records", body: cards });
-      offeredCards = true;
-    }
-  }
-  const rememberClaims = () => courier.updateLooks((now) => ({ ...now, claimDigest: digest, refreshClaims: false }));
-  if (refreshClaims && !offeredCards)
-    await rememberClaims();
-  const updates = running === 0 ? await commentChanges(project, comments, commentManifest) : null;
-  const rememberCounts = async () => {
-    if (updates)
-      await courier.updateLooks((current) => current.commentManifest === commentManifest && JSON.stringify(current.comments) === JSON.stringify(comments) ? { ...current, comments: updates.counts, commentManifest: updates.manifest } : current);
-  };
-  if (updates && !updates.notes.length)
-    await rememberCounts();
-  if (updates)
-    notes.push(...updates.notes.map((body) => ({ kind: "records", body })));
   const outside = running === 0 ? await look(courier, "other") : null;
   if (outside?.body === null)
     await remember(courier, outside.seen);
@@ -3589,10 +3006,6 @@ Shift done.`) && submitted.includes(letter.trim()))
     delivered: async () => {
       if (migration)
         await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
-      if (offeredCards)
-        await rememberClaims();
-      if (updates?.notes.length)
-        await rememberCounts();
       if (mapNotes.length)
         await takeMapNotes(courier, mapNotes);
       if (pending.length)
@@ -3752,10 +3165,6 @@ function about(raw, what) {
   const value = text(raw, "about");
   return value === "" ? `about is empty: one line \u2014 ${what}.` : lineProblem("about", value, { max: ABOUT_MAX });
 }
-function taskName(raw, key) {
-  const name = text(raw, key);
-  return NAME.test(name) ? name : { problem: `${key} is a task folder name in ${TASKS}/: ${NAME_RULE}.` };
-}
 function parseShiftInput(raw) {
   const letter = text(raw, "letter");
   const after = raw.after;
@@ -3767,69 +3176,6 @@ function parseShiftInput(raw) {
     return { letter, after };
   return about(raw, "what the stretch did and where you stand") ?? { letter, after, about: text(raw, "about") };
 }
-function parseArchiveInput(raw) {
-  const name = taskName(raw, "name");
-  if (typeof name !== "string")
-    return name.problem;
-  const outcome = raw.outcome;
-  if (!isOneOf(OUTCOMES, outcome))
-    return `outcome must be ${quote(OUTCOMES, " or ")}.`;
-  return about(raw, "what the task was and how it ended") ?? { name, outcome, about: text(raw, "about") };
-}
-function splitLines(raw, key) {
-  const value = raw[key] ?? [];
-  if (!Array.isArray(value) || value.some((each) => typeof each !== "string"))
-    return `${key} is a list of lines.`;
-  const lines = [];
-  for (const each of value) {
-    const line = each.trim();
-    const problem = line === "" ? `${key} has an empty line.` : lineProblem(key, line, { noDates: true });
-    if (problem !== null)
-      return problem;
-    const at = line.indexOf(" \u2014 ");
-    lines.push(at === -1 ? { name: line, note: null } : { name: line.slice(0, at).trim(), note: line.slice(at + 3).trim() || null });
-  }
-  return lines;
-}
-function parseOpenInput(raw, graph = false) {
-  const name = taskName(raw, "name");
-  if (typeof name !== "string")
-    return name.problem;
-  const status = text(raw, "status") || "in progress";
-  if (!(graph && status === "open") && !FOCUS.includes(status))
-    return `status is one of ${quote(FOCUS)}.`;
-  const fields = { title: text(raw, "title"), goal: text(raw, "goal"), doneWhen: text(raw, "done_when") };
-  for (const [key, value] of [
-    ["title", fields.title],
-    ["goal", fields.goal],
-    ["done_when", fields.doneWhen]
-  ]) {
-    if (value === "")
-      return `${key} is empty.`;
-    const problem = key === "title" ? lineProblem(key, value, { noDates: true }) : dated(key, value, "Tasks have no dates.");
-    if (problem !== null)
-      return problem;
-  }
-  const what = status === "in progress" ? "what the task is" : `what the task is and why it is ${status}`;
-  const line = about(raw, what);
-  if (line !== null)
-    return line;
-  const items = splitLines(raw, "items");
-  if (typeof items === "string")
-    return items;
-  const links = [];
-  for (const kind of ["needs", "after", "continues"]) {
-    const listed = splitLines(raw, kind);
-    if (typeof listed === "string")
-      return listed;
-    for (const each of listed) {
-      if (!NAME.test(each.name))
-        return `${kind}: "${each.name}" is not a task name \u2014 ${NAME_RULE}, then " \u2014 why" if it needs one.`;
-      links.push({ kind, name: each.name, why: each.note });
-    }
-  }
-  return { name, status, ...fields, about: text(raw, "about"), items, links };
-}
 function parseHistoryCount(raw) {
   const count = raw.count ?? HISTORY_DEFAULT;
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > HISTORY_MAX) {
@@ -3839,69 +3185,6 @@ function parseHistoryCount(raw) {
 }
 function parsePath(raw, key) {
   return optional(raw, key);
-}
-function parseTrackInput(raw) {
-  const task = taskName(raw, "task");
-  if (typeof task !== "string")
-    return task.problem;
-  const status = optional(raw, "status");
-  const note = optional(raw, "note");
-  if (Array.isArray(raw.items) && raw.items.length > 0) {
-    if (optional(raw, "item") !== null || raw.id !== undefined)
-      return "Pass id and item inside items, or leave items out.";
-    const items = [];
-    for (const [n, each] of raw.items.entries()) {
-      const change = itemChange(typeof each === "object" && each !== null ? each : {});
-      if (typeof change === "string")
-        return `items[${n}]: ${change}`;
-      items.push(change);
-    }
-    if (status === null)
-      return { task, items, own: null };
-    const own = ownStatus(status, note);
-    return typeof own === "string" ? own : { task, items, own };
-  }
-  if (optional(raw, "item") === null && raw.id === undefined) {
-    const own = ownStatus(status ?? "", note);
-    return typeof own === "string" ? own : { task, items: [], own };
-  }
-  const change = itemChange(raw);
-  return typeof change === "string" ? change : { task, items: [change], own: null };
-}
-function itemChange(raw) {
-  const item = optional(raw, "item");
-  const id = itemId(raw.id);
-  const status = text(raw, "status");
-  const note = optional(raw, "note");
-  if (raw.id !== undefined && id === null)
-    return "id is the number of a track item, as in its #<id>.";
-  if (id === null === (item === null))
-    return "Pass id to change an item, or item to add a new one.";
-  if (!isOneOf(STATUSES, status))
-    return `status for a track item is one of ${quote(STATUSES)}.`;
-  for (const [key, value] of [
-    ["item", item],
-    ["note", note]
-  ]) {
-    const problem = value === null ? null : lineProblem(key, value, { noDates: true });
-    if (problem !== null)
-      return problem;
-  }
-  return id === null ? { item: item ?? "", status, note } : { id, status, note };
-}
-function itemId(raw) {
-  const id = typeof raw === "string" ? Number(raw.replace(/^#/, "")) : raw;
-  return typeof id === "number" && Number.isInteger(id) && id > 0 ? id : null;
-}
-function ownStatus(status, note) {
-  if (!isOneOf(FOCUS, status))
-    return `status for a task in ${TASK_LIST} is one of ${quote(FOCUS)}.`;
-  const problem = note === null ? null : lineProblem("note", note, { noDates: true });
-  if (problem !== null)
-    return problem;
-  if (status !== "in progress" && note === null)
-    return `A ${status} task carries its reason in its line: pass note.`;
-  return { status, note };
 }
 // core/src/settings.ts
 var PLACEMENTS = ["local", "project", "split"];
@@ -4134,74 +3417,12 @@ async function loadProject(store, root, actor) {
   return { store, root, actor, settings: parsed?.settings ?? DEFAULT_SETTINGS, problem: null, settingsText, set: parsed?.set ?? new Set };
 }
 // core/src/texts/tools.ts
-var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
-var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and about.md. Use "records" for writing project documentation during work and maintaining the board, owner decisions, tasks and archive.`;
+var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
+var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`;
 var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
+var TASKS_DESCRIPTION = "Show how to read project tasks; existing task files are listed before migration";
 var SETUP_SCHEMA = { type: "object", properties: {} };
-var HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count \u2014 how many of the latest (default ${HISTORY_DEFAULT}).`;
-var OPEN_DESCRIPTION = "Create a private task or epic with a stable ID, goal, acceptance criteria, items, labels and optional blockers. Work opened in progress belongs to this chat.";
-var LINK_LINES = (what) => ({
-  type: "array",
-  items: { type: "string" },
-  description: `Task names, each optionally followed by " \u2014 why": ${what}.`
-});
-var OPEN_SCHEMA = {
-  type: "object",
-  properties: {
-    name: { type: "string", description: `Stable task name: ${NAME_RULE}.` },
-    kind: { type: "string", enum: ["task", "epic"] },
-    parent: { type: "string", description: "Optional open epic ID." },
-    labels: { type: "array", items: { type: "string" } },
-    title: { type: "string", description: "One-line task title." },
-    goal: { type: "string", description: 'What the task is for: the "Goal" section.' },
-    done_when: { type: "string", description: 'When it is finished: the "Done when" section.' },
-    status: {
-      type: "string",
-      enum: [...FOCUS, "open"],
-      description: "in progress claims the task by default. open leaves it available; deferred or waiting carries its reason in about."
-    },
-    about: {
-      type: "string",
-      description: `One line up to ${ABOUT_MAX} characters describing the task and why it waits, if applicable.`
-    },
-    items: {
-      type: "array",
-      items: { type: "string" },
-      description: 'The first track items, each "item \u2014 what matters" or just "item"; all open.'
-    },
-    needs: LINK_LINES("open tasks this one cannot finish without"),
-    after: LINK_LINES('archived tasks it stands on; an open one is "needs"'),
-    continues: LINK_LINES("archived tasks it picks up")
-  },
-  required: ["name", "title", "goal", "done_when", "about"]
-};
-var ARCHIVE_DESCRIPTION = "Close a finished or dropped task. Give the outcome and reason. Its ID, comments and history remain available.";
-var TRACK_DESCRIPTION = "Add an item or update it by short numeric ID. Apply several changes atomically with items. Pass status alone to update the task status. Use note for the reason a task waits or is deferred.";
-var TRACK_SCHEMA = {
-  type: "object",
-  properties: {
-    task: { type: "string", description: "The task ID or short name." },
-    id: { type: "integer", description: 'The track item to change: the number in its "#<id>".' },
-    item: { type: "string", description: "The text of a new track item; what matters goes in note." },
-    status: { type: "string", enum: [...new Set([...STATUSES, ...FOCUS])] },
-    note: { type: "string", description: 'One line: replaces what follows " \u2014 ".' },
-    items: {
-      type: "array",
-      description: "Several items in one call, in place of id and item: each changed or added as alone; one that fails writes nothing.",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "integer" },
-          item: { type: "string" },
-          status: { type: "string", enum: [...STATUSES] },
-          note: { type: "string" }
-        },
-        required: ["status"]
-      }
-    }
-  },
-  required: ["task"]
-};
+var HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: their IDs, outcomes and descriptions. count \u2014 how many of the latest (default ${HISTORY_DEFAULT}).`;
 var STATUS_DESCRIPTION = "How full the history is: used of the window, where the harness lets it go by itself, the growth since the last shift, when the next shift hints come, and what the history grew from most. Read-only.";
 var STATUS_SCHEMA = { type: "object", properties: {} };
 var OUTLINE_DESCRIPTION = "A document's description and its ## and ### sections with line numbers, to read only the section you need. path \u2014 from the project's root.";
@@ -4227,7 +3448,7 @@ var HISTORY_SCHEMA = {
   properties: {
     action: { type: "string", enum: ["list", "read", "compare", "export", "delete", "search"] },
     id: { type: "string", description: "Saved shift ID." },
-    query: { type: "string", description: "Local search across task titles, IDs and saved shift text." },
+    query: { type: "string", description: "Local search across saved shift records." },
     other: { type: "string", description: "Second ID to compare against." },
     file: { type: "string", description: "Record to read, default letter.md." },
     count: {
@@ -4257,22 +3478,6 @@ var TOOL_SCHEMA = {
   },
   required: ["letter", "after"]
 };
-var ARCHIVE_SCHEMA = {
-  type: "object",
-  properties: {
-    name: { type: "string", description: "The task ID or short name." },
-    outcome: {
-      type: "string",
-      enum: [...OUTCOMES],
-      description: "done \u2014 every track item is done or dropped; dropped \u2014 the task is abandoned, the reason goes into about."
-    },
-    about: {
-      type: "string",
-      description: `One line up to ${ABOUT_MAX} characters: what the task was and how it ended. The line of the archive index.`
-    }
-  },
-  required: ["name", "outcome", "about"]
-};
 var TOOL_TEXTS = {
   [GUIDE_TOOL]: {
     label: "Shift guide",
@@ -4281,58 +3486,6 @@ var TOOL_TEXTS = {
     schema: GUIDE_SCHEMA
   },
   [TOOL]: { label: "Shift", description: TOOL_DESCRIPTION, brief: "make a shift.", schema: TOOL_SCHEMA },
-  [OPEN_TOOL]: {
-    label: "Open a task",
-    description: OPEN_DESCRIPTION,
-    brief: `open a task or epic with its goal, links and first items.`,
-    schema: OPEN_SCHEMA
-  },
-  [MANAGE_TOOL]: {
-    label: "Manage a task",
-    description: "Claim a task for this chat, explicitly take it over, release or reopen it, edit its card or labels, or append a comment. An epic and its children have independent claims.",
-    brief: "claim, reopen or edit a task, set labels and add comments.",
-    schema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["claim", "takeover", "release", "reopen", "edit", "comment", "block", "unblock"] },
-        task: { type: "string" },
-        target: { type: "string", description: "The blocker for block or unblock." },
-        text: { type: "string" },
-        goal: { type: "string" },
-        title: { type: "string" },
-        done_when: { type: "string" },
-        decisions: { type: "string" },
-        evidence: { type: "string" },
-        labels: { type: "array", items: { type: "string" } }
-      },
-      required: ["action", "task"]
-    }
-  },
-  [QUERY_TOOL]: {
-    label: "Read tasks",
-    description: "List your tasks, ready work, open or closed tasks. Show a task card with its blockers and an epic\u2019s children, read comments or inspect its history by ID. Filter lists by labels.",
-    brief: "list ready work and read task cards, comments or history.",
-    schema: {
-      type: "object",
-      properties: {
-        view: { type: "string", enum: ["mine", "ready", "open", "closed", "show", "comments", "history"] },
-        task: { type: "string" },
-        labels: { type: "array", items: { type: "string" } }
-      }
-    }
-  },
-  [ARCHIVE_TOOL]: {
-    label: "Archive a task",
-    description: ARCHIVE_DESCRIPTION,
-    brief: "archive a finished or dropped task.",
-    schema: ARCHIVE_SCHEMA
-  },
-  [TRACK_TOOL]: {
-    label: "Task status",
-    description: TRACK_DESCRIPTION,
-    brief: "update items by short ID, add new ones, or change the task status.",
-    schema: TRACK_SCHEMA
-  },
   [MIGRATE_TOOL]: {
     label: "Migrate local records",
     description: "Manually transfer current tasks. Start verifies a backup, confirm acknowledges one transferred task, cleanup takes the ID and receipt delivered with the restored letter. Status is read-only.",
@@ -4369,9 +3522,9 @@ var TOOL_TEXTS = {
   },
   [SETUP_TOOL]: {
     label: "Shift setup",
-    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled task executable.`,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or sbd to prepare and locate the project command.`,
     brief: "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: { type: "object", properties: { section: { type: "string", enum: ["runtime"] } } }
+    schema: { type: "object", properties: { section: { type: "string", enum: ["runtime", "sbd"] } } }
   },
   [OUTLINE_TOOL]: {
     label: "Document outline",
@@ -4394,7 +3547,7 @@ function described(names, texts) {
 }
 var BOARD_RULES = `The board is a state, not a diary:
 - lines are rewritten in place, nothing new is appended on top of the old;
-- no dates anywhere, in the board or in tasks: each shift's time is recorded by itself;
+- keep dates off the board; each shift records its own time;
 - no more than ${BOARD_MAX_LINES} lines.
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
@@ -4410,17 +3563,7 @@ Example from a stocktaking project:
 - Dead ends: Deduplicating by timestamp merged distinct counts on devices with identical clocks. Keep this warning while old devices send timestamps alone.
 
 When taking over an existing board or closing a task, ask of each affected line: what would another task do differently after reading this? Keep that instruction short. Put single-task findings with the task. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`;
-var LIST_RULES = `\`${TASK_LIST}\` lists every open task, one line each, and under it the links to other tasks:
-
-\`\`\`
-- [in progress] [adapters](tasks/adapters/) \u2014 the shift in other harnesses
-  - needs: [core-port](tasks/core-port/) \u2014 the port comes first
-  - after: [settings](archive/settings/)
-  - continues: [old-adapters](archive/old-adapters/)
-\`\`\`
-
-Status: ${FOCUS.join(", ")}; deferred and waiting \u2014 with the reason in the line. Links: \`needs\` \u2014 an open task this one cannot finish without; \`after\` \u2014 an archived task it stands on; \`continues\` \u2014 an archived task it picks up. No task yet \u2014 "none". At most ${TASKS_MAX_LINES} lines.`;
-var OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet \u2014 "none". A new word is checked against what is written: it contradicts a rule \u2014 the rule is rewritten; it narrows, widens or refines one \u2014 the rule is rewritten to cover both; it is new \u2014 a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes to that task's "${OWNER_SECTION}".`;
+var OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet \u2014 "none". A new word is checked against what is written: it contradicts a rule \u2014 the rule is rewritten; it narrows, widens or refines one \u2014 the rule is rewritten to cover both; it is new \u2014 a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes in the Beads issue.`;
 var KNOWLEDGE_KINDS = `- \`traps\` \u2014 what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(" and ")};
 - \`lessons\` \u2014 an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(" and ")};
 - \`runbook\` \u2014 what is run and with what: \`### <task>\`, a command block, then ${KINDS.runbook.join(" and ")};
@@ -4431,29 +3574,6 @@ var KNOWLEDGE_RULES = `\`${KNOWLEDGE}/\` is what you learned that stays true for
 ${KNOWLEDGE_KINDS}
 
 No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. After a shift only the map of knowledge comes back \u2014 read a file when its topic comes up.`;
-var PLACES = `| What | Where |
-|---|---|
-| the owner's decision for the whole project | \`${OWNER}\` |
-| the owner's decision for one task | that task's "${OWNER_SECTION}" |
-| your decision or dead end for the whole project | the board |
-| your decision or dead end for one task | the task's \`task.md\` |
-| which tasks are open, what you do now, how they link | \`${TASK_LIST}\` |
-| open work and its progress | \`${TASKS}/<name>/\` |
-| what you were doing, what is next, what is unverified | the letter |
-| a trap, a lesson, a command, a fact | \`${KNOWLEDGE}/\`, unless the owner said it goes to the project's docs |
-| a term of the project | \`${GLOSSARY}\` |
-| where knowledge goes here, how the docs are kept | \`${SHIFT_FILE}\`, on the owner's word |
-| fits no row | \`${KNOWLEDGE}/\`, and tell the owner |
-
-Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, read by people and every contributor) or stays in \`${KNOWLEDGE}/\` is the owner's choice, not yours: all of it in the docs, all of it local, or split by a boundary the owner names. The owner sets it as \`knowledge\` in \`${SETTINGS}\` \u2014 "local", "project" or "split"; with "split" the boundary is a rule in \`${OWNER}\`. After a shift the map of knowledge says which. Until it is set, everything stays in \`${KNOWLEDGE}/\` \u2014 never write the project's shared files on your own guess \u2014 and ask the owner once. What the project's docs already say is never copied into your records.
-
-Each fact lives in one place. Your records live in the project directory, not in a harness's memory: any agent that opens the project reads them.`;
-var TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
-- \`task.md\` \u2014 what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map((s) => `"${s}"`).join(", ")}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` \u2014 the task's tracker: one line per item, \`- [status] #<id> item \u2014 what matters\`, status: ${STATUSES.join(", ")}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived \u2014 the track is the task's history. The tools store creation and closure times in a trailing HTML comment. Reopening clears the closure time. After a shift, older closed items remain accessible by reading the track file;
-- \`${NAMES.notes}/\` \u2014 notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` \u2014 \`- [open] #3 item \u2014 see [what it holds](${NAMES.notes}/<file>.md)\` \u2014 or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
-
-Open a task with \`${OPEN_TOOL}\`, which writes its folder, its files and its line valid at once. Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now \u2014 one task, several, or none.`;
 var GLOSSARY_RULES = `\`${GLOSSARY}\` holds the project's own words, one article each \u2014 names, codes, abbreviations, terms that mean something particular here:
 
 \`\`\`
@@ -4472,18 +3592,18 @@ A \`> [!IMPORTANT]\` block in one of those documents is pinned: the map shows it
 
 Those documents the mod keeps as you write them. After an Edit or a Write the map follows at once; with \`[docs] toc = true\` each document carries a toc between \`${TOC_START}\` and \`${TOC_END}\` under its \`# \` title, written by the mod from its \`##\` and \`###\` and the \`> \` line under a heading \u2014 never edit it by hand. The rest waits until the run is over, so a set of documents can be written in any order: with the next message the mod writes the tocs of the files you wrote \u2014 by any tool, a script's change is found by its file's stamp \u2014 and checks them, in one note \u2014 the tocs it wrote, so read such a file again before editing it, and the remarks: no description, a description or a file over the limits the settings set, a link to a document that is not there. Silence means all is well. The documents with remarks also come after a shift.`;
 var LETTER_OPENING = `Open "Where I am" with one paragraph of 2\u20133 short sentences (up to ${ABOUT_MAX} characters). Say what you worked on, what you found or verified, and where that leaves the work. This paragraph becomes the description in later shift history.`;
-function doctrineBody(tools) {
+function doctrineBody(tools, command) {
   return `# Shift
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change \u2014 only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
 ## Board and tasks
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
+Include a relevant task ID in the letter when it helps you resume. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -4500,90 +3620,11 @@ A soft hint is optional. Shift at a stage boundary when you can continue from yo
 ${tools.map((name) => `- \`${name}\` \u2014 ${TOOL_TEXTS[name]?.brief ?? ""}`).join(`
 `)}`;
 }
-function doctrine(tools) {
+function doctrine(tools, command) {
   return `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
-${doctrineBody(tools)}
+${doctrineBody(tools, command)}
 </${MOD}>`;
 }
-var GUIDE_FLOW = `# Shift: how to shift
-
-A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
-
-A soft hint leaves the timing to you. At the final hint, start the steps below immediately.
-
-## How to shift
-
-1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, finished tasks archived. Check that the goal still fits and the board lines touched in this stretch still guide other work.
-2. The letter \u2014 by its sections below.
-3. Call \`${TOOL}\`:
-   - \`letter\` \u2014 the path to the letter, usually \`${LETTER}\`;
-   - \`after\` \u2014 \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-4. End the turn, nothing more but what the call's result asks: with \`continue\` \u2014 one line; with \`wait\` \u2014 your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
-
-After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge \u2014 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
-
-## Letter \u2014 \`${LETTER}\`
-
-Written anew, whole, before every shift. Sections \`##\`, all required and non-empty (nothing to say \u2014 "none"):
-${described(LETTER_SECTIONS, {
-  "Where I am": LETTER_OPENING,
-  Next: "steps: a command or a file and what you expect",
-  Unverified: "and what not to trust",
-  Hold: "what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter \u2014 the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not"
-})}
-
-## When the mod refuses
-
-The mod looks at the records around every tool you run. A record you changed \u2014 by Edit, a shell command or a script \u2014 is checked by the checks of its file, and problems are reported. Note links settle with the next prompt so the note and its link can be written in either order. A record changed between your tools \u2014 by the owner or another session \u2014 is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason \u2014 fix it and call again:
-- no letter at the path, a section missing or empty;
-- no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
-- no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
-- a knowledge file with an unknown \`kind\`, a name not of its kind, no \`about\`, more than ${KNOWLEDGE_MAX_LINES} lines, an entry without its fields, a glossary kept as knowledge;
-- \`${GLOSSARY}\`: an article without \`Means\`, an unknown label, a word in two articles, an avoided word used as a term, more than ${GLOSSARY_MAX_LINES} lines;
-- a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in the board, \`${TASK_LIST}\`, a task, the owner's decisions, the glossary or knowledge;
-- \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
-- \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, \`after\` on an open one, tasks needing each other in a circle;
-- a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
-- nothing changed in the records since the last shift;
-- the history description exceeds ${ABOUT_MAX} characters.
-
-## about.md \u2014 strict structure
-
-\`\`\`
----
-description: <opening paragraph from the letter>
-at: <ISO time of the shift, UTC>
-after: continue | wait
-result: pending | shifted (<before> \u2192 <after>), continuing | shifted (\u2026), waiting for the owner | not shifted: <reason> | let go, not settled: <reason>
-tokens: <before> \u2192 <after>
-summary_chars: <size of summary.md>
-session: <session id>
----
-
-## Done
-- <task>: <item \u2014 what matters>      or "none"
-
-## Dropped
-- <task>: <item \u2014 reason>            or "none"
-
-## Archived
-- <the index line>                   or "none"
-
-## Open
-- [<status>] [<task>](tasks/<task>/) \u2014 what matters    or "none"
-\`\`\`
-
-How to read it: frontmatter \u2014 \`key: value\` lines between \`---\`; sections \u2014 by \`## \` headings, items \u2014 lines starting with \`- \`. "Done" and "Dropped" \u2014 track items closed during this stretch (not closed in the previous shift's snapshot); "Archived" \u2014 index lines added during this stretch; "Open" \u2014 the lines of \`${TASK_LIST}\` at the moment of the shift. The mod derives all of it from the files, not you. \`result: pending\` on an old folder means the session broke off before the shift finished.
-
-## History and a new session
-
-- \`${HISTORY_TOOL}\` with \`count\` (default ${HISTORY_DEFAULT}) \u2014 the last shifts in brief: time, outcome, description, what was done, dropped and archived, and for the last one what is open. The stretch in detail \u2014 \`letter.md\`, \`board.md\` and \`tasks/\` of its folder.
-- \`${INDEX}\` \u2014 every archived task, one line each.
-- In a new session use \`/${RESUME_COMMAND}\` or the harness's \`${RESUME_COMMAND}\` tool: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
-
-How the mod is set up in this project \u2014 the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts \u2014 is \`${SETUP_TOOL}\`.
-
-`;
 var DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
 
 1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
@@ -4591,61 +3632,11 @@ var DOC_WRITING = `When you change what someone using or maintaining the project
 3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
 4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
 5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`;
-var GUIDE_RECORDS = `## What goes where
-
-${PLACES}
-
-## Writing project documentation during work
-
-${DOC_WRITING}
-
-## Board \u2014 \`${BOARD}\`
-
-${BOARD_RULES}
-
-## Open tasks \u2014 \`${TASK_LIST}\`
-
-${LIST_RULES}
-
-## Owner's decisions \u2014 \`${OWNER}\`
-
-${OWNER_RULES}
-
-## Tasks \u2014 \`${TASKS}/\`
-
-${TASK_RULES}
-
-## Glossary \u2014 \`${GLOSSARY}\`
-
-${GLOSSARY_RULES}
-
-## Knowledge rules and the docs map \u2014 \`${SHIFT_FILE}\`
-
-${SHIFT_RULES}
-
-## Knowledge \u2014 \`${KNOWLEDGE}/\`
-
-${KNOWLEDGE_RULES}
-
-## No dates
-
-No record carries a date \u2014 the board, \`${TASK_LIST}\`, the tasks, \`${OWNER}\`, the glossary, the knowledge; the mod refuses a shift on one. A model writes dates everywhere, and records turn into a diary. The letter is not checked: keep a date there only where it is part of what must stay exact, such as an error's text. Which of two rules is newer is never a question \u2014 a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
-
-## Archive \u2014 \`${ARCHIVE}/\`
-
-When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
-- \`name\` \u2014 the task's folder name;
-- \`outcome\` \u2014 \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
-- \`about\` \u2014 one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
-
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) \u2014 <about>\` to \`${INDEX}\`, with \`; continues <name>, \u2026\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Review board entries affected by the closed task. Keep only the choices and failed approaches other tasks still need.
-
-To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`;
 var GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`;
-var GRAPH_TASKS = `Use task_query(view="ready") to find available work and view="mine" for your claims. Open a task with a stable name, goal, done_when, about and optional initial items. A task opened in progress belongs to this chat. Open an epic with kind="epic"; assign a child's parent to group it. An explicit needs or block link determines execution order. Use task_manage to claim, release, take over, edit, label or comment. A stale revision asks you to reread the card. Batch item changes with task_track using short numeric IDs. Keep task decisions and evidence on the card. Archive finished or dropped work with a reason. Reopen the same task before editing it. Link distinct follow-on work with continues. Read closed work and its history through task_query.`;
-var GRAPH_GUIDE_RECORDS = [
+var GUIDE_RECORDS = [
+  "## What goes where",
   GRAPH_LAYOUT,
-  GRAPH_TASKS,
+  "Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads. For an issue created by an earlier Shift version, show its JSON to read its original metadata, including numbered items and evidence.",
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -4655,15 +3646,17 @@ var GRAPH_GUIDE_RECORDS = [
 ].join(`
 
 `);
-var GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
+var GUIDE_FLOW = `## How to shift
+
+Check the board and current project records. At the final hint, write the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
 - Where I am: ${LETTER_OPENING}
-- Next: the concrete work to resume and how to check it.
+- Next: the concrete work to resume and how to check it. Include a Beads ID when a task is relevant.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
 
 On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
@@ -4686,7 +3679,7 @@ var LAYOUT_TREE = [
   row("\u2502       \u251C\u2500\u2500 ", NAMES.task, 10, "what the task is, its decisions and dead ends"),
   row("\u2502       \u251C\u2500\u2500 ", NAMES.track, 10, "the task's tracker"),
   row("\u2502       \u2514\u2500\u2500 ", `${NAMES.notes}/`, 10, `notes on its items, each linked from ${NAMES.track} or ${NAMES.task}`),
-  row("\u251C\u2500\u2500 ", `${NAMES.archive}/`, 18, `written by ${ARCHIVE_TOOL}; do not edit`),
+  row("\u251C\u2500\u2500 ", `${NAMES.archive}/`, 18, `legacy archived tasks`),
   row("\u2502   \u251C\u2500\u2500 ", NAMES.index, 14, "one line per archived task"),
   row("\u2502   \u2514\u2500\u2500 ", "<name>/", 14, "the task's folder as it was"),
   row("\u2514\u2500\u2500 ", `${NAMES.shifts}/`, 18, "history, written by the mod; do not edit"),
@@ -4777,8 +3770,6 @@ async function sizeReport(project, counter) {
   const back = await handBack(project, dir, project.actor);
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)));
-    if (back.liveTasks)
-      continueRows.push(row("Claimed task cards", count(back.liveTasks)));
     for (const task of modern ? [] : inProgress(back.work)) {
       const folder = `${TASKS}/${task.name}`;
       continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? "missing")));
@@ -4807,7 +3798,7 @@ async function sizeReport(project, counter) {
     row("Continue message", continuation),
     ...continueRows,
     "",
-    "Totals include message framing. The next continuation uses estimated identifiers.",
+    "Totals include message framing and the fallback task-command instructions. The next continuation uses estimated identifiers.",
     "",
     ...saved.length ? [
       `Saved letters in ${modern ? "the shift archive" : `${SHIFTS}/`} (outside total)`,
@@ -4825,12 +3816,7 @@ var ROWS = [
       if (raw.section !== undefined && raw.section !== "flow" && raw.section !== "records")
         return { deny: "section must be flow or records." };
       const project = await call.project();
-      const modern = await usesNewStorage(project);
-      const flow = modern ? GRAPH_GUIDE_FLOW : GUIDE_FLOW;
-      const records = modern ? GRAPH_GUIDE_RECORDS : GUIDE_RECORDS;
-      const guide = raw.section === "flow" ? flow : raw.section === "records" ? records : modern ? `${flow}
-
-${records}` : GUIDE;
+      const guide = raw.section === "flow" ? GUIDE_FLOW : raw.section === "records" ? GUIDE_RECORDS : GUIDE;
       return { result: atPlaces(guide.trimEnd(), project.settings.files) };
     }
   },
@@ -4853,79 +3839,6 @@ ${records}` : GUIDE;
         return accepted;
       await holdShift(call.loop, accepted.shift);
       return { result: accepted.result };
-    }
-  },
-  {
-    name: OPEN_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const project = await call.project();
-      const graph = await usesNewStorage(project);
-      const input = parseOpenInput(raw, graph);
-      if (typeof input === "string")
-        return { deny: input };
-      if (!graph)
-        return openTask(project, input, await call.now());
-      try {
-        return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
-    }
-  },
-  {
-    name: MANAGE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      try {
-        return { result: await manageGraph(await call.project(), raw, await call.sessionId()) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
-    }
-  },
-  {
-    name: QUERY_TOOL,
-    run: async (raw, call) => {
-      try {
-        return { result: await queryGraph(await call.project(), raw, await call.sessionId()) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
-    }
-  },
-  {
-    name: ARCHIVE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const input = parseArchiveInput(raw);
-      if (typeof input === "string")
-        return { deny: input };
-      const project = await call.project();
-      if (!await usesNewStorage(project))
-        return archiveTask(project, input);
-      try {
-        return { result: await closeGraph(project, input, await call.sessionId()) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
-    }
-  },
-  {
-    name: TRACK_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const input = parseTrackInput(raw);
-      if (typeof input === "string")
-        return { deny: input };
-      const project = await call.project();
-      if (!await usesNewStorage(project))
-        return updateTrack(project, input, await call.now());
-      try {
-        return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
     }
   },
   {
@@ -4958,12 +3871,21 @@ ${records}` : GUIDE;
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   {
     name: SETUP_TOOL,
+    writes: true,
     run: async (raw, call) => {
       const project = await call.project();
       if (raw.section === undefined)
         return { result: await setupReport(project, await call.loaded()) };
+      if (raw.section === "sbd") {
+        try {
+          const stale = await staleLayout(project);
+          return stale ? { deny: stale } : { result: taskInstructions(await installSbd(project)) };
+        } catch (error) {
+          return { deny: String(error) };
+        }
+      }
       if (raw.section !== "runtime")
-        return { deny: "Expected section runtime." };
+        return { deny: "Expected section runtime or sbd." };
       if (!project.store.beads)
         return { deny: "This adapter has no private task runtime." };
       try {
@@ -5001,27 +3923,44 @@ function shownTools(settings) {
     return [];
   return TOOLS.filter((tool) => !tool.docs || settings.docs.dirs.length > 0);
 }
-function sessionDoctrine(settings) {
+function sessionDoctrine(settings, command) {
   const names = shownTools(settings).map((tool) => tool.name);
-  return { doctrine: atPlaces(doctrine(names), settings.files), doctrineBody: atPlaces(doctrineBody(names), settings.files) };
+  return {
+    doctrine: atPlaces(doctrine(names, command), settings.files),
+    doctrineBody: atPlaces(doctrineBody(names, command), settings.files)
+  };
 }
-async function startSession(project) {
+async function startSession(project, knownCommand) {
   const { settings, problem } = project;
   const rows = [];
   if (problem !== null)
     rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: "warning" });
-  const start = { enabled: settings.enabled, rows, tools: shownTools(settings), ...sessionDoctrine(settings) };
+  let command = knownCommand ?? null;
+  const result = () => ({
+    enabled: settings.enabled,
+    rows,
+    command,
+    tools: shownTools(settings),
+    ...sessionDoctrine(settings, command)
+  });
   if (!settings.enabled)
-    return start;
+    return result();
   const stale = await staleLayout(project);
   if (stale !== null)
     rows.push({ text: `${MOD}: ${stale}`, level: "warning" });
+  else if (knownCommand === undefined && project.store.beads) {
+    try {
+      command = await installSbd(project);
+    } catch (error) {
+      rows.push({ text: `Could not prepare the project sbd command: ${String(error)}`, level: "warning", sbd: true });
+    }
+  }
   if (await project.store.exists(`${project.root}/${DIR}`)) {
     const kept = await keepRecordsOut(project);
     if ("excluded" in kept && kept.excluded !== null)
       rows.push({ text: EXCLUDED(kept.excluded), level: "info" });
   }
-  return start;
+  return result();
 }
 
 // core/src/setup.ts
@@ -5943,14 +4882,20 @@ async function contextFor(input, project, state, restoring = false, alreadyDeliv
     return { notes: [mapNote, ...notes.map(wrap)], waiting: "" };
   }
   state.shells = [];
-  const start = await startSession(project);
+  const prepareCommand = event === "SessionStart" || state.sbd === undefined;
+  const start = await startSession(project, prepareCommand ? undefined : state.sbd);
+  state.sbd = start.command;
   const transcript = typeof input.transcript_path === "string" ? input.transcript_path : undefined;
   const resume = event === "SessionStart" && input.source === "resume";
   const kept = resume && transcript && state.context && await retainedContext(transcript, state.context, start.doctrine.slice(0, start.doctrine.indexOf(`
 `)));
   const fresh = !state.map || event === "SessionStart" && !kept;
   const doctrineHash = fingerprint(start.doctrine);
+  if (prepareCommand)
+    state.sbdWarning = start.rows.find((row) => row.sbd)?.text;
   const warnings = start.rows.map((row) => row.text);
+  if (!prepareCommand && state.sbdWarning)
+    warnings.push(state.sbdWarning);
   const changedWarnings = warnings.filter((row) => fresh || !state.warnings?.includes(row));
   state.warnings = warnings;
   const present = await Promise.all(project.settings.docs.dirs.map((path) => project.store.exists(`${project.root}/${path}`)));
@@ -5966,17 +4911,14 @@ async function contextFor(input, project, state, restoring = false, alreadyDeliv
   state.docsSettings = docsSettings;
   if (event === "SessionStart") {
     state.looks.migrationChecked = false;
-    state.looks.refreshClaims = !!kept;
   }
   const legacyStamps = state.looks.docs;
-  if (restoring)
-    state.looks.refreshClaims = false;
   const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, contextBody(String(input.prompt ?? "")), alreadyDelivered);
   const recordNotes = records.notes.map(wrap);
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
   state.reportedProblem = problem;
-  const files = await sessionFiles(project, { refresh: false, includeClaims: fresh });
+  const files = await sessionFiles(project, { refresh: false });
   const { confirmed } = await mapEdits();
   state.mapOffset = nextMapOffset;
   const changes = await observeMap2(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps);
@@ -6177,6 +5119,7 @@ class Session {
   prints;
   mapOffset;
   loaded = null;
+  command = null;
   prepared = false;
   enabled = false;
   observation = Promise.resolve();
@@ -6246,6 +5189,7 @@ class Session {
     let initialFiles;
     if (first) {
       const started = await startSession(project);
+      this.command = started.command;
       for (const row of started.rows)
         this.tell(row.text);
       initialFiles = await sessionFiles(project);
@@ -6256,7 +5200,11 @@ class Session {
     const block = renderSessionFiles(files);
     const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset);
     const changes = await observeMap2(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed);
-    const parts = [first ? sessionDoctrine(project.settings).doctrine : "", first ? block : changes.note, ...notes.notes].filter(Boolean);
+    const parts = [
+      first ? sessionDoctrine(project.settings, this.command).doctrine : "",
+      first ? block : changes.note,
+      ...notes.notes
+    ].filter(Boolean);
     return {
       params: parts.length ? { ...params, additionalContext: { ...fields(params.additionalContext), shift: { kind: "untrusted", value: parts.join(`
 
@@ -6459,7 +5407,7 @@ class Session {
             const block = renderSessionFiles(files);
             this.prints = (await observeMap2(project, undefined, files, await docStamps(project))).prints;
             this.mapOffset = undefined;
-            await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join(`
+            await this.inject([sessionDoctrine(project.settings, this.command).doctrine, block].filter(Boolean).join(`
 
 `));
             this.loaded = block;
@@ -6648,7 +5596,7 @@ class Daemon {
 }
 var extras = [
   { name: "unshift", description: "Resume from the latest letter." },
-  { name: "shift_tasks", description: "List the open tasks and their current items." }
+  { name: "shift_tasks", description: TASKS_DESCRIPTION }
 ];
 var tools3 = [
   ...TOOLS.map((tool) => ({

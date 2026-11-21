@@ -16,7 +16,7 @@ The core holds everything that does not depend on a harness; an adapter is wirin
 
 ## Core and adapters
 
-The adapter locates its bundled native runtime and supplies the project directory, command arguments and optional JSON on stdin. The core binds task claims to the harness session ID. `taskgraph.ts` owns task semantics, `saved.ts` the history interface, and `migration.ts` the legacy transfer. The runtime serializes guarded task updates and owns the bbolt transactions and filesystem recovery. Task arguments cross the adapter boundary as JSON on stdin. The native comment reader counts external authors over a requested range, so automatic notifications return a number even for a large discussion. See the [storage roadmap](beads-roadmap.md) for acceptance scenarios.
+Each adapter locates its bundled runtime and asks it to prepare the project-local task command at session start. The runtime returns the path that the agent can use for ordinary Beads commands. The core uses `saved.ts` for shift history and `migration.ts` for legacy transfer. Archive operations go to bbolt through the runtime's stdin interface. Saving and restoring a letter require only the archive and project records. See the [storage roadmap](beads-roadmap.md) for acceptance scenarios.
 
 `core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/` and `adapters/npm/core/`, which pi's and opencode's entries share; the copies are never edited, and the pre-commit hook fails on a stale one. The Codex launcher runs from the checkout and imports the core directly.
 
@@ -25,7 +25,7 @@ An adapter keeps only what its harness alone can do:
 - measuring the history (tokens, window, the harness's own let-go threshold);
 - letting the history go and starting a turn;
 - delivering text: the doctrine, a hint, the message after a shift, the owner's rows;
-- registering the core's tools and the commands: `/unshift`; `/shift` — the owner's word to shift now, a turn of its own after the one in flight with the words typed after it (`SHIFT_NOW`); and `/shift-tasks` — the open tasks for the owner, read only, run at once even mid-turn (`tasksView`).
+- registering the core's tools and the commands: `/unshift`; `/shift` — the owner's word to shift now, a turn of its own after the one in flight with the words typed after it (`SHIFT_NOW`); and `/shift-tasks` — the project task command or, before migration, the open tasks (`tasksView`).
 
 ## The core's modules
 

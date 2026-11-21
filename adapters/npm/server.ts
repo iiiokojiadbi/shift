@@ -42,6 +42,7 @@ import {
   renderSessionFiles,
   resumeShift,
   runEnded,
+  SESSION_FILES_VERSION,
   SHIFT_COMMAND,
   SHIFT_NOW_DESCRIPTION,
   SOURCES,
@@ -77,6 +78,7 @@ const HOLD_LIMIT = 10 * 60_000
 
 // What the plugin keeps of one session; the plugin is one per project, shared by its sessions.
 type Session = {
+  command: import('./core/beads').SbdCommand | null
   // The project's settings turn the mod on for it, read as the session first comes; the rows that start it, told once.
   enabled: boolean
   rows: { text: string; level: Level }[]
@@ -132,26 +134,31 @@ const plugin: Definition = {
       // A shift accepted before the plugin reloaded lets go at the next run's end.
       const pending = ((await ctx.storage.get(pendingKey(sessionID))) ?? null) as PendingShift | null
       const saved = (await ctx.storage.get(`context:${sessionID}`)) as
-        | { block: Session['block']; checkpoint: ReturnType<typeof mapCheckpoint> }
+        | { version?: number; block: Session['block']; checkpoint: ReturnType<typeof mapCheckpoint> }
         | undefined
-      const begun = await startSession(await project())
+      const current = await project()
+      const begun = await startSession(current)
+      const old = !!saved?.block && saved.version !== SESSION_FILES_VERSION
+      const files = old ? renderSessionFiles(await sessionFiles(current, { refresh: false })) : saved?.block?.files
       const fresh: Session = {
+        command: begun.command,
         enabled: begun.enabled,
         rows: [...startRows.splice(0), ...begun.rows],
         loop: { ...FRESH_LOOP, note, pending },
         updating: Promise.resolve(),
         prompting: Promise.resolve(),
         gauge: FRESH_GAUGE,
-        looks: { ...FRESH_LOOKS, ...saved?.checkpoint, refreshClaims: !!saved?.block },
+        looks: { ...FRESH_LOOKS, ...saved?.checkpoint },
         fill: undefined,
         busy: false,
         hold: undefined,
         letGo: undefined,
         letGoID: undefined,
         runs: 0,
-        block: saved?.block && { ...saved.block, doctrine: sessionDoctrine((await project()).settings).doctrine },
+        block: saved?.block && { files: files ?? null, doctrine: begun.doctrine },
       }
       sessions.set(sessionID, sessions.get(sessionID) ?? fresh)
+      if (old && sessions.get(sessionID) === fresh) await saveContext(sessionID, fresh)
 
       return sessions.get(sessionID) ?? fresh
     }
@@ -246,7 +253,7 @@ const plugin: Definition = {
     }
 
     async function saveContext(sessionID: string, session: Session) {
-      const value = session.block && { block: session.block, checkpoint: mapCheckpoint(session.looks) }
+      const value = session.block && { version: SESSION_FILES_VERSION, block: session.block, checkpoint: mapCheckpoint(session.looks) }
       const saving = session.updating.then(() => keep(`context:${sessionID}`, value ?? null))
       session.updating = saving.catch(() => undefined)
       await saving
@@ -330,7 +337,7 @@ const plugin: Definition = {
         const project = await projectAt(root, event.sessionID)
         if (project.settings.enabled && !(await staleLayout(project))) await refreshDocs(project, { tocs: false })
         const files = await sessionFiles(project, { refresh: false })
-        session.block = { doctrine: sessionDoctrine(project.settings).doctrine, files: renderSessionFiles(files) }
+        session.block = { doctrine: sessionDoctrine(project.settings, session.command).doctrine, files: renderSessionFiles(files) }
         session.looks = { ...session.looks, map: await initialMap(project, files), mapNotes: [] }
         await saveContext(event.sessionID, session)
       }

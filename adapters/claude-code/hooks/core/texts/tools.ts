@@ -1,116 +1,36 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import {
-  ABOUT_MAX,
   AFTER,
-  ARCHIVE_TOOL,
-  FOCUS,
   GUIDE_TOOL,
   HISTORY_DEFAULT,
   HISTORY_MAX,
   HISTORY_TOOL,
   LETTER,
-  MANAGE_TOOL,
   MENTIONS_TOOL,
   MIGRATE_TOOL,
-  NAME_RULE,
-  OPEN_TOOL,
-  OUTCOMES,
   OUTLINE_TOOL,
-  QUERY_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
-  STATUSES,
   TOOL,
-  TRACK_TOOL,
 } from '../layout'
 
-export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board, the tasks and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read. Only the main agent shifts: a subagent's call is refused.`
+export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read. Only the main agent shifts: a subagent's call is refused.`
 
-export const GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and about.md. Use "records" for writing project documentation during work and maintaining the board, owner decisions, tasks and archive.`
+export const GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`
 
 export const SETUP_DESCRIPTION =
   "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
 
-export const TASKS_DESCRIPTION = 'The open tasks and the items of those in progress, read from .shift/; the agent is not asked'
+export const TASKS_DESCRIPTION = 'Show how to read project tasks; existing task files are listed before migration'
 
 export const SHIFT_NOW_DESCRIPTION = 'Ask the agent to shift now; words typed after it go to the agent with the ask'
 
-export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the letter, the board and the tasks in progress go to the agent'
+export const RESUME_DESCRIPTION = 'Pick up the work from the last shift: the letter and current board go to the agent'
 
 export const SETUP_SCHEMA = { type: 'object', properties: {} }
 
-export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: time, outcome, description, what the stretch did, dropped and archived, and for the last one what is open. count — how many of the latest (default ${HISTORY_DEFAULT}).`
-
-export const OPEN_DESCRIPTION =
-  'Create a private task or epic with a stable ID, goal, acceptance criteria, items, labels and optional blockers. Work opened in progress belongs to this chat.'
-
-const LINK_LINES = (what: string) => ({
-  type: 'array',
-  items: { type: 'string' },
-  description: `Task names, each optionally followed by " — why": ${what}.`,
-})
-
-export const OPEN_SCHEMA = {
-  type: 'object',
-  properties: {
-    name: { type: 'string', description: `Stable task name: ${NAME_RULE}.` },
-    kind: { type: 'string', enum: ['task', 'epic'] },
-    parent: { type: 'string', description: 'Optional open epic ID.' },
-    labels: { type: 'array', items: { type: 'string' } },
-    title: { type: 'string', description: 'One-line task title.' },
-    goal: { type: 'string', description: 'What the task is for: the "Goal" section.' },
-    done_when: { type: 'string', description: 'When it is finished: the "Done when" section.' },
-    status: {
-      type: 'string',
-      enum: [...FOCUS, 'open'],
-      description: 'in progress claims the task by default. open leaves it available; deferred or waiting carries its reason in about.',
-    },
-    about: {
-      type: 'string',
-      description: `One line up to ${ABOUT_MAX} characters describing the task and why it waits, if applicable.`,
-    },
-    items: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'The first track items, each "item — what matters" or just "item"; all open.',
-    },
-    needs: LINK_LINES('open tasks this one cannot finish without'),
-    after: LINK_LINES('archived tasks it stands on; an open one is "needs"'),
-    continues: LINK_LINES('archived tasks it picks up'),
-  },
-  required: ['name', 'title', 'goal', 'done_when', 'about'],
-}
-
-export const ARCHIVE_DESCRIPTION =
-  'Close a finished or dropped task. Give the outcome and reason. Its ID, comments and history remain available.'
-export const TRACK_DESCRIPTION =
-  'Add an item or update it by short numeric ID. Apply several changes atomically with items. Pass status alone to update the task status. Use note for the reason a task waits or is deferred.'
-export const TRACK_SCHEMA = {
-  type: 'object',
-  properties: {
-    task: { type: 'string', description: 'The task ID or short name.' },
-    id: { type: 'integer', description: 'The track item to change: the number in its "#<id>".' },
-    item: { type: 'string', description: 'The text of a new track item; what matters goes in note.' },
-    status: { type: 'string', enum: [...new Set([...STATUSES, ...FOCUS])] },
-    note: { type: 'string', description: 'One line: replaces what follows " — ".' },
-    items: {
-      type: 'array',
-      description: 'Several items in one call, in place of id and item: each changed or added as alone; one that fails writes nothing.',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'integer' },
-          item: { type: 'string' },
-          status: { type: 'string', enum: [...STATUSES] },
-          note: { type: 'string' },
-        },
-        required: ['status'],
-      },
-    },
-  },
-  required: ['task'],
-}
+export const HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: their IDs, outcomes and descriptions. count — how many of the latest (default ${HISTORY_DEFAULT}).`
 
 export const STATUS_DESCRIPTION =
   'How full the history is: used of the window, where the harness lets it go by itself, the growth since the last shift, when the next shift hints come, and what the history grew from most. Read-only.'
@@ -147,7 +67,7 @@ export const HISTORY_SCHEMA = {
   properties: {
     action: { type: 'string', enum: ['list', 'read', 'compare', 'export', 'delete', 'search'] },
     id: { type: 'string', description: 'Saved shift ID.' },
-    query: { type: 'string', description: 'Local search across task titles, IDs and saved shift text.' },
+    query: { type: 'string', description: 'Local search across saved shift records.' },
     other: { type: 'string', description: 'Second ID to compare against.' },
     file: { type: 'string', description: 'Record to read, default letter.md.' },
     count: {
@@ -179,23 +99,6 @@ export const TOOL_SCHEMA = {
   required: ['letter', 'after'],
 }
 
-export const ARCHIVE_SCHEMA = {
-  type: 'object',
-  properties: {
-    name: { type: 'string', description: 'The task ID or short name.' },
-    outcome: {
-      type: 'string',
-      enum: [...OUTCOMES],
-      description: 'done — every track item is done or dropped; dropped — the task is abandoned, the reason goes into about.',
-    },
-    about: {
-      type: 'string',
-      description: `One line up to ${ABOUT_MAX} characters: what the task was and how it ended. The line of the archive index.`,
-    },
-  },
-  required: ['name', 'outcome', 'about'],
-}
-
 // What the model and the owner read of each tool: the label a harness shows, the description, the line of the
 // doctrine's tool list, and the schema of its arguments.
 export type ToolText = { label: string; description: string; brief: string; schema: Record<string, unknown> }
@@ -208,60 +111,6 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
     schema: GUIDE_SCHEMA,
   },
   [TOOL]: { label: 'Shift', description: TOOL_DESCRIPTION, brief: 'make a shift.', schema: TOOL_SCHEMA },
-  [OPEN_TOOL]: {
-    label: 'Open a task',
-    description: OPEN_DESCRIPTION,
-    brief: `open a task or epic with its goal, links and first items.`,
-    schema: OPEN_SCHEMA,
-  },
-  [MANAGE_TOOL]: {
-    label: 'Manage a task',
-    description:
-      'Claim a task for this chat, explicitly take it over, release or reopen it, edit its card or labels, or append a comment. An epic and its children have independent claims.',
-    brief: 'claim, reopen or edit a task, set labels and add comments.',
-    schema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['claim', 'takeover', 'release', 'reopen', 'edit', 'comment', 'block', 'unblock'] },
-        task: { type: 'string' },
-        target: { type: 'string', description: 'The blocker for block or unblock.' },
-        text: { type: 'string' },
-        goal: { type: 'string' },
-        title: { type: 'string' },
-        done_when: { type: 'string' },
-        decisions: { type: 'string' },
-        evidence: { type: 'string' },
-        labels: { type: 'array', items: { type: 'string' } },
-      },
-      required: ['action', 'task'],
-    },
-  },
-  [QUERY_TOOL]: {
-    label: 'Read tasks',
-    description:
-      'List your tasks, ready work, open or closed tasks. Show a task card with its blockers and an epic’s children, read comments or inspect its history by ID. Filter lists by labels.',
-    brief: 'list ready work and read task cards, comments or history.',
-    schema: {
-      type: 'object',
-      properties: {
-        view: { type: 'string', enum: ['mine', 'ready', 'open', 'closed', 'show', 'comments', 'history'] },
-        task: { type: 'string' },
-        labels: { type: 'array', items: { type: 'string' } },
-      },
-    },
-  },
-  [ARCHIVE_TOOL]: {
-    label: 'Archive a task',
-    description: ARCHIVE_DESCRIPTION,
-    brief: 'archive a finished or dropped task.',
-    schema: ARCHIVE_SCHEMA,
-  },
-  [TRACK_TOOL]: {
-    label: 'Task status',
-    description: TRACK_DESCRIPTION,
-    brief: 'update items by short ID, add new ones, or change the task status.',
-    schema: TRACK_SCHEMA,
-  },
   [MIGRATE_TOOL]: {
     label: 'Migrate local records',
     description:
@@ -300,10 +149,10 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   },
   [SETUP_TOOL]: {
     label: 'Shift setup',
-    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled task executable.`,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or sbd to prepare and locate the project command.`,
     brief:
       "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: { type: 'object', properties: { section: { type: 'string', enum: ['runtime'] } } },
+    schema: { type: 'object', properties: { section: { type: 'string', enum: ['runtime', 'sbd'] } } },
   },
   [OUTLINE_TOOL]: {
     label: 'Document outline',

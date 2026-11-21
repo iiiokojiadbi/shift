@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { tasksView } from '../src/flows'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import type { Project } from '../src/project'
 import { DEFAULT_SETTINGS } from '../src/settings'
@@ -38,15 +39,8 @@ test('every row has its texts; the docs tools only where the mod keeps docs, non
   expect(names(DEFAULT_SETTINGS)).toContain('doc_outline')
   expect(names({ ...DEFAULT_SETTINGS, docs: { ...DEFAULT_SETTINGS.docs, dirs: [] } })).not.toContain('docs_mentioning')
   expect(names({ ...DEFAULT_SETTINGS, enabled: false })).toEqual([])
-  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual([
-    'shift',
-    'task_open',
-    'task_manage',
-    'task_archive',
-    'task_track',
-    'shift_migrate',
-    'shift_history',
-  ])
+  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual(['shift', 'shift_migrate', 'shift_history', 'shift_setup'])
+  expect(TOOLS.some(tool => tool.name.startsWith('task_'))).toBe(false)
 })
 
 test('a run parses its arguments and refuses; only the main agent shifts, once a turn', async () => {
@@ -114,5 +108,27 @@ test('size table shows only sizes and the three newest available letters', async
     if (!('result' in result)) throw Error('missing guide')
     expect(result.result.includes('## How to shift')).toBe(section === 'flow')
     expect(result.result.includes('## What goes where')).toBe(section === 'records')
+  }
+})
+
+test('only a confirmed local task command can be recommended on startup, setup or task listing', async () => {
+  const project = await memoryProject()
+  let answer = './.shift/bin/sbd.exe'
+  project.store.beads = async (_root, args) => {
+    expect(args).toEqual(['shift-install-sbd'])
+    if (answer === '') throw new Error('foreign executable')
+    return answer
+  }
+  const setup = () => tool('shift_setup').run({ section: 'sbd' }, callOn(project))
+  expect((await startSession(project)).doctrine).toContain('./.shift/bin/sbd.exe prime')
+  expect(await tasksView(project)).toContain('./.shift/bin/sbd.exe list')
+  expect(await setup()).toEqual({ result: expect.stringContaining('./.shift/bin/sbd.exe prime') })
+  for (answer of ['', './unrelated']) {
+    const start = await startSession(project)
+    expect(start.command).toBeNull()
+    expect(start.doctrine).not.toContain('./.shift/bin/sbd prime')
+    expect(start.doctrine).toContain('shift_setup(section="sbd")')
+    expect(await setup()).toHaveProperty('deny')
+    expect(await tasksView(project)).not.toContain('./.shift/bin/sbd list')
   }
 })

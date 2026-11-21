@@ -1,7 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { ARCHIVE, DIR, NAMES, SHIFTS, TASK_LIST, TASKS } from './layout'
 import type { Project } from './project'
-import { type GraphTask, graphCommand, graphPath } from './taskgraph'
 import type { Work } from './types'
 
 export const ARCHIVE_DB = `${DIR}/history.db`
@@ -29,9 +28,7 @@ export function readSaved(p: Project, id: string, file?: string): Promise<SavedE
 // Existing projects keep their original workflow until the agent starts the transfer.
 export async function usesNewStorage(p: Project): Promise<boolean> {
   if (!p.store.beads) return false
-  if ((await hasArchive(p)) || (await p.store.exists(graphPath(p))) || (await p.store.exists(`${p.root}/${DIR}/migration.json`)))
-    return true
-  return !(await legacyExists(p))
+  return (await hasArchive(p)) || (await p.store.exists(`${p.root}/${DIR}/migration.json`)) || !(await legacyExists(p))
 }
 
 export async function legacyExists(p: Project) {
@@ -60,10 +57,7 @@ export async function historyAction(p: Project, raw: Record<string, unknown>): P
     const limit = raw.count ?? 10
     if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('count must be between 1 and 50.')
     const shifts = (await hasArchive(p)) ? await archiveCall<string[]>(p, { action: 'search', query: text, limit }) : []
-    const tasks = (await p.store.exists(graphPath(p)))
-      ? (JSON.parse(await graphCommand(p, ['search', `--query=${text}`, `--limit=${limit}`, '--json'])) as GraphTask[])
-      : []
-    return [...tasks.map(t => `task · ${t.id} · ${t.title}`), ...shifts.map(hit => `shift · ${hit}`)].join('\n') || 'No matches.'
+    return shifts.map(hit => `shift · ${hit}`).join('\n') || 'No matches.'
   }
   const id = String(raw.id ?? '')
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')

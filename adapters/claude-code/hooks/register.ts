@@ -77,8 +77,10 @@ export const register: Register = on => {
     // the switch, the doctrine and the files are read again for what runs now.
     if ((await read($, filesSession)) !== (await sessionKey($))) {
       const project = await projectOf($)
-      await update($, enabled, () => project.settings.enabled)
-      await update($, doctrineText, () => sessionDoctrine(project.settings).doctrine)
+      const start = await startSession(project)
+      for (const row of start.rows) $.ui.log(row.text)
+      await update($, enabled, () => start.enabled)
+      await update($, doctrineText, () => start.doctrine)
       await loadFiles($, project)
     }
     if (!(await read($, enabled))) return composed

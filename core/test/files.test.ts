@@ -27,12 +27,14 @@ const LIST = [
 ].join('\n')
 
 test('an older client creating TASKS.md cannot switch an initialized project back to task files', async () => {
-  for (const marker of ['history.db', 'beads/.beads/metadata.json']) {
+  for (const marker of ['history.db', 'migration.json']) {
     const store = memoryStore({ [`${R}/TASKS.md`]: 'none' })
     store.beads = async () => {
       throw new Error('Storage selection should only inspect paths.')
     }
     const project = await at(store)
+    expect(await usesNewStorage(project)).toBe(false)
+    await store.write(`${R}/beads/.beads/metadata.json`, 'metadata from sbd prime')
     expect(await usesNewStorage(project)).toBe(false)
     await store.write(`${R}/${marker}`, '')
     expect(await usesNewStorage(project)).toBe(true)
@@ -175,7 +177,7 @@ test('a shift refuses the old owner.md, a board with Tasks, continues in task.md
   }
   expect(await deny({})).toBeNull()
   expect(await deny({ [`${R}/owner.md`]: 'x' })).toContain('owner.md is the old name')
-  expect(await deny({ [`${R}/board.md`]: `${BOARD}\n## Tasks\n- [in progress] t — t` })).toContain('live in .shift/TASKS.md now')
+  expect(await deny({ [`${R}/board.md`]: `${BOARD}\n## Tasks\n- [in progress] t — t` })).toContain('Preserve any task details')
   expect(await deny({ [`${R}/tasks/t/task.md`]: TASK.replace('# T', '# T\ncontinues: .shift/archive/x/') })).toContain(
     'continues: [<name>](archive/<name>/)',
   )

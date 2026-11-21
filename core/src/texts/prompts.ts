@@ -1,7 +1,6 @@
 import { readAbout } from '../about'
 import {
   ARCHIVE,
-  ARCHIVE_TOOL,
   atPlaces,
   BOARD,
   CLOSED,
@@ -53,7 +52,7 @@ export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' |
   return [
     'The agent is shifting: it continues this same work right after, from its own letter.',
     isSaved(shift.dir)
-      ? `Its board (${shift.board}), current task cards and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.`
+      ? `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.`
       : `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
     'Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.',
     'Do not write next steps or a plan.',
@@ -73,7 +72,7 @@ export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' |
 // Added to an automatic compaction the agent did not ask for.
 export function unassistedInstructions(files: Settings['files']): string {
   return atPlaces(
-    `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}, its tasks available through the task tools. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`,
+    `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`,
     files,
   )
 }
@@ -81,7 +80,7 @@ export function unassistedInstructions(files: Settings['files']): string {
 // The board, active tasks with their track previews, and the map of knowledge: what the agent stands on after a shift. OWNER.md,
 // TASKS.md, GLOSSARY.md and SHIFT.md are in the session's own block, fresh after every shift.
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
-export function renderWork(work: Work | null, knowledge: Placement | null, owner: string, liveTasks?: string): string {
+export function renderWork(work: Work | null, knowledge: Placement | null, owner: string, legacyTasks = true): string {
   if (work === null) return `There is no board at ${BOARD}.`
   const tasks = inProgress(work).flatMap(t => [
     `**Task · ${t.name}**\n\n${fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? 'missing')}`,
@@ -91,7 +90,7 @@ export function renderWork(work: Work | null, knowledge: Placement | null, owner
 
   return [
     `**Board**\n\n${fileBlock(BOARD, work.board)}`,
-    ...(liveTasks === undefined ? (tasks.length === 0 ? ['No task is in progress.'] : tasks) : [liveTasks]),
+    ...(legacyTasks ? (tasks.length === 0 ? ['No task is in progress.'] : tasks) : []),
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
   ].join('\n\n---\n\n')
 }
@@ -183,7 +182,7 @@ export function renderRecent(recent: Recent): string {
 // Tasks whose files went unchanged through many shifts: a wait that may have become stuck, or work forgotten.
 export function renderStuck(stuck: readonly Stuck[]): string {
   return [
-    `Tasks unchanged through the last shifts — still right? Ask the owner, change the status, or archive the task as dropped with ${ARCHIVE_TOOL}:`,
+    `Tasks unchanged through the last shifts — still right? Ask the owner, change the status, or transfer the current work through shift_migrate:`,
     ...stuck.map(task => `- ${task.name} (${task.status}) — ${task.shifts} shifts`),
   ].join('\n')
 }
@@ -193,14 +192,17 @@ export function renderStuck(stuck: readonly Stuck[]): string {
 // right before the turn, so its "Next" is what the agent sees closest to acting.
 function shiftMessage(opening: string, letter: string, back: HandedBack, closing: string[] = []): string {
   const { work, recent, dir, remarks } = back
+  const saved = isSaved(dir)
 
   return [
-    back.liveTasks === undefined ? `<${MOD} folder="${dir}/">` : `<${MOD} id="${dir}">`,
+    saved ? `<${MOD} id="${dir}">` : `<${MOD} folder="${dir}/">`,
     opening,
     '',
-    'The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:',
+    saved
+      ? 'Your current board and knowledge map follow. The session files were read again after this shift.'
+      : 'The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:',
     '',
-    renderWork(work, back.knowledge, back.owner, back.liveTasks),
+    renderWork(work, back.knowledge, back.owner, !saved),
     '',
     renderRecent(recent),
     '',
@@ -208,13 +210,11 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     ...(remarks === null ? [] : ['Documents with remarks from the mod — fix them as the work passes by them:', '', remarks, '']),
     'Your letter to yourself, written right before the shift:',
     '',
-    back.liveTasks === undefined ? `<letter path="${dir}/${NAMES.letter}">` : `<letter shift="${dir}">`,
+    saved ? `<letter shift="${dir}">` : `<letter path="${dir}/${NAMES.letter}">`,
     letter.trim(),
     '</letter>',
     '',
-    back.liveTasks === undefined
-      ? `The letter and the snapshots of this shift: ${dir}/.`
-      : `Read saved records with shift_history using ID ${dir}.`,
+    saved ? `Read saved records with shift_history using ID ${dir}.` : `The letter and the snapshots of this shift: ${dir}/.`,
     ...(back.migrationReceipt
       ? [
           `After checking this letter, finish the transfer with shift_migrate(action="cleanup", id="${dir}", receipt="${back.migrationReceipt}").`,
@@ -250,7 +250,7 @@ export function resumePrompt(letter: string, back: HandedBack, outcome: string |
     letter,
     back,
     [
-      `Past shifts — ${HISTORY_TOOL}; archived tasks — ${isSaved(back.dir) ? 'task_query' : INDEX}; how a shift works — ${GUIDE_TOOL}.`,
+      `Past shifts — ${HISTORY_TOOL}; archived tasks — ${isSaved(back.dir) ? 'the project Beads command in your session instructions' : INDEX}; how a shift works — ${GUIDE_TOOL}.`,
       `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`,
     ],
   )
@@ -302,7 +302,7 @@ Shift ${name} was not made — ${why}. Nothing was let go: your history is whole
 // A shift let go and its message not built: the agent has lost its history and got nothing back.
 export const UNSETTLED_NOTE = (name: string, why: string, dir: string) =>
   `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD} and ${isSaved(dir) ? 'the current task cards' : TASK_LIST}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back — ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} — the one it accepted, whatever ${LETTER} holds now — then ${BOARD}${isSaved(dir) ? '' : ` and ${TASK_LIST}`}, and continue from "${NEXT}".
 </${MOD}>`
 
 // The owner's messages held back while the history was let go, after the letter: their words as they wrote them.

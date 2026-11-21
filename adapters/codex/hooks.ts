@@ -48,6 +48,8 @@ type HookState = {
   editOffset?: number
   offered?: ContextReceipt & { dir: string; marker: string; turn?: string }
   context?: ContextReceipt
+  sbdWarning?: string
+  sbd?: import('../../core/src/beads').SbdCommand | null
   doctrineHash?: string
   shells?: string[]
   turn?: string
@@ -159,7 +161,9 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     return { notes: [mapNote, ...notes.map(wrap)], waiting: '' }
   }
   state.shells = []
-  const start = await startSession(project)
+  const prepareCommand = event === 'SessionStart' || state.sbd === undefined
+  const start = await startSession(project, prepareCommand ? undefined : state.sbd)
+  state.sbd = start.command
   const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
   const resume = event === 'SessionStart' && input.source === 'resume'
   const kept =
@@ -169,7 +173,10 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     (await retainedContext(transcript, state.context, start.doctrine.slice(0, start.doctrine.indexOf('\n'))))
   const fresh = !state.map || (event === 'SessionStart' && !kept)
   const doctrineHash = fingerprint(start.doctrine)
+  // A cached command skips the probe. Retain its last warning until the next probe.
+  if (prepareCommand) state.sbdWarning = start.rows.find(row => row.sbd)?.text
   const warnings = start.rows.map(row => row.text)
+  if (!prepareCommand && state.sbdWarning) warnings.push(state.sbdWarning)
   const changedWarnings = warnings.filter(row => fresh || !state.warnings?.includes(row))
   state.warnings = warnings
   // An empty folder has no document stamp; creating or removing it still changes the map.
@@ -184,10 +191,8 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   state.docsSettings = docsSettings
   if (event === 'SessionStart') {
     state.looks.migrationChecked = false
-    state.looks.refreshClaims = !!kept
   }
   const legacyStamps = state.looks.docs
-  if (restoring) state.looks.refreshClaims = false
   const records = await promptRecords(
     courier,
     true,
@@ -199,7 +204,7 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
   state.reportedProblem = problem
-  const files = await sessionFiles(project, { refresh: false, includeClaims: fresh })
+  const files = await sessionFiles(project, { refresh: false })
   const { confirmed } = await mapEdits()
   state.mapOffset = nextMapOffset
   const changes = await observeMap(project, fresh ? undefined : state.map, files, state.looks.docs ?? {}, confirmed, legacyStamps)

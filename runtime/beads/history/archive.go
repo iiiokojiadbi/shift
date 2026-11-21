@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -17,23 +18,21 @@ import (
 )
 
 type Request struct {
-	Upcoming   bool              `json:"upcoming"`
-	File       string            `json:"file"`
-	Compare    string            `json:"compare"`
-	Generation string            `json:"generation"`
-	Session    string            `json:"session"`
-	Wait       bool              `json:"wait"`
-	Query      string            `json:"query"`
-	Action     string            `json:"action"`
-	ID         string            `json:"id"`
-	Key        string            `json:"key"`
-	About      string            `json:"about"`
-	Files      map[string]string `json:"files"`
-	Limit      int               `json:"limit"`
-	State      string            `json:"state"`
+	Upcoming bool              `json:"upcoming"`
+	File     string            `json:"file"`
+	Compare  string            `json:"compare"`
+	Session  string            `json:"session"`
+	Wait     bool              `json:"wait"`
+	Query    string            `json:"query"`
+	Action   string            `json:"action"`
+	ID       string            `json:"id"`
+	Key      string            `json:"key"`
+	About    string            `json:"about"`
+	Files    map[string]string `json:"files"`
+	Limit    int               `json:"limit"`
+	State    string            `json:"state"`
 }
 type Entry struct {
-	Progress   string            `json:"progress,omitempty"`
 	Initial    string            `json:"initial,omitempty"`
 	Completion uint64            `json:"completion,omitempty"`
 	ID         string            `json:"id"`
@@ -225,27 +224,19 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 				return e.ID, nil
 			}
 		}
-		// Only the digest of the combined state is retained. The archive has no task revision or task reference.
-		work := make(map[string]string, len(r.Files))
-		for name, body := range r.Files {
-			if name != "letter.md" {
-				work[name] = contentID(body)
-			}
-		}
-		material, err := json.Marshal(struct {
-			Files      map[string]string
-			Generation string
-		}{work, r.Generation})
-		if err != nil {
-			return nil, err
-		}
-		progress := contentID(string(material))
 		if r.Compare != "" && b.Get([]byte(r.Compare)) != nil {
 			prior, err := load(b.Get([]byte(r.Compare)))
 			if err != nil {
 				return nil, err
 			}
-			if prior.Progress == progress {
+			// The completion adds its digest after acceptance. Compare all records
+			// originally supplied by the agent, including the letter.
+			delete(prior.Files, "summary.md")
+			current := make(map[string]string, len(r.Files))
+			for name, body := range r.Files {
+				current[name] = contentID(body)
+			}
+			if maps.Equal(prior.Files, current) {
 				return "", nil
 			}
 		}
@@ -254,7 +245,7 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 			return nil, err
 		}
 		id := fmt.Sprintf("s-%016x", seq)
-		e := Entry{ID: id, Key: r.Key, Initial: initial, Progress: progress, State: "pending", About: r.About, Files: map[string]string{}}
+		e := Entry{ID: id, Key: r.Key, Initial: initial, State: "pending", About: r.About, Files: map[string]string{}}
 		return id, save(b, blobs, e, r.Files)
 	case "finish":
 		if r.Limit < 1 || (r.State != "complete" && r.State != "failed" && r.State != "unsettled") || r.About == "" {

@@ -30,11 +30,7 @@ export type MapPrints = { text: string; map: Record<string, string>; notices: st
 
 export type Looks = {
   seen: Record<string, string> | null
-  refreshClaims?: boolean
-  claimDigest?: number
   migrationChecked?: boolean
-  commentManifest?: string | undefined
-  comments?: Record<string, number>
   running: number
   map?: MapPrints
   mapNotes?: string[]

@@ -78,7 +78,6 @@ export type Work = {
 // the shift's folder and the documents with remarks.
 export type HandedBack = {
   migrationReceipt?: string
-  liveTasks?: string
   work: Work | null
   knowledge: Placement | null
   // OWNER.md from the project's root, where its settings put it.

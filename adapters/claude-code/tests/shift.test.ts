@@ -48,6 +48,17 @@ function stubSession(
   })
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
     const [command, from, to] = e.argv
+    if (command === 'uname' || e.argv.includes('shift-install-sbd')) {
+      return {
+        value: {
+          exitCode: 0,
+          stdout: command === 'uname' ? 'Linux x86_64' : './.shift/bin/sbd',
+          stderr: '',
+          isStdoutTruncated: false,
+          isStderrTruncated: false,
+        },
+      }
+    }
     if (command === 'git' && e.argv.includes('rev-parse')) {
       return { value: { exitCode: 0, stdout: '.git/info/exclude\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -377,21 +388,13 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   expect(files.get(`${DIR}/about.md`)).toContain('waiting for the owner')
 })
 
-test('task_archive moves the folder and writes the index line', async ($, on) => {
+test('the guide directs agents to the project CLI and leaves old tasks readable', async ($, on) => {
   const files = project()
-  files.set('/proj/.shift/tasks/tests/track.md', '- [done] fix the parser')
   stubSession(on, files)
-
-  const answer = await $.tool.call({ tool: 'mcp__shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
-  expect(answer.deny).toBeUndefined()
-  expect(String(answer.result)).toContain('TASKS.md no longer lists it')
-  expect(files.get('/proj/.shift/TASKS.md')).toBe('# Tasks\n\nnone\n')
-  expect(files.has('/proj/.shift/tasks/tests/task.md')).toBe(false)
-  expect(files.get('/proj/.shift/archive/tests/track.md')).toBe('- [done] fix the parser')
-  expect(files.get('/proj/.shift/archive/index.md')).toContain('- [done] [Green tests](tests/) — green')
-
-  const again = await $.tool.call({ tool: 'mcp__shift__task_archive', name: 'tests', outcome: 'done', about: 'green' })
-  expect(again.deny).toContain('already exists')
+  const guide = await $.tool.call({ tool: 'mcp__shift__shift_guide', section: 'flow' })
+  expect(String(guide.result)).toContain('shift_setup(section="sbd")')
+  expect(String(guide.result)).not.toContain('task_open')
+  expect(files.get('/proj/.shift/tasks/tests/track.md')).toBe(TRACK)
 })
 
 test('a hint goes with a tool result and with a prompt, and a let-go starts a new stretch', async ($, on) => {
@@ -474,7 +477,7 @@ test('the history and guide tools answer', async ($, on) => {
   on('turn.complete', () => ({ text: '' }))
 
   const guide = await $.tool.call({ tool: 'mcp__shift__shift_guide' })
-  expect(String(guide.result)).toContain('strict structure')
+  expect(String(guide.result)).toContain('four nonempty sections')
 
   await $.tool.call({ tool: 'mcp__shift__shift', letter: '.shift/letter.md', after: 'wait', about: 'ABOUT' })
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
@@ -563,12 +566,6 @@ test("records are looked at around every tool: the agent's own change told only 
   const outside = String((await bash()).context)
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools')
   expect(outside).not.toContain('board.md')
-  expect((await bash()).context).toBeUndefined()
-
-  // The mod's own tool writes a record: remembered, never named as someone else's at the next tool.
-  files.set('/proj/.shift/board.md', BOARD)
-  await bash()
-  await $.tool.call({ tool: 'mcp__shift__task_track', task: 'tests', id: 2, status: 'done', note: 'a longer note than before' })
   expect((await bash()).context).toBeUndefined()
 })
 
@@ -713,7 +710,12 @@ test('a restored chat gets one section delta, the writer stays quiet, and replac
     [{ role: 'user', content: 'previous turn' }],
     () => id,
   )
-  mock.store(on)
+  const saved = new Map<string, unknown>()
+  on('store.get', (_$, e) => ({ value: saved.get(e.key) }))
+  on('store.set', (_$, e) => {
+    saved.set(e.key, e.value)
+    return { value: undefined }
+  })
   on('tool.register', () => ({ value: undefined as never }))
   on('command.register', () => ({ value: undefined as never }))
   on('session.start', (_$, e) => e as never)
@@ -749,4 +751,16 @@ test('a restored chat gets one section delta, the writer stays quiet, and replac
   expect(await prompt()).not.toContain('Slots (changed)')
   await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'old', toolUses: [] }] })
   expect(await full()).toContain('Slots · Changed')
+
+  const key = 'context:reader /proj'
+  const cached = saved.get(key) as { version?: number; files: string; checkpoint: { mapNotes: string[] } }
+  saved.set(key, {
+    files: `${cached.files}\n<file path="beads:claimed">stale task card</file>`,
+    checkpoint: { ...cached.checkpoint, mapNotes: ['Queued before the interrupted upgrade.'] },
+  })
+  await start()
+  expect(await full()).not.toContain('stale task card')
+  expect(await prompt()).toContain('Queued before the interrupted upgrade.')
+  expect(await prompt()).not.toContain('Queued before')
+  expect(typeof (saved.get(key) as { version?: number }).version).toBe('number')
 })

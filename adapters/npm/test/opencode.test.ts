@@ -78,4 +78,15 @@ test('session hooks keep per-chat map changes across plugin reload and refresh t
   await restarted.notify('session.compaction.ended', 'reader')
   expect(await restarted.context('reader')).toContain('Slots · Revised')
   await restarted.close()
+
+  const cache = storage.get('context:reader') as { version?: number; block: { files: string }; checkpoint: { mapNotes: string[] } }
+  delete cache.version
+  cache.block.files += '\n<file path="beads:claimed">stale task card</file>'
+  cache.checkpoint.mapNotes = ['Queued before the interrupted upgrade.']
+  const upgraded = await setup()
+  expect(await upgraded.context('reader')).not.toContain('stale task card')
+  expect(await upgraded.prompt('reader')).toContain('Queued before the interrupted upgrade.')
+  expect(await upgraded.prompt('reader')).not.toContain('Queued before')
+  expect(storage.get('context:reader')).toHaveProperty('version')
+  await upgraded.close()
 })

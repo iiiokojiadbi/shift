@@ -3,10 +3,22 @@ import { BOARD, DIR, KNOWLEDGE, LETTER, SETTINGS, TASK_LIST, TASKS } from './lay
 import { normalize } from './paths'
 import type { Project } from './project'
 import { legacyExists, NEXT_SAVED, readSaved, savedEntries } from './saved'
-import { graphTask, taskGuard, taskId } from './taskgraph'
 import { parseTaskList } from './tasks'
 
 type Transfer = { recovery?: string; backup: string; confirmed: Record<string, string>; done: boolean; previous: string }
+
+// Use the full native ID, including child IDs, and reject fuzzy matches before
+// recording the destination. Cleanup rechecks this projection under the write lock.
+async function destination(p: Project, requested: string, allowShortName = false) {
+  const run = p.store.beads
+  if (!requested || !run) throw new Error('Pass the stable Beads ID of the transferred issue.')
+  const rows = JSON.parse(await run(p.root, ['show', `--id=${requested}`, '--brief-deps', '--json']))
+  const id = Array.isArray(rows) && rows.length === 1 ? rows[0]?.id : null
+  if (id !== requested && !(allowShortName && id === `shift-${requested}`)) throw new Error(`No exact Beads issue ${requested}.`)
+  const { revision, status, labels, comment_count, dependent_count, dependencies } = rows[0]
+  if (status === 'closed' || !revision) throw new Error(`Reopen and check ${id} before cleanup.`)
+  return { id, revision, labels, comment_count, dependent_count, dependencies }
+}
 
 async function transferState(p: Project): Promise<Transfer | null> {
   const path = `${p.root}/${DIR}/migration.json`
@@ -69,7 +81,7 @@ export async function migrationNote(p: Project) {
   if (state?.done || (!legacy && !state)) return null
   const names = new Set([...(typeof parsed === 'string' ? [] : parsed.map(t => t.name)), ...folders])
   return [
-    'Legacy records need migration. Run shift_migrate with action start. Transfer each current task through the task tools, then confirm its stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.',
+    'Legacy records need migration. Run shift_migrate with action start. Use the project sbd command to transfer each current issue and confirm its full stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.',
     ...(state?.recovery ? [state.recovery.trim()] : []),
     ...[...names].map(name => `- ${name}: ${state?.confirmed[name] ?? 'transfer pending'}`),
     ...(typeof parsed === 'string' ? [parsed] : []),
@@ -94,8 +106,7 @@ export async function migrateRecords(p: Project, raw: Record<string, unknown>) {
     if (action === 'confirm') {
       const name = String(raw.task ?? '')
       if (!names.has(name)) throw new Error('Choose a current legacy task.')
-      const target = await graphTask(p, taskId(raw.target ?? name))
-      if (target.status === 'closed') throw new Error('Transfer the current task into an open graph task.')
+      const target = await destination(p, String(raw.target ?? name), true)
       if (Object.entries(state.confirmed).some(([n, id]) => n !== name && id === target.id))
         throw new Error('Each legacy task needs its own stable ID.')
       Object.assign(req, { task: name, target: target.id })
@@ -109,9 +120,7 @@ export async function migrateRecords(p: Project, raw: Record<string, unknown>) {
       for (const name of names) {
         const target = state.confirmed[name]
         if (!target) throw new Error(`Transfer and confirm ${name} first.`)
-        const task = await graphTask(p, target)
-        if (task.status === 'closed' || !task.revision) throw new Error(`Reopen and check ${target} before cleanup.`)
-        expected.push(taskGuard(task))
+        expected.push(await destination(p, target))
       }
       Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id })
       req.protected = [

@@ -1,52 +1,31 @@
+import { type SbdCommand, taskInstructions } from '../beads'
 import { TOC_END, TOC_START } from '../docs'
 import {
   ABOUT_MAX,
-  ARCHIVE,
-  ARCHIVE_TOOL,
   BOARD,
   BOARD_MAX_LINES,
   BOARD_SECTIONS,
   DIR,
-  FOCUS,
   GLOSSARY,
-  GLOSSARY_MAX_LINES,
   GUIDE_TOOL,
-  HISTORY_DEFAULT,
-  HISTORY_TOOL,
-  INDEX,
   KINDS,
   KNOWLEDGE,
   KNOWLEDGE_MAX_LINES,
   LETTER,
-  LETTER_SECTIONS,
   MENTIONS_TOOL,
   MOD,
-  NAME_RULE,
   NAMES,
-  NEXT,
   OLD_DIR,
   OLD_OWNER,
   OLD_TASKS_SECTION,
-  OPEN_TOOL,
   OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
-  OWNER_SECTION,
-  RECENT_CLOSED_ITEMS,
-  RECENT_SHIFTS,
-  RESUME_COMMAND,
   SETTINGS,
-  SETUP_TOOL,
   SHIFT_FILE,
   STATUS_TOOL,
-  STATUSES,
-  STUCK_SHIFTS,
   TASK_LIST,
-  TASK_SECTIONS,
-  TASKS,
-  TASKS_MAX_LINES,
   TOOL,
-  TRACK_TOOL,
 } from '../layout'
 import { TOOL_TEXTS } from './tools'
 
@@ -57,7 +36,7 @@ function described<Name extends string>(names: readonly Name[], texts: Record<Na
 
 const BOARD_RULES = `The board is a state, not a diary:
 - lines are rewritten in place, nothing new is appended on top of the old;
-- no dates anywhere, in the board or in tasks: each shift's time is recorded by itself;
+- keep dates off the board; each shift records its own time;
 - no more than ${BOARD_MAX_LINES} lines.
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
@@ -76,18 +55,7 @@ Example from a stocktaking project:
 
 When taking over an existing board or closing a task, ask of each affected line: what would another task do differently after reading this? Keep that instruction short. Put single-task findings with the task. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`
 
-const LIST_RULES = `\`${TASK_LIST}\` lists every open task, one line each, and under it the links to other tasks:
-
-\`\`\`
-- [in progress] [adapters](tasks/adapters/) — the shift in other harnesses
-  - needs: [core-port](tasks/core-port/) — the port comes first
-  - after: [settings](archive/settings/)
-  - continues: [old-adapters](archive/old-adapters/)
-\`\`\`
-
-Status: ${FOCUS.join(', ')}; deferred and waiting — with the reason in the line. Links: \`needs\` — an open task this one cannot finish without; \`after\` — an archived task it stands on; \`continues\` — an archived task it picks up. No task yet — "none". At most ${TASKS_MAX_LINES} lines.`
-
-const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes to that task's "${OWNER_SECTION}".`
+const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes in the Beads issue.`
 
 const KNOWLEDGE_KINDS = `- \`traps\` — what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(' and ')};
 - \`lessons\` — an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(' and ')};
@@ -100,31 +68,6 @@ const KNOWLEDGE_RULES = `\`${KNOWLEDGE}/\` is what you learned that stays true f
 ${KNOWLEDGE_KINDS}
 
 No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. After a shift only the map of knowledge comes back — read a file when its topic comes up.`
-
-const PLACES = `| What | Where |
-|---|---|
-| the owner's decision for the whole project | \`${OWNER}\` |
-| the owner's decision for one task | that task's "${OWNER_SECTION}" |
-| your decision or dead end for the whole project | the board |
-| your decision or dead end for one task | the task's \`task.md\` |
-| which tasks are open, what you do now, how they link | \`${TASK_LIST}\` |
-| open work and its progress | \`${TASKS}/<name>/\` |
-| what you were doing, what is next, what is unverified | the letter |
-| a trap, a lesson, a command, a fact | \`${KNOWLEDGE}/\`, unless the owner said it goes to the project's docs |
-| a term of the project | \`${GLOSSARY}\` |
-| where knowledge goes here, how the docs are kept | \`${SHIFT_FILE}\`, on the owner's word |
-| fits no row | \`${KNOWLEDGE}/\`, and tell the owner |
-
-Whether knowledge goes into the project's own docs (\`AGENTS.md\`, \`docs/\`, read by people and every contributor) or stays in \`${KNOWLEDGE}/\` is the owner's choice, not yours: all of it in the docs, all of it local, or split by a boundary the owner names. The owner sets it as \`knowledge\` in \`${SETTINGS}\` — "local", "project" or "split"; with "split" the boundary is a rule in \`${OWNER}\`. After a shift the map of knowledge says which. Until it is set, everything stays in \`${KNOWLEDGE}/\` — never write the project's shared files on your own guess — and ask the owner once. What the project's docs already say is never copied into your records.
-
-Each fact lives in one place. Your records live in the project directory, not in a harness's memory: any agent that opens the project reads them.`
-
-const TASK_RULES = `A task is one line of work, split by meaning: a feature, an adapter, a migration. Each lives in \`${TASKS}/<name>/\`, \`<name>\` in ${NAME_RULE}:
-- \`task.md\` — what the task is: a \`# <title>\` line, then sections ${TASK_SECTIONS.map(s => `"${s}"`).join(', ')}, all required ("none" if empty). Update it as the task changes. Decisions and dead ends that matter only inside this task go here;
-- \`track.md\` — the task's tracker: one line per item, \`- [status] #<id> item — what matters\`, status: ${STATUSES.join(', ')}. Add items as you go and set their status with \`${TRACK_TOOL}\`, not by hand: it gives a new item its id and finds an item by it; closed items stay until the task is archived — the track is the task's history. The tools store creation and closure times in a trailing HTML comment. Reopening clears the closure time. After a shift, older closed items remain accessible by reading the track file;
-- \`${NAMES.notes}/\` — notes, when a line is not enough: research, a decision worked out, evidence. A markdown file with a frontmatter \`description\` and nothing else required, linked from its item in \`track.md\` — \`- [open] #3 item — see [what it holds](${NAMES.notes}/<file>.md)\` — or from \`task.md\` when it is about the whole task. After a shift a task in progress shows its notes as a list with their descriptions; open one when its item comes up. Most items need none.
-
-Open a task with \`${OPEN_TOOL}\`, which writes its folder, its files and its line valid at once. Every folder in \`${TASKS}/\` is in \`${TASK_LIST}\`, and every listed task has its folder. What is "in progress" there is what you are doing now — one task, several, or none.`
 
 const GLOSSARY_RULES = `\`${GLOSSARY}\` holds the project's own words, one article each — names, codes, abbreviations, terms that mean something particular here:
 
@@ -149,18 +92,18 @@ Those documents the mod keeps as you write them. After an Edit or a Write the ma
 // ones shown in this project, in the order given.
 const LETTER_OPENING = `Open "Where I am" with one paragraph of 2–3 short sentences (up to ${ABOUT_MAX} characters). Say what you worked on, what you found or verified, and where that leaves the work. This paragraph becomes the description in later shift history.`
 
-export function doctrineBody(tools: readonly string[]): string {
+export function doctrineBody(tools: readonly string[], command?: SbdCommand | null): string {
   return `# Shift
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
 ## Board and tasks
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
 
-Open each task with \`${OPEN_TOOL}\`, change its items by ID with \`${TRACK_TOOL}\`, and archive it with \`${ARCHIVE_TOOL}\` when finished. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
+Include a relevant task ID in the letter when it helps you resume. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -178,91 +121,11 @@ ${tools.map(name => `- \`${name}\` — ${TOOL_TEXTS[name]?.brief ?? ''}`).join('
 }
 
 // In a tag that names the mod: the agent tells this section from the owner's own instructions.
-export function doctrine(tools: readonly string[]): string {
+export function doctrine(tools: readonly string[], command?: SbdCommand | null): string {
   return `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
-${doctrineBody(tools)}
+${doctrineBody(tools, command)}
 </${MOD}>`
 }
-
-export const GUIDE_FLOW = `# Shift: how to shift
-
-A shift is the boundary between stretches of work. You check the records kept during the stretch, write your letter and call \`${TOOL}\`, the stretch's history is let go, and you continue from your letter. You do not change: you write the letter to yourself, not to a successor.
-
-A soft hint leaves the timing to you. At the final hint, start the steps below immediately.
-
-## How to shift
-
-1. Check the board and tasks: every open task in \`${TASK_LIST}\` with its status, each touched task's track up to date, finished tasks archived. Check that the goal still fits and the board lines touched in this stretch still guide other work.
-2. The letter — by its sections below.
-3. Call \`${TOOL}\`:
-   - \`letter\` — the path to the letter, usually \`${LETTER}\`;
-   - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-4. End the turn, nothing more but what the call's result asks: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
-
-After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
-
-## Letter — \`${LETTER}\`
-
-Written anew, whole, before every shift. Sections \`##\`, all required and non-empty (nothing to say — "none"):
-${described(LETTER_SECTIONS, {
-  'Where I am': LETTER_OPENING,
-  Next: 'steps: a command or a file and what you expect',
-  Unverified: 'and what not to trust',
-  Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter — the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not',
-})}
-
-## When the mod refuses
-
-The mod looks at the records around every tool you run. A record you changed — by Edit, a shell command or a script — is checked by the checks of its file, and problems are reported. Note links settle with the next prompt so the note and its link can be written in either order. A record changed between your tools — by the owner or another session — is named in the next result: read it before you write it. The shift checks them all; a refusal names the reason — fix it and call again:
-- no letter at the path, a section missing or empty;
-- no board, a section missing, more than ${BOARD_MAX_LINES} lines, an "${OWNER_SECTION}" or a "${OLD_TASKS_SECTION}" section left on it, a \`rejected:\` without its reason;
-- no \`${OWNER}\`, an empty one, more than ${OWNER_MAX_LINES} lines, \`${OLD_OWNER}\` still under the old name;
-- a knowledge file with an unknown \`kind\`, a name not of its kind, no \`about\`, more than ${KNOWLEDGE_MAX_LINES} lines, an entry without its fields, a glossary kept as knowledge;
-- \`${GLOSSARY}\`: an article without \`Means\`, an unknown label, a word in two articles, an avoided word used as a term, more than ${GLOSSARY_MAX_LINES} lines;
-- a date (\`YYYY-MM-DD\` or \`DD.MM.YYYY\`) in the board, \`${TASK_LIST}\`, a task, the owner's decisions, the glossary or knowledge;
-- \`${DIR}/\` not ignored by the project's git, \`commit\` not set, and no exclude file to add it to;
-- \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, \`after\` on an open one, tasks needing each other in a circle;
-- a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
-- nothing changed in the records since the last shift;
-- the history description exceeds ${ABOUT_MAX} characters.
-
-## about.md — strict structure
-
-\`\`\`
----
-description: <opening paragraph from the letter>
-at: <ISO time of the shift, UTC>
-after: continue | wait
-result: pending | shifted (<before> → <after>), continuing | shifted (…), waiting for the owner | not shifted: <reason> | let go, not settled: <reason>
-tokens: <before> → <after>
-summary_chars: <size of summary.md>
-session: <session id>
----
-
-## Done
-- <task>: <item — what matters>      or "none"
-
-## Dropped
-- <task>: <item — reason>            or "none"
-
-## Archived
-- <the index line>                   or "none"
-
-## Open
-- [<status>] [<task>](tasks/<task>/) — what matters    or "none"
-\`\`\`
-
-How to read it: frontmatter — \`key: value\` lines between \`---\`; sections — by \`## \` headings, items — lines starting with \`- \`. "Done" and "Dropped" — track items closed during this stretch (not closed in the previous shift's snapshot); "Archived" — index lines added during this stretch; "Open" — the lines of \`${TASK_LIST}\` at the moment of the shift. The mod derives all of it from the files, not you. \`result: pending\` on an old folder means the session broke off before the shift finished.
-
-## History and a new session
-
-- \`${HISTORY_TOOL}\` with \`count\` (default ${HISTORY_DEFAULT}) — the last shifts in brief: time, outcome, description, what was done, dropped and archived, and for the last one what is open. The stretch in detail — \`letter.md\`, \`board.md\` and \`tasks/\` of its folder.
-- \`${INDEX}\` — every archived task, one line each.
-- In a new session use \`/${RESUME_COMMAND}\` or the harness's \`${RESUME_COMMAND}\` tool: the last shift's letter, the board, the owner's decisions, the tasks in progress and the map of knowledge come to you; continue from "${NEXT}".
-
-How the mod is set up in this project — the settings, the files of the session's block, the layout of \`${DIR}/\`, moving from earlier layouts — is \`${SETUP_TOOL}\`.
-
-`
 
 const DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
 
@@ -272,64 +135,12 @@ const DOC_WRITING = `When you change what someone using or maintaining the proje
 4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
 5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`
 
-export const GUIDE_RECORDS = `## What goes where
-
-${PLACES}
-
-## Writing project documentation during work
-
-${DOC_WRITING}
-
-## Board — \`${BOARD}\`
-
-${BOARD_RULES}
-
-## Open tasks — \`${TASK_LIST}\`
-
-${LIST_RULES}
-
-## Owner's decisions — \`${OWNER}\`
-
-${OWNER_RULES}
-
-## Tasks — \`${TASKS}/\`
-
-${TASK_RULES}
-
-## Glossary — \`${GLOSSARY}\`
-
-${GLOSSARY_RULES}
-
-## Knowledge rules and the docs map — \`${SHIFT_FILE}\`
-
-${SHIFT_RULES}
-
-## Knowledge — \`${KNOWLEDGE}/\`
-
-${KNOWLEDGE_RULES}
-
-## No dates
-
-No record carries a date — the board, \`${TASK_LIST}\`, the tasks, \`${OWNER}\`, the glossary, the knowledge; the mod refuses a shift on one. A model writes dates everywhere, and records turn into a diary. The letter is not checked: keep a date there only where it is part of what must stay exact, such as an error's text. Which of two rules is newer is never a question — a newer word rewrites the older line in place and a revoked one is removed, so only what is in force stands. When something was decided, the shift snapshots tell: \`${HISTORY_TOOL}\` finds the stretch, its folder holds the records as they were.
-
-## Archive — \`${ARCHIVE}/\`
-
-When a task is finished or dropped, call \`${ARCHIVE_TOOL}\`:
-- \`name\` — the task's folder name;
-- \`outcome\` — \`done\` (every track item is done or dropped) or \`dropped\` (the reason goes into \`about\`);
-- \`about\` — one line up to ${ABOUT_MAX} characters: what the task was and how it ended. This is the index line you will look the task up by.
-
-The tool moves the folder to \`${ARCHIVE}/<name>/\` and adds \`- [<outcome>] [<title>](<name>/) — <about>\` to \`${INDEX}\`, with \`; continues <name>, …\` if the task continued archived ones, takes its line out of \`${TASK_LIST}\` and points the other tasks' links to it into the archive. Review board entries affected by the closed task. Keep only the choices and failed approaches other tasks still need.
-
-To come back to an archived topic, open a new task with \`${OPEN_TOOL}\` and \`continues: ["<name>"]\`, which puts \`- continues: [<name>](archive/<name>/)\` under its line in \`${TASK_LIST}\`; read the archived folder first.`
-
 export const GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`
 
-const GRAPH_TASKS = `Use task_query(view="ready") to find available work and view="mine" for your claims. Open a task with a stable name, goal, done_when, about and optional initial items. A task opened in progress belongs to this chat. Open an epic with kind="epic"; assign a child's parent to group it. An explicit needs or block link determines execution order. Use task_manage to claim, release, take over, edit, label or comment. A stale revision asks you to reread the card. Batch item changes with task_track using short numeric IDs. Keep task decisions and evidence on the card. Archive finished or dropped work with a reason. Reopen the same task before editing it. Link distinct follow-on work with continues. Read closed work and its history through task_query.`
-
-export const GRAPH_GUIDE_RECORDS = [
+export const GUIDE_RECORDS = [
+  '## What goes where',
   GRAPH_LAYOUT,
-  GRAPH_TASKS,
+  'Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads. For an issue created by an earlier Shift version, show its JSON to read its original metadata, including numbered items and evidence.',
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -338,15 +149,17 @@ export const GRAPH_GUIDE_RECORDS = [
   DOC_WRITING,
 ].join('\n\n')
 
-export const GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
+export const GUIDE_FLOW = `## How to shift
+
+Check the board and current project records. At the final hint, write the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
 - Where I am: ${LETTER_OPENING}
-- Next: the concrete work to resume and how to check it.
+- Next: the concrete work to resume and how to check it. Include a Beads ID when a task is relevant.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
 
 On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`
 
@@ -371,7 +184,7 @@ const LAYOUT_TREE = [
   row('│       ├── ', NAMES.task, 10, 'what the task is, its decisions and dead ends'),
   row('│       ├── ', NAMES.track, 10, "the task's tracker"),
   row('│       └── ', `${NAMES.notes}/`, 10, `notes on its items, each linked from ${NAMES.track} or ${NAMES.task}`),
-  row('├── ', `${NAMES.archive}/`, 18, `written by ${ARCHIVE_TOOL}; do not edit`),
+  row('├── ', `${NAMES.archive}/`, 18, `legacy archived tasks`),
   row('│   ├── ', NAMES.index, 14, 'one line per archived task'),
   row('│   └── ', '<name>/', 14, "the task's folder as it was"),
   row('└── ', `${NAMES.shifts}/`, 18, 'history, written by the mod; do not edit'),

@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from 'bun:test'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import shift from '../index'
 import { nodeStore } from '../store'
@@ -113,15 +113,10 @@ test('a project without docs shows no docs tools, neither as tools nor in the do
   expect(pi.active()).not.toContain('doc_outline')
   const run = { systemPromptOptions: { sections: {} as Record<string, string>, contextFiles: [] }, messageType: 'user' }
   await pi.on('before_agent_start', run)
-  expect(run.systemPromptOptions.sections.shift).toContain('- `task_track` — ')
+  expect(run.systemPromptOptions.sections.shift).toContain('sbd')
   expect(run.systemPromptOptions.sections.shift).not.toContain('doc_outline')
-
-  expect(await pi.call('task_track', { task: 't', id: 1, status: 'done' })).toContain('- [done] #1 write the test')
-  expect(await readFile(join(root, '.shift/tasks/t/track.md'), 'utf8')).toMatch(
-    /^- \[done\] #1 write the test <!-- shift-times - \d+ -->\n$/,
-  )
-  await expect(pi.call('task_track', { task: 'nope', id: 1, status: 'done' })).rejects.toThrow('the task is not open')
-  expect(pi.tools.get('task_track')?.executionMode).toBe('sequential')
+  expect([...pi.tools.keys()].filter(name => name.startsWith('task_'))).toEqual([])
+  expect(await pi.call('shift_guide', { section: 'records' })).toContain('Beads')
   expect(pi.tools.get('shift_guide')?.executionMode).toBeUndefined()
 })
 

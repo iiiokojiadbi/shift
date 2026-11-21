@@ -187,3 +187,21 @@ func TestHandBackListsOnlyRetainedShifts(t *testing.T) {
 	must[string](t, db, Request{Action: "received", ID: current, Session: "writer", Limit: 1})
 	check(Request{Action: "list"}, other, current)
 }
+
+func TestChangedLetterCountsAsProgress(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "history.db")
+	first := begin("first")
+	id := must[string](t, db, first)
+	must[string](t, db, finish(id, 10))
+
+	replay := first
+	replay.Key = "unchanged"
+	replay.Compare = id
+	if got := must[string](t, db, replay); got != "" {
+		t.Fatalf("unchanged records accepted as %s", got)
+	}
+	replay.Files["letter.md"] = "Updated result and next action."
+	if got := must[string](t, db, replay); got == "" {
+		t.Fatal("updated letter refused")
+	}
+}

@@ -35,6 +35,7 @@ import {
   shiftBase,
   shownTools,
   startSession,
+  TASKS_DESCRIPTION,
   tasksView,
   waitingNote,
 } from '../../core/src'
@@ -48,7 +49,7 @@ import { deferred, type Fields, fields, type Request, shiftContext, textInput } 
 export const namespace = 'shift'
 const extraTools = [
   { name: 'unshift', description: 'Read the latest shift and resume from its letter.' },
-  { name: 'shift_tasks', description: 'List the open tasks and their current items.' },
+  { name: 'shift_tasks', description: TASKS_DESCRIPTION },
 ]
 
 export function toolSpec(project: Project) {
@@ -88,6 +89,7 @@ export class Session {
   private prints?: MapPrints
   private mapOffset?: number
   private loaded: string | null = null
+  private command: import('../../core/src/beads').SbdCommand | null = null
   private prepared = false
   private enabled = false
   private observation = Promise.resolve()
@@ -158,6 +160,7 @@ export class Session {
     let initialFiles: Awaited<ReturnType<typeof sessionFiles>> | undefined
     if (first) {
       const started = await startSession(project)
+      this.command = started.command
       for (const row of started.rows) this.tell(row.text)
       initialFiles = await sessionFiles(project)
       this.looks.docs = await docStamps(project)
@@ -167,7 +170,11 @@ export class Session {
     const block = renderSessionFiles(files)
     const edits = await recentEdits(project, { session_id: this.id, transcript_path: this.path }, this.mapOffset)
     const changes = await observeMap(project, first ? undefined : this.prints, files, this.looks.docs ?? {}, edits.confirmed)
-    const parts = [first ? sessionDoctrine(project.settings).doctrine : '', first ? block : changes.note, ...notes.notes].filter(Boolean)
+    const parts = [
+      first ? sessionDoctrine(project.settings, this.command).doctrine : '',
+      first ? block : changes.note,
+      ...notes.notes,
+    ].filter(Boolean)
     return {
       params: parts.length
         ? { ...params, additionalContext: { ...fields(params.additionalContext), shift: { kind: 'untrusted', value: parts.join('\n\n') } } }
@@ -356,7 +363,7 @@ export class Session {
             const block = renderSessionFiles(files)
             this.prints = (await observeMap(project, undefined, files, await docStamps(project))).prints
             this.mapOffset = undefined
-            await this.inject([sessionDoctrine(project.settings).doctrine, block].filter(Boolean).join('\n\n'))
+            await this.inject([sessionDoctrine(project.settings, this.command).doctrine, block].filter(Boolean).join('\n\n'))
             this.loaded = block
             this.prepared = true
           })

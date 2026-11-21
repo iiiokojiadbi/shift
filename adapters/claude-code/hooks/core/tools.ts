@@ -1,38 +1,32 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
+import { installSbd, type SbdCommand, taskInstructions } from './beads'
 import { docOutline, docsMentioning } from './docs'
-import { acceptShift, archiveTask, keepRecordsOut, openTask, shiftHistory, staleLayout } from './flows'
-import { parseArchiveInput, parseHistoryCount, parseOpenInput, parsePath, parseShiftInput, parseTrackInput } from './input'
+import { acceptShift, keepRecordsOut, shiftHistory, staleLayout } from './flows'
+import { parseHistoryCount, parsePath, parseShiftInput } from './input'
 import {
-  ARCHIVE_TOOL,
   atPlaces,
   DIR,
   GUIDE_TOOL,
   HISTORY_TOOL,
-  MANAGE_TOOL,
   MENTIONS_TOOL,
   MIGRATE_TOOL,
   MOD,
-  OPEN_TOOL,
   OUTLINE_TOOL,
-  QUERY_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
   TOOL,
-  TRACK_TOOL,
 } from './layout'
 import { holdShift, type Loop } from './loop'
 import { migrateRecords } from './migration'
 import type { Project } from './project'
-import { historyAction, usesNewStorage } from './saved'
+import { historyAction } from './saved'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
 import { sizeReport } from './sizes'
-import { closeGraph, createGraphTask, manageGraph, queryGraph, trackGraph } from './taskgraph'
-import { doctrine, doctrineBody, GRAPH_GUIDE_FLOW, GRAPH_GUIDE_RECORDS, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
+import { doctrine, doctrineBody, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
 import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
 import { TOOL_TEXTS, type ToolText } from './texts/tools'
-import { updateTrack } from './track'
 
 // The mod's tools as one table: an adapter registers every row the project shows and hands each call to its `run`.
 // A new tool is a name in layout, its texts and a row here; no adapter changes.
@@ -76,10 +70,7 @@ const ROWS: readonly Row[] = [
       if (raw.section !== undefined && raw.section !== 'flow' && raw.section !== 'records')
         return { deny: 'section must be flow or records.' }
       const project = await call.project()
-      const modern = await usesNewStorage(project)
-      const flow = modern ? GRAPH_GUIDE_FLOW : GUIDE_FLOW
-      const records = modern ? GRAPH_GUIDE_RECORDS : GUIDE_RECORDS
-      const guide = raw.section === 'flow' ? flow : raw.section === 'records' ? records : modern ? `${flow}\n\n${records}` : GUIDE
+      const guide = raw.section === 'flow' ? GUIDE_FLOW : raw.section === 'records' ? GUIDE_RECORDS : GUIDE
       return { result: atPlaces(guide.trimEnd(), project.settings.files) }
     },
   },
@@ -98,75 +89,6 @@ const ROWS: readonly Row[] = [
       await holdShift(call.loop, accepted.shift)
 
       return { result: accepted.result }
-    },
-  },
-  {
-    name: OPEN_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const project = await call.project()
-      const graph = await usesNewStorage(project)
-      const input = parseOpenInput(raw, graph)
-      if (typeof input === 'string') return { deny: input }
-      if (!graph) return openTask(project, input, await call.now())
-      try {
-        return { result: await createGraphTask(project, input, raw, await call.sessionId(), await call.now()) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
-    },
-  },
-  {
-    name: MANAGE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      try {
-        return { result: await manageGraph(await call.project(), raw, await call.sessionId()) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
-    },
-  },
-  {
-    name: QUERY_TOOL,
-    run: async (raw, call) => {
-      try {
-        return { result: await queryGraph(await call.project(), raw, await call.sessionId()) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
-    },
-  },
-  {
-    name: ARCHIVE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const input = parseArchiveInput(raw)
-
-      if (typeof input === 'string') return { deny: input }
-      const project = await call.project()
-      if (!(await usesNewStorage(project))) return archiveTask(project, input)
-      try {
-        return { result: await closeGraph(project, input, await call.sessionId()) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
-    },
-  },
-  {
-    name: TRACK_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      const input = parseTrackInput(raw)
-
-      if (typeof input === 'string') return { deny: input }
-      const project = await call.project()
-      if (!(await usesNewStorage(project))) return updateTrack(project, input, await call.now())
-      try {
-        return { result: await trackGraph(project, input, await call.sessionId(), await call.now()) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
     },
   },
   {
@@ -200,10 +122,19 @@ const ROWS: readonly Row[] = [
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   {
     name: SETUP_TOOL,
+    writes: true,
     run: async (raw, call) => {
       const project = await call.project()
       if (raw.section === undefined) return { result: await setupReport(project, await call.loaded()) }
-      if (raw.section !== 'runtime') return { deny: 'Expected section runtime.' }
+      if (raw.section === 'sbd') {
+        try {
+          const stale = await staleLayout(project)
+          return stale ? { deny: stale } : { result: taskInstructions(await installSbd(project)) }
+        } catch (error) {
+          return { deny: String(error) }
+        }
+      }
+      if (raw.section !== 'runtime') return { deny: 'Expected section runtime or sbd.' }
       if (!project.store.beads) return { deny: 'This adapter has no private task runtime.' }
       try {
         return { result: (await project.store.beads(project.root, ['version'])).trim() }
@@ -252,8 +183,9 @@ export function shownTools(settings: Settings): Tool[] {
 
 // What a session starts with: whether the mod is on, the rows for the owner, the tools to register and the doctrine.
 export type SessionStart = {
+  command: SbdCommand | null
   enabled: boolean
-  rows: { text: string; level: 'info' | 'warning' }[]
+  rows: { text: string; level: 'info' | 'warning'; sbd?: true }[]
   tools: Tool[]
   // The doctrine for the system prompt, with and without its tag.
   doctrine: string
@@ -264,25 +196,42 @@ export type SessionStart = {
 // git would take in are kept out before the first shift too.
 // The doctrine with the tools the project shows, at the places its settings give: in its tag, and the body alone for a
 // harness that puts it under a heading of its own. An adapter that has none kept yet builds it here, not from the table.
-export function sessionDoctrine(settings: Settings): { doctrine: string; doctrineBody: string } {
+export function sessionDoctrine(settings: Settings, command?: SbdCommand | null): { doctrine: string; doctrineBody: string } {
   const names = shownTools(settings).map(tool => tool.name)
 
-  return { doctrine: atPlaces(doctrine(names), settings.files), doctrineBody: atPlaces(doctrineBody(names), settings.files) }
+  return {
+    doctrine: atPlaces(doctrine(names, command), settings.files),
+    doctrineBody: atPlaces(doctrineBody(names, command), settings.files),
+  }
 }
 
-export async function startSession(project: Project): Promise<SessionStart> {
+export async function startSession(project: Project, knownCommand?: SbdCommand | null): Promise<SessionStart> {
   const { settings, problem } = project
   const rows: SessionStart['rows'] = []
   if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: 'warning' })
-  const start = { enabled: settings.enabled, rows, tools: shownTools(settings), ...sessionDoctrine(settings) }
-  if (!settings.enabled) return start
+  let command = knownCommand ?? null
+  const result = (): SessionStart => ({
+    enabled: settings.enabled,
+    rows,
+    command,
+    tools: shownTools(settings),
+    ...sessionDoctrine(settings, command),
+  })
+  if (!settings.enabled) return result()
 
   const stale = await staleLayout(project)
   if (stale !== null) rows.push({ text: `${MOD}: ${stale}`, level: 'warning' })
+  else if (knownCommand === undefined && project.store.beads) {
+    try {
+      command = await installSbd(project)
+    } catch (error) {
+      rows.push({ text: `Could not prepare the project sbd command: ${String(error)}`, level: 'warning', sbd: true })
+    }
+  }
   if (await project.store.exists(`${project.root}/${DIR}`)) {
     const kept = await keepRecordsOut(project)
     if ('excluded' in kept && kept.excluded !== null) rows.push({ text: EXCLUDED(kept.excluded), level: 'info' })
   }
 
-  return start
+  return result()
 }

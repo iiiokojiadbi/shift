@@ -4,7 +4,7 @@
 [![downloads](https://img.shields.io/npm/dm/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
 [![license](https://img.shields.io/npm/l/@iiiokojiadbi/shift)](https://github.com/iiiokojiadbi/shift/blob/main/LICENSE)
 
-An agent decides by itself when to **shift**. At a stage boundary it updates its board and current tasks, writes a letter to itself and asks the harness to let the stretch's history go, saying what to hold. Right after the shift its letter, board and current task state come back, and it continues from where it stopped. The agent does not change: only what is in front of it does.
+An agent decides by itself when to **shift**. At a stage boundary it updates its board and current tasks, writes a letter to itself and asks the harness to let the stretch's history go, saying what to hold. Right after the shift its letter and board come back, and it continues from where it stopped. The agent does not change: only what is in front of it does.
 
 Long work outlives the context window. A harness's own compaction keeps a generic summary of the history, not the agent's line of thought: decisions get lost, and knowledge that was written down is not looked up again. shift keeps the thread on disk, in records strict enough to resume from: a state, not a diary.
 
@@ -18,7 +18,11 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, invalid records or no recorded progress. Then it saves the letter and project records in `.shift/history.db` and has the harness let the history go, steered by the letter's Hold.
 5. **Back to work.** The next message carries the records, the last shifts in brief and the letter, last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.
 
-The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs with their descriptions), `OWNER.md`, `GLOSSARY.md` and a list of the chat’s claimed tasks, so the agent knows what is written down before it needs it.
+The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs with their descriptions), `OWNER.md`, `GLOSSARY.md` and instructions for opening project issues with Beads, so the agent knows what is written down before it needs it.
+
+### Project tasks
+
+From the project root, run `./.shift/bin/sbd prime` (Windows: `./.shift/bin/sbd.exe prime`). Substitute that executable for `bd` in Beads examples. Use `ready` to find work and `show <id>` to read an issue. Shift prepares the command at startup. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
 
 ## Install
 
@@ -70,18 +74,18 @@ The same npm package as pi's; opencode 2.x.
 
 | Selected action | Result |
 |---|---|
-| `$shift:unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board and active tasks in the same turn. Omit the request to continue from the letter. |
+| `$shift:unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board in the same turn. Omit the request to continue from the letter. |
 | `$shift:shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `continue`. |
 | `$shift:sizes` | Prints estimated token counts by entity and for up to three saved letters. |
-| `$shift:tasks` | Prints the current tasks. |
+| `$shift:tasks` | Shows the project command for listing tasks, or lists tasks in a legacy project. |
 
 Both reports appear under **Hook stopped**, before any model call. The typed aliases `//unshift`, `//shift`, `//shift_sizes` and `//shift-tasks` also work.
 
 **Claude Code, pi and opencode**
 
 - `/shift [words]` — ask the agent to shift now, hint or not. The words go to it with the ask.
-- `/unshift [words]` — in a fresh session, pick up the last shift: the letter, the board and the tasks in progress go to the agent. The words become your message after the letter.
-- `/shift-tasks` — list the open tasks and the items of those in progress. The agent is not asked.
+- `/unshift [words]` — in a fresh session, pick up the last shift: the letter and the board go to the agent. The words become your message after the letter.
+- `/shift-tasks` — show the project command for listing tasks, or list tasks in a legacy project. The agent is not asked.
 
 ## Tools the agent gets
 
@@ -91,11 +95,9 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `shift_guide` | full guide or one section, `flow` or `records` |
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |
-| `shift_history` | list, read, compare, export or delete retained shifts, or search tasks and shift records locally |
+| `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
 | `shift_migrate` | back up legacy records, confirm manually transferred tasks and finish cleanup after a verified restore |
-| `shift_setup` | the settings with their values, the checks of the records, the session's files |
-| `task_open` / `task_track` / `task_archive` | open a task, set the status of its items by `#id`, archive it |
-| `task_query` / `task_manage` | find ready work, show a card, claim or release tasks, change blockers and labels, reopen tasks or comment |
+| `shift_setup` | settings, record checks and session files. Use section `sbd` to prepare the task command and see its path |
 | `doc_outline` / `docs_mentioning` | a document's sections with line numbers; which documents mention a file |
 
 ## Settings

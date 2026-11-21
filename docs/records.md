@@ -32,7 +32,8 @@ Current project records remain editable in their configured locations. Both data
 ├── settings.toml     optional project settings
 ├── letter.md         the working letter
 ├── knowledge/        traps, lessons, runbook and facts
-├── beads/            private task graph, history and runtime profile
+├── bin/              project-local sbd launcher
+├── beads/            private Beads issues, history and runtime profile
 └── history.db        shift manifests and shared record contents
 ```
 
@@ -40,11 +41,9 @@ The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a sn
 
 ## Board, tasks, archive
 
-The private task runtime stores a new task as a Beads issue. `task_open` accepts labels, an optional epic parent, blockers and initial items. The supplied name becomes a stable `shift-<name>` ID. In-progress work is assigned to the calling chat. Use `status: open` for unclaimed work. `task_query` lists ready work, filters by label, shows the current card or reads comments and issue history. A card includes its open items, recent closures and comment count. Showing an epic lists its children by ID.
+Run `./.shift/bin/sbd prime` from the project root for the bundled Beads workflow. Use the same executable in place of `bd` in its examples. `sbd ready` finds available work, `sbd show <id>` reads an issue and `sbd comments <id>` reads its discussion. Tasks, claims, dependencies, labels and comments belong to Beads. Put the issue ID and the next concrete step in the working letter when a chat needs to resume a particular issue.
 
-`task_manage` claims, releases, takes over or reopens a task, edits its card and labels, adjusts blockers, or adds a comment. Another chat can comment on claimed work. `task_track` applies a batch of item changes in one issue update. A private write lock covers the mutation and its checks on issue revisions, labels, dependencies and comment counts. A concurrent change asks the caller to reread. Dropping an epic or blocked task closes that issue while preserving its children and dependency links. Large trackers, comments, goals and design text travel through file input. The native CLI takes titles, acceptance criteria, evidence and labels inline, subject to the operating system command-line limit. Use a comment for longer evidence.
-
-After a shift the chat receives the current cards for its claimed work, with every open item, a count of closed items, the ten most recent closures and the comment count. On reattachment the first prompt checks the current cards. A changed task or claim is delivered alongside the retained context. External comments on claimed work produce a short prompt notification. Each chat remembers the count it saw even after releasing the claim. When the embedded database manifest is unchanged, the prompt skips the native comment query. Read the conversation on demand with `task_query(view="comments")`. Use `continues` when opening distinct follow-on work. Reopen a closed task to revise it.
+Issues created with Shift's earlier task tools keep their IDs, descriptions, acceptance criteria, notes, links and comments. Use `sbd show <id> --json` to see the old numbered items and their evidence under `metadata.items`. To update one, read the current array, edit that item, and pass a JSON object containing the entire updated `items` array to `sbd update <id> --metadata=@items.json`. This merges the top-level key and preserves other metadata. `--set-metadata items=...` stores the array as a string. Two edits to the same array can overwrite each other. For independent progress and evidence, append a comment referencing the item number. Use native issues and child issues for new work.
 
 The board returns in full. Keep the goal to the current project outcome. A decision records a choice other tasks must follow and its reason. A dead end records what was tried, the observed failure and the condition under which it matters. Review affected lines when scope changes or a task closes. Keep decisions specific to one task on its card.
 
@@ -80,15 +79,15 @@ The opening paragraph of “Where I am” supplies the history description. Put 
 
 An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
 
-`shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to get local matches labeled by source. `delete` removes an eligible shift. Read task revisions with `task_query(view="history")`.
+`shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to find saved shift records. `delete` removes an eligible shift. Use `sbd history <id>` for issue revisions.
 
 Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The default `history_limit` is 30. Pending, unsettled and undelivered letters remain recoverable. A completed continue stays protected from rotation until its host accepts the message or records it in replacement history. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.
 
-To transfer a project, stop writers and copy the whole `.shift/` directory along with any project files selected by settings. The next session reads the saved letter and the current tasks. Diverged copies have independent histories.
+To transfer a project, stop writers and copy the whole `.shift/` directory along with any project files selected by settings. The next session restores the saved letter. Use the project launcher to open issues in the transferred task database. Diverged copies have independent histories.
 
 ## Migrating an existing project
 
-Until cleanup finishes, the first prompt on session start and after a shift identifies legacy records. Use `shift_migrate(action="start")` to create and verify a local backup. Recreate each current task, including deferred and waiting work, through the task tools. Check its items, status, links and evidence, then confirm its old name and stable ID. Old shifts and closed tasks stay in the backup. Projects with no open tasks can proceed straight to the new shift.
+Until cleanup finishes, the first prompt on session start and after a shift identifies legacy records. Use `shift_migrate(action="start")` to create and verify a local backup. Recreate each current task, including deferred and waiting work, using the project launcher. Check its status, items, links and evidence with `sbd show <id> --json`, then call `shift_migrate(action="confirm", task="<legacy name>", target="<full Beads ID>")`. Existing Beads issues are already in the native format and can be confirmed directly. Old shifts and closed tasks stay in the backup. Projects with no open tasks can proceed straight to the new shift.
 
 Make one new shift and restore its letter. Pass its ID and restoration receipt to `shift_migrate(action="cleanup")`. Cleanup checks the backup, destinations, settings, resolved paths of current records and mapped documents, and the durable shift before moving the old task list and directories out of use. It keeps the verified copy separate from the moved originals because an older process may still write through an open file handle. If a source changed, rerun start, verify the new generation and confirm the tasks again. After an interrupted cleanup, start restores missing roots and identifies any overlapping originals to reconcile. Repeating completed cleanup is safe. If an older client recreates legacy records after cleanup, the next migration notice identifies them. Starting again creates a separate backup for those records.
 

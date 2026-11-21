@@ -1,11 +1,10 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -46,17 +45,14 @@ func joinJob() error {
 	}
 	return nil
 }
+
+var prepareChildren = sync.OnceValue(joinJob)
+
 func runChild(cmd *exec.Cmd) error {
-	if err := joinJob(); err != nil {
+	if err := prepareChildren(); err != nil {
 		return err
 	}
 	return cmd.Run()
-}
-func startQuery(cmd *exec.Cmd) error {
-	if err := joinJob(); err != nil {
-		return err
-	}
-	return cmd.Start()
 }
 
 // An exclusive handle is released by the kernel when the launcher exits.
@@ -77,29 +73,3 @@ func workspaceLock(path string) (*os.File, error) {
 		time.Sleep(25 * time.Millisecond)
 	}
 }
-
-// The write lock gives each private input file one writer. A cancelled write
-// can leave one file, which the next large update replaces under the same lock.
-func inputFile(workspace, field, content string) (*os.File, string, error) {
-	path := filepath.Join(workspace, ".task-input-"+field)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return nil, "", err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		os.Remove(path)
-		return nil, "", err
-	}
-	return f, path, nil
-}
-
-func closeInput(file *os.File) {
-	file.Close()
-	os.Remove(file.Name())
-}
-
-func commandTooLong(err error) bool { return errors.Is(err, syscall.Errno(206)) }

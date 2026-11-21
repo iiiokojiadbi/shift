@@ -17,10 +17,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"shift.local/runtime/history"
 	"slices"
-	"strconv"
 	"strings"
+
+	"shift.local/runtime/history"
 )
 
 //go:embed payload
@@ -170,6 +170,13 @@ func run(args []string) error {
 	if len(args) < 2 || !filepath.IsAbs(args[0]) {
 		return errors.New("usage: shift-bd ABSOLUTE_PROJECT command [args]")
 	}
+	if len(args) == 2 && args[1] == "shift-install-sbd" {
+		path, err := installSBD(args[0])
+		if err == nil {
+			fmt.Println(path)
+		}
+		return err
+	}
 	if len(args) == 2 && args[1] == "shift-migrate" {
 		return migrate(filepath.Join(args[0], ".shift"), os.Stdin, os.Stdout)
 	}
@@ -186,167 +193,26 @@ func run(args []string) error {
 	}
 	root := filepath.Clean(args[0])
 	workspace := filepath.Join(root, ".shift", "beads")
-	profile := filepath.Join(workspace, "profile")
-	data := filepath.Join(workspace, ".beads")
 	if len(args) == 2 && args[1] == "version" {
 		cmd := exec.Command(bd, "version")
 		cmd.Env = []string{"BD_DISABLE_METRICS=1", "SYSTEMROOT=" + os.Getenv("SYSTEMROOT")}
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		return runChild(cmd)
 	}
-	for _, dir := range []string{filepath.Dir(workspace), workspace, profile, data} {
-		if err := privateDir(dir); err != nil {
-			return err
-		}
-	}
-	redirect := filepath.Join(data, "redirect")
-	if _, err := os.Lstat(redirect); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("cannot use a redirected or unreadable private workspace: %s", redirect)
-	}
-	var expected []revision
-	commands := args[1:]
-	if commands[0] == "shift-task" {
-		var request struct {
-			Args     []string
-			Expected []revision
-		}
-		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
-			return err
-		}
-		commands, expected = request.Args, request.Expected
-		if len(commands) == 0 {
-			return errors.New("missing task operation")
-		}
-	}
-	if commands[0] == "shift-comment-count" {
-		if len(commands) != 5 {
-			return errors.New("missing task, observer or comment range")
-		}
-		start, err1 := strconv.Atoi(commands[3])
-		end, err2 := strconv.Atoi(commands[4])
-		if err1 != nil || err2 != nil || start < 0 || end < start {
-			return errors.New("invalid comment range")
-		}
-		cmd := taskCommand(bd, workspace, []string{"comments", "--json", "--", commands[1]})
-		return countExternalComments(cmd, commands[2], start, end)
-	}
-	switch commands[0] {
-	case "list", "ready", "show", "history":
-	default:
-		lock, err := workspaceLock(filepath.Join(workspace, "write.lock"))
-		if err != nil {
-			return err
-		}
-		defer lock.Close()
-	}
-	// The parent uses JSON on stdin. Move large supported fields off the second
-	// command line as well, into the pinned CLI's file-input options.
-	var inputs []*os.File
-	defer func() {
-		for _, f := range inputs {
-			closeInput(f)
-		}
-	}()
-	fileArg := func(field, content string) (string, error) {
-		f, path, err := inputFile(workspace, field, content)
-		if err == nil {
-			inputs = append(inputs, f)
-		}
-		return path, err
-	}
-	for i, arg := range commands {
-		if arg == "--" {
-			if commands[0] == "comments" && len(commands) == i+3 && len(commands[i+2]) > 4096 {
-				path, err := fileArg("comment", commands[i+2])
-				if err != nil {
-					return err
-				}
-				commands[i], commands[i+1], commands[i+2] = "--file="+path, "--", commands[i+1]
-			}
-			break
-		}
-		field, content, ok := strings.Cut(arg, "=")
-		if !ok || len(content) <= 4096 {
-			continue
-		}
-		switch field {
-		case "--metadata", "--description", "--design", "--reason":
-			path, err := fileArg(field[2:], content)
-			if err != nil {
-				return err
-			}
-			switch field {
-			case "--metadata":
-				commands[i] = "--metadata=@" + path
-			case "--description":
-				commands[i] = "--body-file=" + path
-			default:
-				commands[i] = field + "-file=" + path
-			}
-		}
-	}
-	cmd := taskCommand(bd, workspace, commands)
-	if err := verifyTasks(cmd, expected); err != nil {
+	if err := prepareWorkspace(workspace); err != nil {
 		return err
 	}
+	if args[1] == "shift-sbd" {
+		return runSBD(bd, workspace, args[2:])
+	}
+	lock, err := workspaceLock(filepath.Join(workspace, "write.lock"))
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	cmd := taskCommand(bd, workspace, args[1:])
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := runChild(cmd); commandTooLong(err) {
-		return fmt.Errorf("task command exceeds the operating system argument limit; shorten inline fields (such as acceptance criteria, evidence, title or labels) or put the longer text in a comment: %w", err)
-	} else {
-		return err
-	}
-}
-
-// The comments command returns complete bodies. Decode one row at a time here so
-// a prompt reads a single count even when an issue has megabytes of discussion.
-func countExternalComments(cmd *exec.Cmd, actor string, start, end int) error {
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = os.Stderr
-	if err := startQuery(cmd); err != nil {
-		return err
-	}
-	count, err := externalComments(out, actor, start, end)
-	if err != nil {
-		_ = cmd.Process.Kill()
-	}
-	if waited := cmd.Wait(); waited != nil && err == nil {
-		return waited
-	}
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(os.Stdout).Encode(count)
-}
-
-func externalComments(out io.Reader, actor string, start, end int) (int, error) {
-	decoder := json.NewDecoder(out)
-	token, err := decoder.Token()
-	if err != nil || token != json.Delim('[') {
-		return 0, errors.New("invalid private comment list")
-	}
-	count, rows := 0, 0
-	for decoder.More() {
-		var comment struct {
-			Author string `json:"author"`
-		}
-		if err := decoder.Decode(&comment); err != nil {
-			return 0, err
-		}
-		if rows >= start && rows < end && comment.Author != actor {
-			count++
-		}
-		rows++
-	}
-	if _, err := decoder.Token(); err != nil {
-		return 0, err
-	}
-	if rows < end {
-		return 0, errors.New("comments changed during observation; retry")
-	}
-	return count, nil
+	return runChild(cmd)
 }
 
 type relation struct {
@@ -422,7 +288,18 @@ func verifyTasks(cmd *exec.Cmd, expected []revision) error {
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	args := os.Args[1:]
+	if runtime.GOOS == "windows" {
+		self, err := os.Executable()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if strings.EqualFold(filepath.Base(self), "sbd.exe") {
+			args = append([]string{filepath.Clean(filepath.Join(filepath.Dir(self), "../..")), "shift-sbd"}, args...)
+		}
+	}
+	if err := run(args); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			os.Exit(exit.ExitCode())

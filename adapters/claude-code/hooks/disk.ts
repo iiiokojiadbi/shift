@@ -12,7 +12,7 @@ export function claudeStore($: EngineInterface): Store {
       const name = beadsExecutable(os ?? '', arch ?? '')
       if (!name) throw new Error(`No embedded Beads build for ${os}/${arch}.`)
       const argv = [`${$.plugin.root}/vendor/${name}`, root, ...args]
-      if (args[0] === 'shift-history' || args[0] === 'shift-task') {
+      if (args[0] === 'shift-history' || args[0] === 'show') {
         const child = $.process.spawn({ argv, ...(stdin === undefined ? {} : { input: stdin }) })
         const stdout: string[] = [],
           stderr: string[] = []

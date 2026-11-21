@@ -71,10 +71,10 @@ export default function shift(pi: ExtensionAPI): void {
   // Set by the owner's own input, consumed by the run it starts.
   let ownerTyped = false
   // false when the project's settings turn the mod off; read at each session start.
+  let command: import('./core/beads').SbdCommand | null = null
   let enabled = true
   // The documents' tocs and the map are refreshed at the first run of a session, before anything looks at them.
   let mapFile: SessionFile | null | undefined
-  let claimed: SessionFile | null = null
   let loadedBlock: string | null = null
   const mapEntry = `${MOD}:map`
   const fileEntry = `${MOD}:map-file`
@@ -125,7 +125,6 @@ export default function shift(pi: ExtensionAPI): void {
     offer = offered?.type === 'custom' ? (offered.data as LetterOffer | null) : null
     looks = FRESH_LOOKS
     mapFile = undefined
-    claimed = null
     loadedBlock = null
     outside.clear()
     for (const entry of ctx.sessionManager.getBranch().toReversed()) {
@@ -133,16 +132,12 @@ export default function shift(pi: ExtensionAPI): void {
       if (entry.type !== 'custom') continue
       if (entry.customType === mapEntry && !looks.map) looks = { ...looks, ...(entry.data as ReturnType<typeof mapCheckpoint>) }
       if (entry.customType === fileEntry) {
-        const saved = entry.data as SessionFile | { map: SessionFile | null; claimed: SessionFile | null } | null
-        if (saved && 'map' in saved) {
-          mapFile = saved.map
-          claimed = saved.claimed
-        } else mapFile = saved
+        const saved = entry.data as SessionFile | { map: SessionFile | null } | null
+        mapFile = saved && 'map' in saved ? saved.map : saved
         break
       }
     }
     if (!looks.map) mapFile = undefined
-    else looks = { ...looks, refreshClaims: true }
   }
   // The records as last seen and the agent's tools running now; what changed before each tool began, by its call.
   let looks: Looks = FRESH_LOOKS
@@ -218,6 +213,7 @@ export default function shift(pi: ExtensionAPI): void {
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
     const start = await startSession(await branchProject(ctx))
+    command = start.command
     enabled = start.enabled
     restoreBranch(ctx)
     for (const row of start.rows) tell(ctx, row.text, row.level)
@@ -260,14 +256,13 @@ export default function shift(pi: ExtensionAPI): void {
     const project = once(ctx)
     const loadedProject = await project()
     // The doctrine at the settings' places: a shift may have moved a record.
-    event.systemPromptOptions.sections[MOD] = sessionDoctrine(loadedProject.settings).doctrineBody
+    event.systemPromptOptions.sections[MOD] = sessionDoctrine(loadedProject.settings, command).doctrineBody
     // A session's first run refreshes the tocs and the map before the documents' stamps are first looked at.
     if (mapFile === undefined) {
       const files = await sessionFiles(loadedProject)
       mapFile = files.find(file => file.path === loadedProject.settings.files.shift) ?? null
       looks = { ...looks, map: await initialMap(loadedProject, files), mapNotes: [] }
-      claimed = files.find(file => file.path === 'beads:claimed') ?? null
-      pi.appendEntry(fileEntry, { map: mapFile, claimed })
+      pi.appendEntry(fileEntry, mapFile)
       pi.appendEntry(mapEntry, mapCheckpoint(looks))
     }
     if (mapFile) event.systemPromptOptions.sections.shift_map = renderSessionFiles([mapFile]) ?? ''
@@ -276,9 +271,8 @@ export default function shift(pi: ExtensionAPI): void {
     if (owner) ownerTyped = false
     const told = await atPrompt(courierOf(ctx, project), { runStarts: true, owner })
     // The other records go where pi puts AGENTS.md. Keep the map in its own stable section. Read after the notes: a toc a script left stale is written with its note, never silently before it.
-    const loaded = await sessionFiles(loadedProject, { refresh: false, includeClaims: false })
+    const loaded = await sessionFiles(loadedProject, { refresh: false })
     const others = loaded.filter(file => file.path !== loadedProject.settings.files.shift)
-    if (claimed) others.push(claimed)
     loadedBlock = renderSessionFiles(mapFile ? [mapFile, ...others] : others)
     const ours = new Set(['beads:claimed', ...loaded.map(file => file.path)])
     event.systemPromptOptions.contextFiles = [

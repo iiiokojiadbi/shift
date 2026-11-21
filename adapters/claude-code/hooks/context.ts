@@ -7,6 +7,7 @@ import {
   type Project,
   refreshDocs,
   renderSessionFiles,
+  SESSION_FILES_VERSION,
   sessionFiles,
   staleLayout,
 } from './core/index'
@@ -15,7 +16,7 @@ const files = atom({ plugin: 'shift', key: 'files' } as const, null)
 const filesSession = atom({ plugin: 'shift', key: 'filesSession' } as const, null)
 const looks = atom({ plugin: 'shift', key: 'looks' } as const, FRESH_LOOKS)
 
-type Saved = { files: string | null; checkpoint: ReturnType<typeof mapCheckpoint> }
+type Saved = { version?: number; files: string | null; checkpoint: ReturnType<typeof mapCheckpoint> }
 
 export async function sessionKey($: EngineInterface): Promise<string> {
   return `${await $.session.id()} ${await $.session.root()}`
@@ -28,8 +29,11 @@ export async function loadFiles($: EngineInterface, project: Project, resume = t
     resume && project.settings.enabled ? ((await $.store.get(`context:${session}`).catch(() => undefined)) as Saved | undefined) : undefined
   await update($, filesSession, () => session)
   if (saved?.checkpoint.map && (await $.session.messages()).length) {
-    await update($, files, () => saved.files)
-    await update($, looks, () => ({ ...FRESH_LOOKS, ...saved.checkpoint, refreshClaims: true }))
+    const old = saved.version !== SESSION_FILES_VERSION
+    const block = old ? renderSessionFiles(await sessionFiles(project, { refresh: false })) : saved.files
+    await update($, files, () => block)
+    await update($, looks, () => ({ ...FRESH_LOOKS, ...saved.checkpoint }))
+    if (old) await persistMap($)
     return
   }
   if (!resume && project.settings.enabled && !(await staleLayout(project))) await refreshDocs(project, { tocs: false })
@@ -46,5 +50,7 @@ export async function persistMap($: EngineInterface): Promise<void> {
   const checkpoint = mapCheckpoint(await read($, looks))
   const key = `context:${session}`
   // A full native store must not leave an older checkpoint eligible for the next resume.
-  await $.store.set(key, { files: await read($, files), checkpoint }).catch(() => $.store.delete(key).catch(() => undefined))
+  await $.store
+    .set(key, { version: SESSION_FILES_VERSION, files: await read($, files), checkpoint })
+    .catch(() => $.store.delete(key).catch(() => undefined))
 }

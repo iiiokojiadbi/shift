@@ -1,11 +1,13 @@
 import { expect, test } from 'bun:test'
 import { afterTool, afterWrite, atPrompt, beforeTool, type Courier, FRESH_LOOKS, type Looks, runEnded } from '../src/delivery'
-import { sessionFiles } from '../src/flows'
+import { acceptShift, sessionFiles, settleShift } from '../src/flows'
 import type { GaugeKeeper } from '../src/hint'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import { initialMap } from '../src/map'
+import { historyAction } from '../src/saved'
+import { sizeReport } from '../src/sizes'
 import type { Gauge, Reading } from '../src/types'
-import { BOARD, LIST, OWNER, R, ROOT, TRACK, taskMd } from './fixtures'
+import { BOARD, LETTER, LIST, OWNER, R, ROOT, TRACK, taskMd } from './fixtures'
 import { memoryProject } from './memory'
 
 const TOOL = { own: false, readOnly: false }
@@ -225,4 +227,34 @@ test('a doc changed between the prompt and its delivery keeps the change and is 
   await told.delivered()
   expect(project.files.get(`${ROOT}/docs/a.md`)).not.toContain('<!-- toc -->')
   expect(kept.looks.written).toEqual(['docs/a.md'])
+})
+
+test('a broken task store cannot interrupt a shift, prompt or archive report', async () => {
+  const { project, courier, put } = await setUp()
+  project.actor = 'writer'
+  await put('history.db', '')
+  await put('beads/.beads/metadata.json', 'broken')
+  await put('letter.md', LETTER)
+  const id = 's-0000000000000001'
+  const store = project.store
+  const calls: string[] = []
+  store.beads = async (_root, args, stdin) => {
+    if (args[0] !== 'shift-history') throw new Error('Private task database unavailable')
+    const req = JSON.parse(stdin ?? '{}')
+    calls.push(req.action)
+    if (req.action === 'begin') return JSON.stringify(id)
+    if (req.action === 'list' || req.action === 'search') return '[]'
+    if (req.action === 'waiting' || req.action === 'finish') return '""'
+    throw new Error(`Unexpected archive action: ${req.action}`)
+  }
+  expect((await sessionFiles(project)).map(f => f.path)).not.toContain('beads:claimed')
+  const accepted = await acceptShift(project, { input: { letter: '.shift/letter.md', after: 'continue' }, sessionId: 'writer', at: 1 })
+  if ('deny' in accepted) throw new Error(accepted.deny)
+  const settled = await settleShift(project, { shift: accepted.shift, messages: [], before: 400, after: 20 })
+  expect(settled.note.context).toContain(`<letter shift="${id}">\n${LETTER.trim()}`)
+  expect(settled.note.context).not.toMatch(/task cards|No task is in progress|Tracker ·/)
+  await (await atPrompt(courier, { runStarts: true, owner: true })).delivered()
+  expect(await sizeReport(project)).toContain('Continue message')
+  expect(await historyAction(project, { action: 'search', query: 'needle' })).toBe('No matches.')
+  expect(calls).toContain('finish')
 })

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { TOOLS } from '../../core/src'
+import { TASKS_DESCRIPTION, TOOLS } from '../../core/src'
 import { projectAt } from '../npm/store'
 import { status } from './gauge'
 import { runHook, sessionState } from './hooks'
@@ -90,7 +90,7 @@ class Daemon {
 
 const extras = [
   { name: 'unshift', description: 'Resume from the latest letter.' },
-  { name: 'shift_tasks', description: 'List the open tasks and their current items.' },
+  { name: 'shift_tasks', description: TASKS_DESCRIPTION },
 ]
 const tools = [
   ...TOOLS.map(tool => ({

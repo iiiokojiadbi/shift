@@ -148,7 +148,7 @@ function checkBoard(board: string): string | null {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }
   if (sections(board).has(OLD_TASKS_SECTION)) {
-    return `The board has a "## ${OLD_TASKS_SECTION}" section: the open tasks live in ${TASK_LIST} now, one line each with links under it — see ${GUIDE_TOOL}. Move them there and remove the section.`
+    return `The board has a "## ${OLD_TASKS_SECTION}" section: keep the project focus in Goal. Preserve any task details in the project tracker before removing this section. See ${GUIDE_TOOL}.`
   }
   const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing

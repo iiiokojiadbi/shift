@@ -1,5 +1,6 @@
 import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
 import { addToIndex, checkArchive, indexLine } from './archive'
+import { installSbd, taskInstructions } from './beads'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import {
@@ -33,7 +34,6 @@ import type { Project } from './project'
 import { checkLetter, checkTask, checkWork, checkWritten, listedTasks } from './records'
 import { archiveCall, isSaved, readSaved, savedEntries, savedFiles, usesNewStorage } from './saved'
 import { lastShifts, readRecords, readSnapshot, readTask, recentShifts, shiftNames, writeSnapshot } from './store'
-import { graphGeneration, graphPath, queryGraph } from './taskgraph'
 import { archiveInList, checkTaskList, formatTaskLine, parseTaskList, withTask } from './tasks'
 import {
   ACCEPTED,
@@ -143,7 +143,9 @@ export async function changedRecords(
 
 // Every file the record checks look at, by its path from the project's root, with its stamp: a listing per folder,
 // no file read.
-async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
+async function recordStamps(project: Project): Promise<Seen> {
+  const { store, root, settings } = project
+  const legacy = !(await usesNewStorage(project))
   const stamped = async (dir: string, only?: (name: string) => boolean): Promise<Seen> =>
     Object.fromEntries(
       Object.entries(await store.stamps(join(root, dir)))
@@ -152,7 +154,7 @@ async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
     )
   const own = new Set([
     BOARD,
-    TASK_LIST,
+    ...(legacy ? [TASK_LIST] : []),
     LETTER,
     SETTINGS,
     settings.files.owner,
@@ -160,7 +162,7 @@ async function recordStamps({ store, root, settings }: Project): Promise<Seen> {
     settings.files.shift,
     ...settings.files.always,
   ])
-  const tasks = await store.list(`${root}/${TASKS}`, 'dir')
+  const tasks = legacy ? await store.list(`${root}/${TASKS}`, 'dir') : []
   const parts = await Promise.all([
     ...[...new Set([...own].map(dirname))].map(dir => stamped(dir, name => own.has(join(dir, name)))),
     ...tasks.flatMap(name => [
@@ -217,7 +219,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const kept = await keepRecordsOut(project)
   if ('deny' in kept) return kept
 
-  const index = await store.read(`${root}/${INDEX}`)
+  const index = modern ? null : await store.read(`${root}/${INDEX}`)
   const dir = modern ? '' : await freeShiftDir(project, shiftDir(root, call.at))
   const shift: PendingShift = {
     after: input.after,
@@ -247,7 +249,6 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
       files,
       about,
       compare,
-      generation: await graphGeneration(project),
     })
     if (!shift.dir) return { deny: 'Nothing changed in the records since the last shift. Record progress before shifting.' }
     const earlier = entries.find(e => e.id === shift.dir)
@@ -422,7 +423,7 @@ export async function handBack(project: Project, dir: string, actor?: string, pr
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),
-    ...(isSaved(dir) ? { liveTasks: await liveTasks(project, actor), migrationReceipt: await migrationReceipt(project, dir) } : {}),
+    ...(isSaved(dir) ? { migrationReceipt: await migrationReceipt(project, dir) } : {}),
   }
 }
 
@@ -534,8 +535,7 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
     return { after: 'continue', prompt, note: { context: prompt, dir: shift.dir, files }, row: CONTINUING(name, shrank, shift.dir) }
   }
 
-  const waitBack = isSaved(shift.dir) ? { ...handed, liveTasks: 'The current task cards accompany the next prompt.' } : handed
-  const note = { context: waitContext(shift.letter, waitBack), dir: shift.dir, files }
+  const note = { context: waitContext(shift.letter, handed), dir: shift.dir, files }
   // Publish the waiting outcome only once a harness with durable thread history has parked the letter.
   await letGo.parkWait?.(note)
   await outcome(OUTCOME.waiting(shrank, 'waiting for the owner'))
@@ -582,12 +582,12 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
   return { excluded: file }
 }
 
+// Version of the rendered file block retained across a host restart. Earlier blocks contain a live task list.
+export const SESSION_FILES_VERSION = 2
+
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md and TASKS.md, with
 // paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
-export async function sessionFiles(
-  project: Project,
-  { refresh = true, includeClaims = true }: { refresh?: boolean; includeClaims?: boolean } = {},
-): Promise<SessionFile[]> {
+export async function sessionFiles(project: Project, { refresh = true }: { refresh?: boolean } = {}): Promise<SessionFile[]> {
   const { store, root, settings } = project
   if (!settings.enabled || (await staleLayout(project)) !== null) return []
   if (refresh) await refreshDocs(project)
@@ -602,12 +602,7 @@ export async function sessionFiles(
     ]),
   ]
   const loaded = await Promise.all(paths.map(async path => ({ path, text: await store.read(`${root}/${path}`) })))
-  const files = loaded.filter((file): file is SessionFile => file.text !== null)
-  if (includeClaims && modern && project.actor && (await store.exists(graphPath(project)))) {
-    const list = await queryGraph(project, { view: 'mine' }, project.actor)
-    files.push({ path: 'beads:claimed', text: list })
-  }
-  return files
+  return loaded.filter((file): file is SessionFile => file.text !== null)
 }
 
 // Records the mod cannot work on yet: an older name of its folder, or the folder the shift skill left. Then the mod writes
@@ -625,14 +620,16 @@ export async function staleLayout({ store, root }: Project): Promise<string | nu
   return null
 }
 
-// What /shift-tasks shows: the open tasks as listed, with their items' count, and the items not closed of those in
-// progress. Read only; a list the shift would refuse is shown as far as it parses.
-export async function liveTasks(project: Project, actor = project.actor): Promise<string> {
-  if (!actor || !(await project.store.exists(graphPath(project)))) return 'No tasks claimed by this chat.'
-  return queryGraph(project, { view: 'cards' }, actor)
-}
-export async function tasksView(project: Project, actor = project.actor): Promise<string> {
-  if (await usesNewStorage(project)) return actor ? liveTasks(project, actor) : queryGraph(project, { view: 'open' }, '')
+// The native layout shows the verified project command. A legacy list is readable during transfer.
+export async function tasksView(project: Project): Promise<string> {
+  if (await usesNewStorage(project)) {
+    try {
+      return `Run ${await installSbd(project)} list from the project root to see tasks.`
+    } catch (error) {
+      return `${taskInstructions()}
+${String(error)}`
+    }
+  }
   const { store, root } = project
   const parsed = parseTaskList((await store.read(`${root}/${TASK_LIST}`)) ?? '')
   if (typeof parsed === 'string') return `${TASK_LIST}: ${parsed}`

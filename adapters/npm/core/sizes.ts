@@ -59,7 +59,6 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
   const back = await handBack(project, dir, project.actor)
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)))
-    if (back.liveTasks) continueRows.push(row('Claimed task cards', count(back.liveTasks)))
     for (const task of modern ? [] : inProgress(back.work)) {
       const folder = `${TASKS}/${task.name}`
       continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? 'missing')))
@@ -85,7 +84,7 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     row('Continue message', continuation),
     ...continueRows,
     '',
-    'Totals include message framing. The next continuation uses estimated identifiers.',
+    'Totals include message framing and the fallback task-command instructions. The next continuation uses estimated identifiers.',
     '',
     ...(saved.length
       ? [
