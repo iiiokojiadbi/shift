@@ -76,7 +76,7 @@ Whether knowledge goes into the project's own docs or stays local is the owner's
 
 ## Saved shifts
 
-The opening paragraph of “Where I am” supplies the history description. Put the essential work and result in two or three sentences (400 characters total). Further paragraphs stay in the full letter. A restore includes the current opening once in that letter and the earlier retained shifts as brief entries.
+The opening paragraph of “Where I am” supplies the history description. Put the essential work and result in two or three sentences (400 characters total). Following paragraphs and block elements stay in the full letter. Older clients can still supply an explicit description through `about`. A restore includes the current opening once in that letter and the retained shifts preceding that letter as brief entries. A waiting chat can therefore restore an older letter after another chat has shifted.
 
 An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
 

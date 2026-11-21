@@ -13,6 +13,7 @@ import {
   countGrowth,
   docStamps,
   dropWaiting,
+  FAILURE_NOTE,
   FRESH_GAUGE,
   FRESH_LOOKS,
   FRESH_LOOP,
@@ -40,6 +41,7 @@ import {
 import { projectAt } from '../npm/store'
 import { readOnlyActions, recentEdits } from './edits'
 import { usageReading } from './gauge'
+import { prepareHandover, readHandover, readyHandover, wakeInput, withSessionDb } from './handover'
 import { type MapPrints, mapAtTool, observeMap } from './map'
 import { deferred, type Fields, fields, type Request, shiftContext, textInput } from './protocol'
 
@@ -108,7 +110,7 @@ export class Session {
     private readonly path: string | undefined,
     private readonly request: Request,
     private readonly tell: (text: string) => void,
-    private readonly delivery: 'launcher' | 'hooks' = 'launcher',
+    private readonly hookFile?: string,
   ) {
     this.loop = {
       read: async () => this.loopState,
@@ -137,7 +139,7 @@ export class Session {
   }
 
   async prompt(params: Fields, owner: boolean) {
-    if (this.delivery === 'hooks') {
+    if (this.hookFile) {
       const letter = owner ? await waitingNote(this.loop) : null
       if (!letter) return { params, delivered: async () => {} }
       return {
@@ -373,6 +375,16 @@ export class Session {
 
   private async settle(aborted: boolean) {
     const barrier = this.barrier
+    const file = this.hookFile
+    const shift = this.loopState.pending
+    const receipt = file && shift ? { root: this.root, dir: shift.dir } : undefined
+    const phase = () =>
+      file && receipt
+        ? withSessionDb(file, db => {
+            const row = readHandover(db, this.root)
+            return row?.dir === receipt.dir ? row.phase : undefined
+          })
+        : undefined
     try {
       await this.observation
       await afterTurn(
@@ -380,7 +392,10 @@ export class Session {
         this.loop,
         {
           fill: async () => this.reading.tokens,
-          parkWait: this.delivery === 'hooks' ? note => this.inject(note.context) : undefined,
+          // The installed prompt hook owns delivery, including a turn the owner started
+          // independently before this MCP client observed the end of the shift.
+          confirmsInHistory: !!receipt,
+          parkWait: receipt ? async () => {} : undefined,
           letGo: async instructions => {
             await this.inject(instructions)
             const path = this.path ?? fields((await this.request('thread/read', { threadId: this.id })).thread).path
@@ -391,6 +406,7 @@ export class Session {
                   () => undefined,
                 )
               : undefined
+            if (file && receipt) prepareHandover(file, this.root, receipt.dir, start)
             const done = deferred<void>()
             // The completion can precede the RPC acknowledgement.
             void done.promise.catch(() => {})
@@ -401,7 +417,14 @@ export class Session {
             try {
               await Promise.all([this.request('thread/compact/start', { threadId: this.id }), done.promise])
               const messages = await digest(history, start)
+              if (file && receipt) withSessionDb(file, db => readyHandover(db, receipt))
               return { messages }
+            } catch (error) {
+              if (file && receipt)
+                withSessionDb(file, db =>
+                  db.query("DELETE FROM handover WHERE root = ? AND dir = ? AND phase = 'prepared'").run(this.root, receipt.dir),
+                )
+              throw error
             } finally {
               clearTimeout(timer)
               this.transition = undefined
@@ -412,6 +435,15 @@ export class Session {
             this.prepared = false
           },
           continueWith: async text => {
+            if (receipt && phase() && !text.startsWith('<shift note=')) {
+              if (phase() === 'ready')
+                await this.request('thread/queue/add', {
+                  threadId: this.id,
+                  clientUserMessageId: crypto.randomUUID(),
+                  input: [textInput(wakeInput(receipt.dir))],
+                })
+              return
+            }
             const prepared = await this.prompt({ threadId: this.id, input: [textInput(shiftContext(text))] }, false)
             if (this.queued) {
               await this.inject([fields(fields(prepared.params.additionalContext).shift).value, text].filter(Boolean).join('\n\n'))
@@ -423,11 +455,16 @@ export class Session {
       )
       // Put a waiting letter in the thread itself. It survives a client restart and starts no turn.
       const note = this.loopState.note
-      if (note) {
+      const delivered = phase()
+      if (receipt && delivered && isSaved(receipt.dir) && delivered === 'delivered')
+        await acknowledgeWait(await projectAt(this.root, this.id), receipt.dir)
+      if (receipt && delivered && note?.dir === receipt.dir && !note.files.includes(FAILURE_NOTE)) {
+        await dropWaiting(this.loop)
+      } else if (note) {
         const prepared = await this.prompt({ threadId: this.id }, true)
         await this.inject(String(fields(fields(prepared.params.additionalContext).shift).value ?? note.context))
         await prepared.delivered()
-        if (this.delivery === 'hooks' && isSaved(note.dir)) await acknowledgeWait(await projectAt(this.root, this.id), note.dir)
+        if (this.hookFile && isSaved(note.dir)) await acknowledgeWait(await projectAt(this.root, this.id), note.dir)
       }
     } finally {
       this.barrier = undefined

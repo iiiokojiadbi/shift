@@ -160,6 +160,10 @@ func TestHandBackListsOnlyRetainedShifts(t *testing.T) {
 	}
 	other := makeShift("held by another chat", "other")
 	previous := makeShift("previous", "writer")
+	checkUpcoming := must[[]Entry](t, db, Request{Action: "list", Upcoming: true, Limit: 1, Session: "writer"})
+	if len(checkUpcoming) != 1 || checkUpcoming[0].ID != other {
+		t.Fatalf("prospective retention: %v", checkUpcoming)
+	}
 	current := must[string](t, db, begin("current"))
 	preview := Request{Action: "list", ID: current, Session: "writer", Limit: 1}
 	check := func(req Request, ids ...string) {

@@ -17,6 +17,7 @@ import (
 )
 
 type Request struct {
+	Upcoming   bool              `json:"upcoming"`
 	File       string            `json:"file"`
 	Compare    string            `json:"compare"`
 	Generation string            `json:"generation"`
@@ -79,7 +80,7 @@ func save(entries, blobs *bolt.Bucket, e Entry, files map[string]string) error {
 
 // For a hand-back prepared before settlement, count the pending shift as the newest
 // completion and release this session's hold, just as finish and its receipt will.
-func expiredEntries(entries *bolt.Bucket, limit int, current, releaseSession string) ([]Entry, error) {
+func expiredEntries(entries *bolt.Bucket, limit int, releaseSession string) ([]Entry, error) {
 	protected := map[string]bool{}
 	if queue := entries.Tx().Bucket(waiting); queue != nil {
 		if err := queue.ForEach(func(session, id []byte) error {
@@ -97,10 +98,7 @@ func expiredEntries(entries *bolt.Bucket, limit int, current, releaseSession str
 		if err != nil {
 			return err
 		}
-		if e.ID == current && e.State == "pending" {
-			// This completion will receive the next sequence number.
-			limit--
-		} else if e.State == "complete" && !protected[e.ID] {
+		if e.State == "complete" && !protected[e.ID] {
 			completed = append(completed, e)
 		}
 		return nil
@@ -112,7 +110,7 @@ func expiredEntries(entries *bolt.Bucket, limit int, current, releaseSession str
 }
 
 func rotate(entries, blobs *bolt.Bucket, limit int) error {
-	expired, err := expiredEntries(entries, limit, "", "")
+	expired, err := expiredEntries(entries, limit, "")
 	if err != nil {
 		return err
 	}
@@ -352,14 +350,24 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		return matches, nil
 	case "list":
 		skip := map[string]bool{}
-		if r.ID != "" && r.Limit > 0 && b.Get([]byte(r.ID)) != nil {
-			current, err := load(b.Get([]byte(r.ID)))
-			if err != nil {
-				return nil, err
+		if r.Limit > 0 && (r.ID != "" || r.Upcoming) {
+			current := Entry{}
+			if v := b.Get([]byte(r.ID)); v != nil {
+				var err error
+				current, err = load(v)
+				if err != nil {
+					return nil, err
+				}
 			}
 			queue := tx.Bucket(waiting)
-			if current.State == "pending" || (queue != nil && string(queue.Get([]byte(r.Session))) == current.ID) {
-				expired, err := expiredEntries(b, r.Limit, r.ID, r.Session)
+			reserve := r.Upcoming || current.State == "pending" || current.State == "unsettled"
+			held := current.ID != "" && queue != nil && string(queue.Get([]byte(r.Session))) == current.ID
+			if reserve || held {
+				limit := r.Limit
+				if reserve {
+					limit--
+				}
+				expired, err := expiredEntries(b, limit, r.Session)
 				if err != nil {
 					return nil, err
 				}

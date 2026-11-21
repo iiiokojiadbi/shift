@@ -241,6 +241,7 @@ try {
   await settleShift(reader, { ...settlement, shift: newer.shift })
   const explicit = await resumeShift(source)
   assert.equal(explicit.waiting, waitCall.shift.dir)
+  assert.ok(!explicit.prompt.includes(newer.shift.dir))
   assert.ok(explicit.prompt.includes(letter.trim()))
   assert.ok((await resumeShift(reader)).prompt.includes(newerLetter.trim()))
   const recovered = await offerWait()

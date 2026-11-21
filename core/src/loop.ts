@@ -288,10 +288,17 @@ const WAIT_STEP = 250
 
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed
 // delivery keeps it for the next one.
-async function archivedWait(project: Project, id: string) {
-  const entry = await readSaved(project, id, NAMES.letter)
+export async function archivedWait(project: Project, id: string) {
+  const entry = isSaved(id)
+    ? await readSaved(project, id, NAMES.letter)
+    : {
+        about: (await project.store.read(`${id}/${NAMES.about}`)) ?? '',
+        files: { [NAMES.letter]: await project.store.read(`${id}/${NAMES.letter}`) },
+      }
+  const letter = entry.files[NAMES.letter]
+  if (!letter) throw new Error(`Missing letter in saved shift ${id}.`)
   const render = readAbout(entry.about).after === 'continue' ? continuePrompt : waitContext
-  return render(entry.files[NAMES.letter] ?? '', await handBack(project, id, project.actor))
+  return render(letter, await handBack(project, id, project.actor))
 }
 async function waitingId(project?: Project) {
   return project?.actor && project.store.beads && (await hasArchive(project))

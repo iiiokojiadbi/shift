@@ -5,7 +5,7 @@ import { segment } from '../src/history'
 import { findDate, frontmatter, itemsOf } from '../src/markdown'
 import { checkKnowledge, checkTask } from '../src/records'
 import { parseSettings } from '../src/settings'
-import { shiftNames } from '../src/store'
+import { recentShifts, shiftNames } from '../src/store'
 import { archiveInList, checkTaskList } from '../src/tasks'
 import { numberItems } from '../src/track'
 import { R, ROOT, taskMd, WORK } from './fixtures'
@@ -83,6 +83,8 @@ test('shift folders sort by time, a second taken twice by its number', async () 
     ROOT,
   )
   expect(await shiftNames(project)).toEqual(['20260102-030405', '20260102-030405-9', '20260102-030405-10', '20260102-030406'])
+  const prior = await recentShifts(project, '20260102-030405-10')
+  expect(prior.entries.map(entry => entry.name)).toEqual(['20260102-030405', '20260102-030405-9'])
 })
 
 test('about.md keeps a known fill without the one before, and a reason over lines', () => {

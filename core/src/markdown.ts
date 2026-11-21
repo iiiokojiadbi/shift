@@ -6,7 +6,7 @@ import type { Item } from './types'
 export type Heading = { level: number; title: string; line: number; note: string }
 
 const HEADING = /^ {0,3}(#{1,6}) +(.+?)\s*$/
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const FENCE = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 
 // The text with its fenced lines left out: a check over raw text never reads an example as the record.
 export function unfenced(text: string): string {
@@ -113,6 +113,26 @@ export function pinned(text: string): Pin[] {
   }
 
   return found
+}
+
+const BLOCK_HTML =
+  /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|nav|ol|p|pre|script|section|style|summary|table|tbody|td|textarea|tfoot|th|thead|tr|ul)(?:\s|\/?>|$)/i
+
+// The letter opens with prose. A list, quote, heading or fence can start immediately
+// after its last sentence. Leading template comments are invisible to the reader.
+export function openingParagraph(section: string): string {
+  const prose = section.trimStart().replace(/^(?:<!--[\s\S]*?-->\s*)+/, '')
+  const lines: string[] = []
+  for (const line of prose.split(/\r?\n/)) {
+    if (
+      !line.trim() ||
+      BLOCK_HTML.test(line) ||
+      /^ {0,3}(?:#{1,6}(?:\s|$)|>|(?:[-+*]|1[.)])\s|<!--|`{3,}|~{3,}|(?:[-*_]\s*){3,}$|=+\s*$)/.test(line)
+    )
+      break
+    lines.push(line.trim())
+  }
+  return lines.join(' ').replace(/\s+/g, ' ')
 }
 
 // The blocks under the headings of `level`: each title with the text up to the next heading of that level or above.

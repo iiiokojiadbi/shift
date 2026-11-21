@@ -4,7 +4,7 @@
 import { createHash as createHash3 } from "crypto";
 import { homedir } from "os";
 import { join as join2 } from "path";
-import { createInterface as createInterface3 } from "readline";
+import { createInterface as createInterface4 } from "readline";
 
 // core/src/layout.ts
 var MOD = "shift";
@@ -110,7 +110,7 @@ var NAME_RULE = "lowercase latin, digits and dashes, starting with a letter or a
 
 // core/src/markdown.ts
 var HEADING = /^ {0,3}(#{1,6}) +(.+?)\s*$/;
-var FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+var FENCE = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/;
 function unfenced(text) {
   const lines = text.split(`
 `);
@@ -198,6 +198,17 @@ function pinned(text) {
     at = end - 1;
   }
   return found;
+}
+var BLOCK_HTML = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|nav|ol|p|pre|script|section|style|summary|table|tbody|td|textarea|tfoot|th|thead|tr|ul)(?:\s|\/?>|$)/i;
+function openingParagraph(section) {
+  const prose = section.trimStart().replace(/^(?:<!--[\s\S]*?-->\s*)+/, "");
+  const lines = [];
+  for (const line of prose.split(/\r?\n/)) {
+    if (!line.trim() || BLOCK_HTML.test(line) || /^ {0,3}(?:#{1,6}(?:\s|$)|>|(?:[-+*]|1[.)])\s|<!--|`{3,}|~{3,}|(?:[-*_]\s*){3,}$|=+\s*$)/.test(line))
+      break;
+    lines.push(line.trim());
+  }
+  return lines.join(" ").replace(/\s+/g, " ");
 }
 function blocks(text, level) {
   const lines = text.split(`
@@ -1693,6 +1704,7 @@ async function commentChanges(project, previous, lastManifest) {
 
 // core/src/saved.ts
 var ARCHIVE_DB = `${DIR}/history.db`;
+var NEXT_SAVED = "s-0000000000000000";
 var isSaved = (id) => /^s-[a-f0-9]{16}$/.test(id);
 var hasArchive = (p) => p.store.exists(`${p.root}/${ARCHIVE_DB}`);
 async function archiveCall(p, request) {
@@ -1701,7 +1713,12 @@ async function archiveCall(p, request) {
   return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
 }
 async function savedEntries(p, current, session) {
-  return await hasArchive(p) ? archiveCall(p, { action: "list", id: current, session, limit: p.settings.historyLimit }) : [];
+  if (!await hasArchive(p))
+    return [];
+  if (!current)
+    return archiveCall(p, { action: "list" });
+  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current };
+  return archiveCall(p, { action: "list", ...selection, session, limit: p.settings.historyLimit });
 }
 function readSaved(p, id, file) {
   if (!isSaved(id))
@@ -1814,7 +1831,11 @@ async function migrationReceipt(p, id) {
   } catch {
     return;
   }
-  if (!state || state.done || id <= state.previous)
+  if (!state || state.done)
+    return;
+  if (id === NEXT_SAVED)
+    return "0".repeat(24);
+  if (id <= state.previous)
     return;
   const receipt = JSON.parse(await p.store.beads(p.root, ["shift-migrate"], JSON.stringify({ action: "receipt", previous: id, generation: state.backup })));
   return typeof receipt === "string" && /^[a-f0-9]{24}$/.test(receipt) ? receipt : undefined;
@@ -2002,20 +2023,22 @@ async function shiftNames({ store, root }) {
     return x.stamp === y.stamp ? x.n - y.n : x.stamp < y.stamp ? -1 : 1;
   });
 }
-async function lastShifts(project, count, exclude, session) {
+async function lastShifts(project, count, exclude, session, preview = true) {
   const { store, root } = project;
-  const saved = await savedEntries(project, exclude && isSaved(exclude) ? exclude : undefined, session);
+  const saved = await savedEntries(project, preview && exclude && isSaved(exclude) ? exclude : undefined, session);
   if (saved.length || exclude && isSaved(exclude)) {
-    const entries = saved.filter((entry) => entry.id !== exclude);
+    const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
     return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
   }
-  const names = (await shiftNames(project)).filter((name) => name !== exclude);
+  const sorted = await shiftNames(project);
+  const index = exclude ? sorted.indexOf(exclude) : -1;
+  const names = index < 0 ? sorted : sorted.slice(0, index);
   const entries = await Promise.all(names.slice(-count).map(async (name) => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })));
   return { entries, total: names.length };
 }
-function recentShifts(project, current, session) {
+function recentShifts(project, current, session, preview = true) {
   const count = current && isSaved(current) ? project.settings.historyLimit : RECENT_SHIFTS;
-  return lastShifts(project, count, current, session);
+  return lastShifts(project, count, current, session, preview);
 }
 
 // core/src/texts/prompts.ts
@@ -2475,8 +2498,9 @@ async function acceptShift(project, call) {
     return { deny: letterProblem };
   const parts = sections(letter);
   const opening = parts.get(LETTER_SECTIONS[0]) ?? "";
-  const [paragraph = ""] = opening.split(/\r?\n[ \t]*\r?\n/, 1);
-  const description = input.about ?? paragraph.replace(/\s+/g, " ").trim();
+  const description = input.about ?? openingParagraph(opening);
+  if (!description)
+    return { deny: 'Start "Where I am" with a paragraph describing the work and its outcome.' };
   if (description.length > ABOUT_MAX)
     return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` };
   if (settings.enabled)
@@ -2647,7 +2671,7 @@ async function resumeShift(project, actor = project.actor) {
     return {
       text: `Picking up shift ${saved.id}.`,
       ...waiting ? { waiting } : {},
-      prompt: resumePrompt(letter, await handBack(project, saved.id, actor), about.shifted ? null : about.result)
+      prompt: resumePrompt(letter, await handBack(project, saved.id, actor, !!waiting), about.shifted ? null : about.result)
     };
   }
   if (names.length === 0)
@@ -2666,12 +2690,12 @@ async function resumeShift(project, actor = project.actor) {
   }
   return { text: `No letter.md in any folder of ${SHIFTS}/ \u2014 nothing to pick up.` };
 }
-async function handBack(project, dir, actor) {
+async function handBack(project, dir, actor, preview = true) {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
     owner: project.settings.files.owner,
-    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor),
+    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor, preview),
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),
@@ -3182,9 +3206,15 @@ function attachmentsOf(held) {
   return all.length === 0 ? undefined : all;
 }
 async function archivedWait(project, id) {
-  const entry = await readSaved(project, id, NAMES.letter);
+  const entry = isSaved(id) ? await readSaved(project, id, NAMES.letter) : {
+    about: await project.store.read(`${id}/${NAMES.about}`) ?? "",
+    files: { [NAMES.letter]: await project.store.read(`${id}/${NAMES.letter}`) }
+  };
+  const letter = entry.files[NAMES.letter];
+  if (!letter)
+    throw new Error(`Missing letter in saved shift ${id}.`);
   const render = readAbout(entry.about).after === "continue" ? continuePrompt : waitContext;
-  return render(entry.files[NAMES.letter] ?? "", await handBack(project, id, project.actor));
+  return render(letter, await handBack(project, id, project.actor));
 }
 async function waitingId(project) {
   return project?.actor && project.store.beads && await hasArchive(project) ? archiveCall(project, { action: "waiting", session: project.deliveryKey ?? project.actor }) : "";
@@ -3475,7 +3505,7 @@ async function atPrompt(courier, { runStarts, owner }) {
     }
   };
 }
-async function promptRecords(courier, runStarts, parkedWait = false, submitted = "") {
+async function promptRecords(courier, runStarts, parkedWait = false, submitted = "", alreadyDelivered) {
   if (runStarts)
     await courier.updateLooks((current) => ({ ...current, running: 0 }));
   const notes = [];
@@ -3490,7 +3520,7 @@ async function promptRecords(courier, runStarts, parkedWait = false, submitted =
     await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
   const session = project.actor;
   const durableWait = running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? session }) : "";
-  let waiting = parkedWait ? durableWait : "";
+  let waiting = parkedWait && durableWait !== alreadyDelivered ? durableWait : "";
   let recovery = "";
   let includeCards = !!waiting;
   if (waiting) {
@@ -3895,7 +3925,7 @@ var KINDS2 = {
   path: (value) => typeof value === "string" && isInside(value) ? null : "a path inside the project",
   files: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of files inside the project",
   docs: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of folders or documents inside the project",
-  limit: (value) => typeof value === "number" && Number.isInteger(value) && value > 0 ? null : "a whole number above 0",
+  limit: (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? null : "a safe whole number above 0",
   placement: (value) => PLACEMENTS.includes(value) ? null : `one of ${quote(PLACEMENTS)}`
 };
 var SETTING_KEYS = [
@@ -4743,7 +4773,7 @@ async function sizeReport(project, counter) {
     if (saved.length === 3)
       break;
   }
-  const dir = modern ? retained[0]?.id ?? "s-0000000000000000" : `${project.root}/${SHIFTS}/${saved[0]?.name ?? "<next-shift>"}`;
+  const dir = modern ? NEXT_SAVED : `${project.root}/${SHIFTS}/<next-shift>`;
   const back = await handBack(project, dir, project.actor);
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)));
@@ -4777,7 +4807,7 @@ async function sizeReport(project, counter) {
     row("Continue message", continuation),
     ...continueRows,
     "",
-    "Totals include message framing.",
+    "Totals include message framing. The next continuation uses estimated identifiers.",
     "",
     ...saved.length ? [
       `Saved letters in ${modern ? "the shift archive" : `${SHIFTS}/`} (outside total)`,
@@ -5312,11 +5342,11 @@ async function sample(state, transcript, reset) {
 }
 
 // adapters/codex/hooks.ts
-import { Database } from "bun:sqlite";
+import { Database as Database2 } from "bun:sqlite";
 import { createHash as createHash2 } from "crypto";
-import { createReadStream } from "fs";
+import { createReadStream as createReadStream2 } from "fs";
 import { mkdir as mkdir2, readFile as readFile2, stat as stat2 } from "fs/promises";
-import { createInterface } from "readline";
+import { createInterface as createInterface2 } from "readline";
 
 // adapters/codex/edits.ts
 import { open as open2 } from "fs/promises";
@@ -5753,6 +5783,54 @@ async function recentEdits(project, input, offset) {
   }
 }
 
+// adapters/codex/handover.ts
+import { Database } from "bun:sqlite";
+import { createReadStream } from "fs";
+import { createInterface } from "readline";
+function withSessionDb(file, run) {
+  const db = new Database(`${file}.sqlite`);
+  try {
+    db.exec("PRAGMA busy_timeout = 10000");
+    return run(db);
+  } finally {
+    db.close();
+  }
+}
+function readHandover(db, root) {
+  if (!db.query("SELECT 1 FROM sqlite_master WHERE name = 'handover'").get())
+    return null;
+  return db.query("SELECT * FROM handover WHERE root = ?").get(root);
+}
+function prepareHandover(file, root, dir, offset) {
+  withSessionDb(file, (db) => {
+    db.exec("CREATE TABLE IF NOT EXISTS handover (root TEXT PRIMARY KEY, dir TEXT NOT NULL, offset INTEGER, phase TEXT NOT NULL)");
+    db.query("INSERT OR REPLACE INTO handover VALUES (?, ?, ?, 'prepared')").run(root, dir, offset ?? null);
+  });
+}
+function readyHandover(db, row) {
+  db.query("UPDATE handover SET phase = 'ready' WHERE root = ? AND dir = ? AND phase = 'prepared'").run(row.root, row.dir);
+}
+var wakeInput = (dir) => shiftContext(`${WAKE}
+${dir}`);
+async function replacedSince(path, offset) {
+  const stream = createReadStream(path, { start: offset, encoding: "utf8" });
+  try {
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+      if (!line.includes('"compacted"'))
+        continue;
+      try {
+        if (JSON.parse(line).type === "compacted")
+          return true;
+      } catch {}
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    stream.destroy();
+  }
+}
+
 // adapters/codex/map.ts
 import { createHash } from "crypto";
 async function observeMap2(project, previous, files, stamps, confirmed, legacyStamps) {
@@ -5775,11 +5853,11 @@ async function mapAtTool(project, previous, edits, shellWrite) {
 // adapters/codex/hooks.ts
 var fingerprint = (text) => createHash2("sha256").update(text).digest("hex");
 async function retainedContext(path, receipt, marker) {
-  const stream = createReadStream(path, { start: receipt.offset, encoding: "utf8" });
+  const stream = createReadStream2(path, { start: receipt.offset, encoding: "utf8" });
   const escapedMarker = JSON.stringify(marker).slice(1, -1);
   let retained = false;
   try {
-    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+    for await (const line of createInterface2({ input: stream, crlfDelay: Infinity })) {
       if (!line.includes(escapedMarker) && !line.includes('"compacted"') && !line.includes('"thread_rolled_back"'))
         continue;
       let row;
@@ -5793,7 +5871,10 @@ async function retainedContext(path, receipt, marker) {
         retained = false;
       if (row.type === "response_item" && item.type === "message" && item.role === "developer" && Array.isArray(item.content) && item.content.some((part) => {
         const text = fields(part).text;
-        return typeof text === "string" && text.startsWith(marker) && fingerprint(text.slice(0, receipt.length)) === receipt.hash;
+        if (typeof text !== "string")
+          return false;
+        const start = text.indexOf(marker);
+        return start >= 0 && fingerprint(text.slice(start, start + receipt.length)) === receipt.hash;
       }))
         retained = true;
     }
@@ -5804,7 +5885,7 @@ async function retainedContext(path, receipt, marker) {
     stream.destroy();
   }
 }
-async function contextFor(input, project, state, restoring = false) {
+async function contextFor(input, project, state, restoring = false, alreadyDelivered) {
   const problem = project.problem;
   const event = input.hook_event_name;
   const edits = await recentEdits(project, input, state.editOffset);
@@ -5890,7 +5971,7 @@ async function contextFor(input, project, state, restoring = false) {
   const legacyStamps = state.looks.docs;
   if (restoring)
     state.looks.refreshClaims = false;
-  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, contextBody(String(input.prompt ?? "")));
+  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, contextBody(String(input.prompt ?? "")), alreadyDelivered);
   const recordNotes = records.notes.map(wrap);
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
@@ -5933,7 +6014,7 @@ async function legacyState(file) {
 async function sessionState(file) {
   if (!await Bun.file(`${file}.sqlite`).exists())
     return legacyState(file);
-  const db = new Database(`${file}.sqlite`, { readonly: true });
+  const db = new Database2(`${file}.sqlite`, { readonly: true });
   try {
     db.exec("PRAGMA busy_timeout = 10000");
     const ready = db.query("SELECT 1 FROM sqlite_master WHERE name = 'checkpoint'").get();
@@ -5971,7 +6052,7 @@ async function runHook(input, dir, file) {
   if (tool && !project.settings.enabled)
     return {};
   await mkdir2(dir, { recursive: true, mode: 448 });
-  const db = new Database(`${file}.sqlite`);
+  const db = new Database2(`${file}.sqlite`);
   try {
     db.exec("PRAGMA busy_timeout = 10000");
     db.exec("BEGIN IMMEDIATE");
@@ -5979,12 +6060,54 @@ async function runHook(input, dir, file) {
     let state = checkpoint(db) ?? await legacyState(file);
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() };
-    const delivery = project.settings.enabled ? await contextFor(input, project, state, command === RESUME_COMMAND) : { notes: [], waiting: "" };
+    const row = project.settings.enabled ? readHandover(db, project.root) : null;
+    if (row?.phase === "prepared" && input.hook_event_name === "SessionStart" && (input.source === "compact" || input.source === "resume" && typeof input.transcript_path === "string" && row.offset !== null && await replacedSince(input.transcript_path, row.offset))) {
+      readyHandover(db, row);
+      row.phase = "ready";
+    }
+    const submit = input.hook_event_name === "UserPromptSubmit";
+    const transcript = typeof input.transcript_path === "string" ? input.transcript_path : undefined;
+    const wake = row && prompt === wakeInput(row.dir);
+    const offer = state.offered;
+    if (row?.phase === "offered" && offer?.dir === row.dir && transcript) {
+      if (await retainedContext(transcript, offer, offer.marker)) {
+        if (isSaved(row.dir))
+          await acknowledgeWait(project, row.dir);
+        row.phase = "delivered";
+      } else if (input.hook_event_name === "SessionStart" && input.source === "resume" || submit && typeof input.turn_id === "string" && input.turn_id !== offer.turn) {
+        row.phase = "ready";
+      }
+      db.query("UPDATE handover SET phase = ? WHERE root = ? AND dir = ?").run(row.phase, row.root, row.dir);
+      if (row.phase !== "offered")
+        delete state.offered;
+    }
+    const redundantWake = wake && row?.phase === "delivered";
+    if (redundantWake) {
+      db.query("INSERT OR REPLACE INTO checkpoint VALUES (1, ?)").run(JSON.stringify(state));
+      db.exec("COMMIT");
+      return { continue: false, stopReason: "The shift already continued with the owner." };
+    }
+    const handover = submit && row?.phase === "ready" ? row : null;
+    const delivery = project.settings.enabled ? await contextFor(input, project, state, !!handover || command === RESUME_COMMAND, row?.phase === "delivered" || row?.phase === "offered" ? row.dir : undefined) : { notes: [], waiting: "" };
     const { notes } = delivery;
     let waiting = delivery.waiting;
+    if (handover) {
+      const letter = await archivedWait(project, handover.dir);
+      notes.push(letter);
+      state.offered = {
+        dir: handover.dir,
+        marker: letter.split(`
+`, 1)[0] ?? letter,
+        offset: transcript ? await stat2(transcript).then((info) => info.size, () => 0) : 0,
+        length: letter.length,
+        hash: fingerprint(letter),
+        ...typeof input.turn_id === "string" ? { turn: input.turn_id } : {}
+      };
+      db.query("UPDATE handover SET phase = 'offered' WHERE root = ? AND dir = ?").run(project.root, handover.dir);
+    }
     if (command === SHIFT_COMMAND)
       notes.push(SHIFT_NOW(""));
-    if (command === RESUME_COMMAND) {
+    if (command === RESUME_COMMAND && !handover) {
       const last = await resumeShift(project);
       if (last.prompt && last.waiting)
         waiting = last.waiting;
@@ -6018,18 +6141,18 @@ var plugin_default = {
 };
 
 // adapters/codex/session.ts
-import { createReadStream as createReadStream2 } from "fs";
+import { createReadStream as createReadStream3 } from "fs";
 import { realpath as realpath2, stat as stat3 } from "fs/promises";
 import { isAbsolute, relative, resolve as resolve3, sep } from "path";
-import { createInterface as createInterface2 } from "readline";
+import { createInterface as createInterface3 } from "readline";
 var namespace = "shift";
 async function digest(path, start) {
   if (!path || start === undefined)
     return [];
   let text = "";
-  const stream = createReadStream2(path, { start, encoding: "utf8" });
+  const stream = createReadStream3(path, { start, encoding: "utf8" });
   try {
-    for await (const line of createInterface2({ input: stream, crlfDelay: Infinity })) {
+    for await (const line of createInterface3({ input: stream, crlfDelay: Infinity })) {
       const row = JSON.parse(line);
       if (row.type === "compacted" && typeof row.payload?.message === "string")
         text = row.payload.message;
@@ -6046,7 +6169,7 @@ class Session {
   path;
   request;
   tell;
-  delivery;
+  hookFile;
   loopState = { ...FRESH_LOOP };
   gauge = { ...FRESH_GAUGE };
   reading = { tokens: undefined, window: 0, threshold: undefined };
@@ -6069,13 +6192,13 @@ class Session {
   transition;
   loop;
   courier;
-  constructor(id, root, path, request, tell, delivery = "launcher") {
+  constructor(id, root, path, request, tell, hookFile) {
     this.id = id;
     this.root = root;
     this.path = path;
     this.request = request;
     this.tell = tell;
-    this.delivery = delivery;
+    this.hookFile = hookFile;
     this.loop = {
       read: async () => this.loopState,
       update: async (change) => {
@@ -6102,7 +6225,7 @@ class Session {
     };
   }
   async prompt(params, owner) {
-    if (this.delivery === "hooks") {
+    if (this.hookFile) {
       const letter = owner ? await waitingNote(this.loop) : null;
       if (!letter)
         return { params, delivered: async () => {} };
@@ -6359,11 +6482,19 @@ class Session {
   }
   async settle(aborted) {
     const barrier = this.barrier;
+    const file = this.hookFile;
+    const shift = this.loopState.pending;
+    const receipt = file && shift ? { root: this.root, dir: shift.dir } : undefined;
+    const phase = () => file && receipt ? withSessionDb(file, (db) => {
+      const row = readHandover(db, this.root);
+      return row?.dir === receipt.dir ? row.phase : undefined;
+    }) : undefined;
     try {
       await this.observation;
       await afterTurn(await projectAt(this.root, this.id), this.loop, {
         fill: async () => this.reading.tokens,
-        parkWait: this.delivery === "hooks" ? (note) => this.inject(note.context) : undefined,
+        confirmsInHistory: !!receipt,
+        parkWait: receipt ? async () => {} : undefined,
         letGo: async (instructions) => {
           await this.inject(instructions);
           const path = this.path ?? fields((await this.request("thread/read", { threadId: this.id })).thread).path;
@@ -6371,6 +6502,8 @@ class Session {
           const start = history ? await stat3(history).then((s) => s.size, () => {
             return;
           }) : undefined;
+          if (file && receipt)
+            prepareHandover(file, this.root, receipt.dir, start);
           const done = deferred();
           done.promise.catch(() => {});
           this.transition = { done, completedItem: false };
@@ -6379,7 +6512,13 @@ class Session {
           try {
             await Promise.all([this.request("thread/compact/start", { threadId: this.id }), done.promise]);
             const messages = await digest(history, start);
+            if (file && receipt)
+              withSessionDb(file, (db) => readyHandover(db, receipt));
             return { messages };
+          } catch (error) {
+            if (file && receipt)
+              withSessionDb(file, (db) => db.query("DELETE FROM handover WHERE root = ? AND dir = ? AND phase = 'prepared'").run(this.root, receipt.dir));
+            throw error;
           } finally {
             clearTimeout(timer);
             this.transition = undefined;
@@ -6390,6 +6529,15 @@ class Session {
           this.prepared = false;
         },
         continueWith: async (text) => {
+          if (receipt && phase() && !text.startsWith("<shift note=")) {
+            if (phase() === "ready")
+              await this.request("thread/queue/add", {
+                threadId: this.id,
+                clientUserMessageId: crypto.randomUUID(),
+                input: [textInput(wakeInput(receipt.dir))]
+              });
+            return;
+          }
           const prepared = await this.prompt({ threadId: this.id, input: [textInput(shiftContext(text))] }, false);
           if (this.queued) {
             await this.inject([fields(fields(prepared.params.additionalContext).shift).value, text].filter(Boolean).join(`
@@ -6401,11 +6549,16 @@ class Session {
         }
       }, aborted);
       const note = this.loopState.note;
-      if (note) {
+      const delivered = phase();
+      if (receipt && delivered && isSaved(receipt.dir) && delivered === "delivered")
+        await acknowledgeWait(await projectAt(this.root, this.id), receipt.dir);
+      if (receipt && delivered && note?.dir === receipt.dir && !note.files.includes(FAILURE_NOTE)) {
+        await dropWaiting(this.loop);
+      } else if (note) {
         const prepared = await this.prompt({ threadId: this.id }, true);
         await this.inject(String(fields(fields(prepared.params.additionalContext).shift).value ?? note.context));
         await prepared.delivered();
-        if (this.delivery === "hooks" && isSaved(note.dir))
+        if (this.hookFile && isSaved(note.dir))
           await acknowledgeWait(await projectAt(this.root, this.id), note.dir);
       }
     } finally {
@@ -6476,7 +6629,7 @@ class Daemon {
   get disconnected() {
     return this.socket.readyState === WebSocket.CLOSED;
   }
-  async attach(id, root) {
+  async attach(id, root, file) {
     await this.ready;
     const existing = this.sessions.get(id);
     if (existing)
@@ -6484,7 +6637,7 @@ class Daemon {
     const thread = fields((await this.rpc.call("thread/read", { threadId: id })).thread);
     if (thread.cwd !== root || thread.parentThreadId || fields(thread.source).subAgent || fields(thread.status).type !== "active")
       throw new Error("Only the active main thread on the local server can shift.");
-    const session = new Session(id, root, typeof thread.path === "string" ? thread.path : undefined, this.rpc.call, (text) => console.error(text), "hooks");
+    const session = new Session(id, root, typeof thread.path === "string" ? thread.path : undefined, this.rpc.call, (text) => console.error(text), file);
     await this.rpc.call("thread/resume", { threadId: id, excludeTurns: true });
     this.sessions.set(id, session);
     return session;
@@ -6547,7 +6700,7 @@ async function serve() {
             if (!daemon || daemon.disconnected)
               daemon = new Daemon;
             try {
-              session = await daemon.attach(id, state.root);
+              session = await daemon.attach(id, state.root, file);
               const turns = await daemon.rpc.call("thread/turns/list", { threadId: id, limit: 1 });
               const active = Array.isArray(turns.data) ? fields(turns.data[0]) : {};
               if (active.status !== "inProgress" || typeof active.id !== "string")
@@ -6579,7 +6732,7 @@ async function serve() {
     }
   }
   try {
-    for await (const line of createInterface3({ input: process.stdin })) {
+    for await (const line of createInterface4({ input: process.stdin })) {
       try {
         await handle(JSON.parse(line));
       } catch (error) {

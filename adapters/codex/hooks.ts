@@ -6,9 +6,11 @@ import { createInterface } from 'node:readline'
 import {
   acknowledgeWait,
   afterToolRecords,
+  archivedWait,
   beforeTool,
   docStamps,
   FRESH_LOOKS,
+  isSaved,
   type Looks,
   type Project,
   promptRecords,
@@ -32,6 +34,7 @@ import {
 import { projectAt } from '../npm/store'
 import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
+import { readHandover, readyHandover, replacedSince, wakeInput } from './handover'
 import { type MapPrints, mapAtTool, observeMap } from './map'
 import { contextBody, type Fields, fields } from './protocol'
 
@@ -43,6 +46,7 @@ type HookState = {
   looks: Looks
   mapOffset?: number
   editOffset?: number
+  offered?: ContextReceipt & { dir: string; marker: string; turn?: string }
   context?: ContextReceipt
   doctrineHash?: string
   shells?: string[]
@@ -78,7 +82,9 @@ async function retainedContext(path: string, receipt: ContextReceipt, marker: st
         Array.isArray(item.content) &&
         item.content.some(part => {
           const text = fields(part).text
-          return typeof text === 'string' && text.startsWith(marker) && fingerprint(text.slice(0, receipt.length)) === receipt.hash
+          if (typeof text !== 'string') return false
+          const start = text.indexOf(marker)
+          return start >= 0 && fingerprint(text.slice(start, start + receipt.length)) === receipt.hash
         })
       )
         retained = true
@@ -91,7 +97,7 @@ async function retainedContext(path: string, receipt: ContextReceipt, marker: st
   }
 }
 
-async function contextFor(input: Fields, project: Project, state: HookState, restoring = false) {
+async function contextFor(input: Fields, project: Project, state: HookState, restoring = false, alreadyDelivered?: string) {
   const problem = project.problem
   const event = input.hook_event_name
   const edits = await recentEdits(project, input, state.editOffset)
@@ -182,7 +188,13 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   }
   const legacyStamps = state.looks.docs
   if (restoring) state.looks.refreshClaims = false
-  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring, contextBody(String(input.prompt ?? '')))
+  const records = await promptRecords(
+    courier,
+    true,
+    event !== 'SessionStart' && !restoring,
+    contextBody(String(input.prompt ?? '')),
+    alreadyDelivered,
+  )
   const recordNotes = records.notes.map(wrap)
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))
@@ -275,13 +287,76 @@ export async function runHook(input: Fields, dir: string, file: string) {
     let state = checkpoint(db) ?? (await legacyState(file))
     if (!state || state.root !== project.root || !project.settings.enabled)
       state = { root: project.root, looks: { ...FRESH_LOOKS }, usage: freshSample() }
+    const row = project.settings.enabled ? readHandover(db, project.root) : null
+    if (
+      row?.phase === 'prepared' &&
+      input.hook_event_name === 'SessionStart' &&
+      (input.source === 'compact' ||
+        (input.source === 'resume' &&
+          typeof input.transcript_path === 'string' &&
+          row.offset !== null &&
+          (await replacedSince(input.transcript_path, row.offset))))
+    ) {
+      readyHandover(db, row)
+      row.phase = 'ready'
+    }
+    const submit = input.hook_event_name === 'UserPromptSubmit'
+    const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
+    const wake = row && prompt === wakeInput(row.dir)
+    const offer = state.offered
+    if (row?.phase === 'offered' && offer?.dir === row.dir && transcript) {
+      if (await retainedContext(transcript, offer, offer.marker)) {
+        if (isSaved(row.dir)) await acknowledgeWait(project, row.dir)
+        row.phase = 'delivered'
+      } else if (
+        (input.hook_event_name === 'SessionStart' && input.source === 'resume') ||
+        (submit && typeof input.turn_id === 'string' && input.turn_id !== offer.turn)
+      ) {
+        row.phase = 'ready'
+      }
+      db.query('UPDATE handover SET phase = ? WHERE root = ? AND dir = ?').run(row.phase, row.root, row.dir)
+      if (row.phase !== 'offered') delete state.offered
+    }
+    // The server queue admits a wake only to a new idle turn. The owner may
+    // already have continued in a different turn while this wake was queued.
+    const redundantWake = wake && row?.phase === 'delivered'
+    if (redundantWake) {
+      db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))
+      db.exec('COMMIT')
+      return { continue: false, stopReason: 'The shift already continued with the owner.' }
+    }
+    const handover = submit && row?.phase === 'ready' ? row : null
     const delivery = project.settings.enabled
-      ? await contextFor(input, project, state, command === RESUME_COMMAND)
+      ? await contextFor(
+          input,
+          project,
+          state,
+          !!handover || command === RESUME_COMMAND,
+          row?.phase === 'delivered' || row?.phase === 'offered' ? row.dir : undefined,
+        )
       : { notes: [], waiting: '' }
     const { notes } = delivery
     let waiting = delivery.waiting
+    if (handover) {
+      const letter = await archivedWait(project, handover.dir)
+      notes.push(letter)
+      state.offered = {
+        dir: handover.dir,
+        marker: letter.split('\n', 1)[0] ?? letter,
+        offset: transcript
+          ? await stat(transcript).then(
+              info => info.size,
+              () => 0,
+            )
+          : 0,
+        length: letter.length,
+        hash: fingerprint(letter),
+        ...(typeof input.turn_id === 'string' ? { turn: input.turn_id } : {}),
+      }
+      db.query("UPDATE handover SET phase = 'offered' WHERE root = ? AND dir = ?").run(project.root, handover.dir)
+    }
     if (command === SHIFT_COMMAND) notes.push(SHIFT_NOW(''))
-    if (command === RESUME_COMMAND) {
+    if (command === RESUME_COMMAND && !handover) {
       const last = await resumeShift(project)
       if (last.prompt && last.waiting) waiting = last.waiting
       notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`)

@@ -57,7 +57,7 @@ const KINDS = {
   path: (value: Value) => (typeof value === 'string' && isInside(value) ? null : 'a path inside the project'),
   files: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of files inside the project'),
   docs: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of folders or documents inside the project'),
-  limit: (value: Value) => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? null : 'a whole number above 0'),
+  limit: (value: Value) => (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? null : 'a safe whole number above 0'),
   placement: (value: Value) => ((PLACEMENTS as readonly unknown[]).includes(value) ? null : `one of ${quote(PLACEMENTS)}`),
 }
 

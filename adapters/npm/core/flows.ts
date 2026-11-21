@@ -27,7 +27,7 @@ import {
   TRACK_TOOL,
   taskFile,
 } from './layout'
-import { formatItem, formatK, frontmatter, itemsOf, sections, trackTimes } from './markdown'
+import { formatItem, formatK, frontmatter, itemsOf, openingParagraph, sections, trackTimes } from './markdown'
 import { migrationReceipt, needsMigrationShift } from './migration'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
@@ -201,8 +201,8 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
 
   const parts = sections(letter)
   const opening = parts.get(LETTER_SECTIONS[0]) ?? ''
-  const [paragraph = ''] = opening.split(/\r?\n[ \t]*\r?\n/, 1)
-  const description = input.about ?? paragraph.replace(/\s+/g, ' ').trim()
+  const description = input.about ?? openingParagraph(opening)
+  if (!description) return { deny: 'Start "Where I am" with a paragraph describing the work and its outcome.' }
   if (description.length > ABOUT_MAX)
     return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` }
 
@@ -392,7 +392,7 @@ export async function resumeShift(project: Project, actor = project.actor): Prom
     return {
       text: `Picking up shift ${saved.id}.`,
       ...(waiting ? { waiting } : {}),
-      prompt: resumePrompt(letter, await handBack(project, saved.id, actor), about.shifted ? null : about.result),
+      prompt: resumePrompt(letter, await handBack(project, saved.id, actor, !!waiting), about.shifted ? null : about.result),
     }
   }
   if (names.length === 0) return { text: 'No shifts in this project yet.' }
@@ -414,12 +414,12 @@ export async function resumeShift(project: Project, actor = project.actor): Prom
 
 // The records, the last shifts and the documents' remarks as they are now, for the message after a shift. A harness
 // that carries the message into the replacement history reads them before the let-go, not after it.
-export async function handBack(project: Project, dir: string, actor?: string): Promise<HandedBack> {
+export async function handBack(project: Project, dir: string, actor?: string, preview = true): Promise<HandedBack> {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
     owner: project.settings.files.owner,
-    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor),
+    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor, preview),
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),

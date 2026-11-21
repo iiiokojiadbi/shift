@@ -3,8 +3,10 @@ import { afterAll, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { BOARD } from '../../../core/test/data'
+import { BOARD, LETTER } from '../../../core/test/data'
 import { cleanup, scratch } from '../../npm/test/scratch'
+
+import { prepareHandover } from '../handover'
 
 afterAll(cleanup)
 
@@ -106,6 +108,32 @@ test('resume restores a missing delivery and history replaced while detached', a
   expect(await resume()).toContain(marker)
   expect(await hook('SessionStart', { source: 'clear' })).toContain(marker)
   expect(await hook('SessionStart', { source: 'resume', session_id: 'new-thread' })).toContain(marker)
+})
+
+test('an unrecorded letter survives resume and a display command; its recorded retry is acknowledged once', async () => {
+  const { root, home, transcript, hook, rawHook } = await fixture()
+  const dir = join(root, '.shift/shifts/20260101-000000')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'about.md'), '---\nafter: wait\n---')
+  await writeFile(join(dir, 'letter.md'), LETTER)
+  await hook('SessionStart')
+  const hash = createHash('sha256').update('scope').digest('hex')
+  prepareHandover(join(home, 'plugins/data/shift-sessions', `session-${hash}.json`), root, dir, 0)
+  await appendFile(transcript, `${JSON.stringify({ type: 'compacted' })}\n`)
+  await hook('SessionStart', { source: 'resume' })
+  const first = await hook('UserPromptSubmit', { prompt: 'First turn', turn_id: 'first' })
+  expect(first).toContain(LETTER.trim())
+  // The host never persisted this first hook result.
+  await hook('SessionStart', { source: 'resume' })
+  expect((await rawHook('UserPromptSubmit', { prompt: '$shift:tasks' })).continue).toBe(false)
+  const retried = await hook('UserPromptSubmit', { prompt: 'After restart', turn_id: 'second' })
+  expect(retried).toContain(LETTER.trim())
+  await appendFile(
+    transcript,
+    `${JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ text: retried }] } })}\n`,
+  )
+  await hook('SessionStart', { source: 'resume' })
+  expect(await hook('UserPromptSubmit', { prompt: 'Next turn', turn_id: 'third' })).not.toContain(LETTER.trim())
 })
 
 test('parallel installed hooks claim a threshold once', async () => {

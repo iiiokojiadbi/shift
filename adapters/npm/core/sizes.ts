@@ -6,7 +6,7 @@ import { BOARD, LETTER, NAMES, SHIFTS, TASKS } from './layout'
 import { migrationNote } from './migration'
 import type { Project } from './project'
 import { knowledgeMap } from './records'
-import { readSaved, savedEntries, usesNewStorage } from './saved'
+import { NEXT_SAVED, readSaved, savedEntries, usesNewStorage } from './saved'
 import { shiftNames } from './store'
 import {
   continuePrompt,
@@ -55,7 +55,7 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     if (letter !== null) saved.push({ name, letter })
     if (saved.length === 3) break
   }
-  const dir = modern ? (retained[0]?.id ?? 's-0000000000000000') : `${project.root}/${SHIFTS}/${saved[0]?.name ?? '<next-shift>'}`
+  const dir = modern ? NEXT_SAVED : `${project.root}/${SHIFTS}/<next-shift>`
   const back = await handBack(project, dir, project.actor)
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)))
@@ -85,7 +85,7 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     row('Continue message', continuation),
     ...continueRows,
     '',
-    'Totals include message framing.',
+    'Totals include message framing. The next continuation uses estimated identifiers.',
     '',
     ...(saved.length
       ? [

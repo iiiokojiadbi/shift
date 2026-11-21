@@ -23,6 +23,7 @@ test('a wrong value, an unknown key or a broken line is named', () => {
   expect(parseSettings('enabled = "no"')).toContain('`enabled` is true or false')
   expect(parseSettings('enable = false')).toContain('unknown key `enable`')
   expect(parseSettings('[hints]\nsoft = 3')).toContain('unknown table `[hints]`')
+  expect(parseSettings('history_limit = 100000000000000000000')).toContain('safe whole number')
   expect(parseSettings('enabled false')).toContain('line 1')
 })
 

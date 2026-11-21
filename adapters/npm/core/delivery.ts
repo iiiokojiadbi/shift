@@ -177,7 +177,13 @@ export async function atPrompt(
   }
 }
 
-export async function promptRecords(courier: RecordCourier, runStarts: boolean, parkedWait = false, submitted = '') {
+export async function promptRecords(
+  courier: RecordCourier,
+  runStarts: boolean,
+  parkedWait = false,
+  submitted = '',
+  alreadyDelivered?: string,
+) {
   if (runStarts) await courier.updateLooks(current => ({ ...current, running: 0 }))
   const notes: Note[] = []
   const { running } = await courier.looks()
@@ -192,7 +198,7 @@ export async function promptRecords(courier: RecordCourier, runStarts: boolean, 
     running === 0 && (parkedWait || refreshClaims) && session && project.store.beads && (await hasArchive(project))
       ? await archiveCall<string>(project, { action: 'waiting', session: project.deliveryKey ?? session })
       : ''
-  let waiting = parkedWait ? durableWait : ''
+  let waiting = parkedWait && durableWait !== alreadyDelivered ? durableWait : ''
   let recovery = ''
   let includeCards = !!waiting
   if (waiting) {

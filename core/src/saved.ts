@@ -4,6 +4,8 @@ import { type GraphTask, graphCommand, graphPath } from './taskgraph'
 import type { Work } from './types'
 
 export const ARCHIVE_DB = `${DIR}/history.db`
+// Native IDs start at one. Reserve zero for the size report's prospective shift.
+export const NEXT_SAVED = 's-0000000000000000'
 export const isSaved = (id: string) => /^s-[a-f0-9]{16}$/.test(id)
 export const hasArchive = (p: Project) => p.store.exists(`${p.root}/${ARCHIVE_DB}`)
 
@@ -13,7 +15,10 @@ export async function archiveCall<T>(p: Project, request: Record<string, unknown
   return JSON.parse(await p.store.beads(p.root, ['shift-history'], JSON.stringify(request)))
 }
 export async function savedEntries(p: Project, current?: string, session?: string): Promise<SavedEntry[]> {
-  return (await hasArchive(p)) ? archiveCall(p, { action: 'list', id: current, session, limit: p.settings.historyLimit }) : []
+  if (!(await hasArchive(p))) return []
+  if (!current) return archiveCall(p, { action: 'list' })
+  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current }
+  return archiveCall(p, { action: 'list', ...selection, session, limit: p.settings.historyLimit })
 }
 export function readSaved(p: Project, id: string, file?: string): Promise<SavedEntry> {
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')

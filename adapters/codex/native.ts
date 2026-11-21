@@ -62,7 +62,7 @@ class Daemon {
     return this.socket.readyState === WebSocket.CLOSED
   }
 
-  async attach(id: string, root: string) {
+  async attach(id: string, root: string, file: string) {
     await this.ready
     const existing = this.sessions.get(id)
     if (existing) return existing
@@ -76,7 +76,7 @@ class Daemon {
       typeof thread.path === 'string' ? thread.path : undefined,
       this.rpc.call,
       text => console.error(text),
-      'hooks',
+      file,
     )
     await this.rpc.call('thread/resume', { threadId: id, excludeTurns: true })
     this.sessions.set(id, session)
@@ -138,7 +138,7 @@ async function serve() {
           if (name === 'shift') {
             if (!daemon || daemon.disconnected) daemon = new Daemon()
             try {
-              session = await daemon.attach(id, state.root)
+              session = await daemon.attach(id, state.root, file)
               const turns = await daemon.rpc.call('thread/turns/list', { threadId: id, limit: 1 })
               const active = Array.isArray(turns.data) ? fields(turns.data[0]) : {}
               if (active.status !== 'inProgress' || typeof active.id !== 'string')

@@ -7,11 +7,15 @@ import { cleanup, scratch } from '../../npm/test/scratch'
 import { deferred, fields, type Packet, Requests, textInput } from '../protocol'
 
 afterAll(cleanup)
-for (const mode of ['continue', 'wait', 'continue twice'])
+for (const mode of ['continue', 'wait', 'continue twice', 'continue with owner', 'wait with owner'])
   test.skipIf(!Bun.which('codex'))(
     `installed marketplace plugin returns the map and letter on ${mode}`,
     async () => {
       const twice = mode === 'continue twice'
+      const racing = mode.endsWith('with owner')
+      const ownerText = 'Owner reply at the end of the shift.'
+      const png =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNgYPhPIhrVMKph2GoAAJLb/wFh5Z4RAAAAAElFTkSuQmCC'
       const home = await scratch('plugin-profile')
       const root = await scratch('plugin-project')
       const records = join(root, '.shift')
@@ -40,7 +44,7 @@ for (const mode of ['continue', 'wait', 'continue twice'])
             )
             await writeFile(join(records, 'board.md'), BOARD.replace('the mod', 'the second fixture'))
           }
-          const finished = step >= restored && (twice || hintSeen || step >= 16)
+          const finished = racing ? step >= 5 : step >= restored && (twice || hintSeen || step >= 16)
           hintSeen ||= hasHint
           const item =
             shiftCall || (step >= restored && !finished)
@@ -49,7 +53,9 @@ for (const mode of ['continue', 'wait', 'continue twice'])
                   call_id: `fixture-call-${step}`,
                   namespace: 'mcp__shift',
                   name: shiftCall ? 'shift' : 'shift_status',
-                  arguments: JSON.stringify(shiftCall ? { after: mode === 'wait' ? 'wait' : 'continue', letter: '.shift/letter.md' } : {}),
+                  arguments: JSON.stringify(
+                    shiftCall ? { after: mode.startsWith('wait') ? 'wait' : 'continue', letter: '.shift/letter.md' } : {},
+                  ),
                 }
               : {
                   type: 'message',
@@ -118,10 +124,20 @@ trust_level = "trusted"
         const rpc = new Requests(packet => ws?.send(JSON.stringify(packet)))
         const notices: string[] = []
         const reportDone = deferred<void>()
+        let compactTurn: unknown
+        let threadId: unknown
         ws.onmessage = e => {
           const packet: Packet = JSON.parse(String(e.data))
           if (rpc.take(packet)) return
-          if (packet.method === 'turn/completed') reportDone.resolve()
+          if (racing && packet.method === 'item/completed' && fields(packet.params?.item).type === 'contextCompaction')
+            compactTurn = packet.params?.turnId
+          if (packet.method === 'turn/completed') {
+            reportDone.resolve()
+            if (compactTurn && fields(packet.params?.turn).id === compactTurn) {
+              compactTurn = undefined
+              void rpc.call('turn/start', { threadId, input: [textInput(ownerText), { type: 'image', url: png }] }).catch(end.reject)
+            }
+          }
           if (packet.id !== undefined && packet.method === 'mcpServer/elicitation/request' && packet.params?.serverName === 'shift') {
             ws?.send(JSON.stringify({ id: packet.id, result: { action: 'accept', content: {}, _meta: null } }))
             return
@@ -139,7 +155,7 @@ trust_level = "trusted"
         const value = Object.fromEntries(hooks.map(h => [h.key, { trusted_hash: h.currentHash }]))
         await rpc.call('config/batchWrite', { edits: [{ keyPath: 'hooks.state', value, mergeStrategy: 'upsert' }], reloadUserConfig: true })
         const started = await rpc.call('thread/start', { cwd: root, approvalPolicy: 'on-request' })
-        const threadId = fields(started.thread).id
+        threadId = fields(started.thread).id
         const catalog = await rpc.call('skills/list', { cwds: [root] })
         const skills = (fields((catalog.data as unknown[])[0]).skills as { name: string; path: string; enabled: boolean }[]).filter(
           skill => skill.enabled && skill.name.startsWith('shift:'),
@@ -186,6 +202,13 @@ trust_level = "trusted"
         expect(requests[0]?.split('Acceptance marker').length).toBe(2)
         expect(requests[0]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[2]).toContain('HOLD-THIS')
+        if (racing) {
+          const firstOwnerRequest = requests.find(input => input.includes(ownerText))
+          expect(firstOwnerRequest).toBe(requests[3])
+          expect(firstOwnerRequest?.split(ownerText)).toHaveLength(2)
+          expect(firstOwnerRequest?.split('First letter private next step')).toHaveLength(2)
+          expect(firstOwnerRequest).toContain('input_image')
+        }
         expect(requests[3]?.split('Unique fixture letter body').length).toBe(2)
         expect(requests[3]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[3]?.split('Acceptance marker').length).toBe(2)
@@ -196,6 +219,9 @@ trust_level = "trusted"
           expect(second).not.toContain('First letter private next step')
           expect(second).not.toContain('HOLD-THIS')
           expect(second).toContain('Second hold detail')
+        } else if (racing) {
+          expect(requests[4]).toContain('fixture-call-4')
+          expect(requests[4]).toContain('function_call_output')
         } else expect(requests.at(-1)?.match(/Shift hint: /g)).toHaveLength(1)
         const [snapshot] = await readdir(join(records, 'shifts'))
         expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')

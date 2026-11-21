@@ -2,7 +2,7 @@ import { docPaths } from './docs'
 import { BOARD, DIR, KNOWLEDGE, LETTER, SETTINGS, TASK_LIST, TASKS } from './layout'
 import { normalize } from './paths'
 import type { Project } from './project'
-import { legacyExists, readSaved, savedEntries } from './saved'
+import { legacyExists, NEXT_SAVED, readSaved, savedEntries } from './saved'
 import { graphTask, taskGuard, taskId } from './taskgraph'
 import { parseTaskList } from './tasks'
 
@@ -36,7 +36,10 @@ export async function migrationReceipt(p: Project, id: string) {
   } catch {
     return undefined
   }
-  if (!state || state.done || id <= state.previous) return undefined
+  if (!state || state.done) return undefined
+  // The size estimate includes the fixed-width receipt, which exists only after acceptance.
+  if (id === NEXT_SAVED) return '0'.repeat(24)
+  if (id <= state.previous) return undefined
   const receipt: unknown = JSON.parse(
     await p.store.beads(p.root, ['shift-migrate'], JSON.stringify({ action: 'receipt', previous: id, generation: state.backup })),
   )
