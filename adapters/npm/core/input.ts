@@ -58,6 +58,7 @@ export function parseShiftInput(raw: Record<string, unknown>): ShiftInput | stri
   if (letter === '') return `letter is empty: write the letter to yourself (${LETTER}) and pass its path.`
   if (!isOneOf(AFTER, after)) return `after must be ${quote(AFTER, ' or ')}.`
 
+  if (raw.about === undefined) return { letter, after }
   return about(raw, 'what the stretch did and where you stand') ?? { letter, after, about: text(raw, 'about') }
 }
 

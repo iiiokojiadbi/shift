@@ -11,6 +11,19 @@ export function textInput(text: string) {
   return { type: 'text', text, text_elements: [] }
 }
 
+// Codex recognizes external context in a user-role item and omits it from the
+// user messages retained at the next shift. Keep the original owner input separate.
+const contextStart = '<external_shift>\n'
+const contextEnd = '\n</external_shift>'
+
+export function shiftContext(text: string) {
+  return contextStart + text + contextEnd
+}
+
+export function contextBody(text: string) {
+  return text.startsWith(contextStart) && text.endsWith(contextEnd) ? text.slice(contextStart.length, -contextEnd.length) : text
+}
+
 export function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: Error) => void

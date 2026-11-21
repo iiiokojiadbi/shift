@@ -1,6 +1,6 @@
 import { DIR, NAMES, RECENT_SHIFTS, SHIFTS, taskFile } from './layout'
 import type { Project } from './project'
-import { savedEntries, usesNewStorage } from './saved'
+import { isSaved, savedEntries, usesNewStorage } from './saved'
 import type { HistoryEntry, KnowledgeFile, Recent, Snapshot, TaskFiles, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
@@ -140,11 +140,14 @@ export async function shiftNames({ store, root }: Project): Promise<string[]> {
 }
 
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
-export async function lastShifts(project: Project, count: number): Promise<Recent> {
+export async function lastShifts(project: Project, count: number, exclude?: string, session?: string): Promise<Recent> {
   const { store, root } = project
-  const saved = await savedEntries(project)
-  if (saved.length) return { total: saved.length, entries: saved.slice(-count).map(e => ({ name: e.id, about: e.about })) }
-  const names = await shiftNames(project)
+  const saved = await savedEntries(project, exclude && isSaved(exclude) ? exclude : undefined, session)
+  if (saved.length || (exclude && isSaved(exclude))) {
+    const entries = saved.filter(entry => entry.id !== exclude)
+    return { total: entries.length, entries: entries.slice(-count).map(e => ({ name: e.id, about: e.about })) }
+  }
+  const names = (await shiftNames(project)).filter(name => name !== exclude)
   const entries: HistoryEntry[] = await Promise.all(
     names.slice(-count).map(async name => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })),
   )
@@ -153,6 +156,7 @@ export async function lastShifts(project: Project, count: number): Promise<Recen
 }
 
 // The shifts the message after a shift recalls.
-export function recentShifts(project: Project): Promise<Recent> {
-  return lastShifts(project, RECENT_SHIFTS)
+export function recentShifts(project: Project, current?: string, session?: string): Promise<Recent> {
+  const count = current && isSaved(current) ? project.settings.historyLimit : RECENT_SHIFTS
+  return lastShifts(project, count, current, session)
 }

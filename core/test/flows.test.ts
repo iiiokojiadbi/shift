@@ -99,6 +99,18 @@ test("records the project's git does not ignore are excluded locally, unless the
   expect(await acceptShift(noGit, call)).toHaveProperty('shift')
 })
 
+test('the history description comes from the opening paragraph while the letter keeps its detail', async () => {
+  const save = async (opening: string) => {
+    const store = await project({ [`${R}/letter.md`]: LETTER.replace('fixing tests', opening) })
+    return acceptShift(store, { input: { letter: INPUT.letter, after: 'wait' }, at: AT, sessionId: 's1' })
+  }
+  const saved = await save('Verified the fix.\r\nThe input survives restart.\r\n \r\nLonger evidence stays here.')
+  if ('deny' in saved) throw new Error(saved.deny)
+  expect(saved.shift.about).toBe('Verified the fix. The input survives restart.')
+  expect(saved.shift.letter).toContain('Longer evidence stays here.')
+  expect(await save('x'.repeat(401))).toMatchObject({ deny: expect.stringContaining('opening paragraph') })
+})
+
 test('an accepted shift snapshots the records and leaves a pending about.md', async () => {
   const store = await project({ [`${R}/knowledge/traps.md`]: TRAPS, [`${R}/archive/index.md`]: '- [done] [Old](old/) — gone' })
   const shift = await accepted(store)

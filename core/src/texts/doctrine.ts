@@ -147,6 +147,8 @@ Those documents the mod keeps as you write them. After an Edit or a Write the ma
 
 // The section's text without its tag, for a harness that wraps a prompt section in a tag of its own; the tools are the
 // ones shown in this project, in the order given.
+const LETTER_OPENING = `Open "Where I am" with one paragraph of 2–3 short sentences (up to ${ABOUT_MAX} characters). Say what you worked on, what you found or verified, and where that leaves the work. This paragraph becomes the description in later shift history.`
+
 export function doctrineBody(tools: readonly string[]): string {
   return `# Shift
 
@@ -154,7 +156,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
 
@@ -195,7 +197,6 @@ A soft hint leaves the timing to you. At the final hint, start the steps below i
 3. Call \`${TOOL}\`:
    - \`letter\` — the path to the letter, usually \`${LETTER}\`;
    - \`after\` — \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-   - \`about\` — one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn, nothing more but what the call's result asks: with \`continue\` — one line; with \`wait\` — your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
 After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge — \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
@@ -204,7 +205,7 @@ After the shift you receive the board, active task descriptions, all open items,
 
 Written anew, whole, before every shift. Sections \`##\`, all required and non-empty (nothing to say — "none"):
 ${described(LETTER_SECTIONS, {
-  'Where I am': 'what you were doing at this moment, the thought you did not finish',
+  'Where I am': LETTER_OPENING,
   Next: 'steps: a command or a file and what you expect',
   Unverified: 'and what not to trust',
   Hold: 'what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter — the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not',
@@ -223,13 +224,13 @@ The mod looks at the records around every tool you run. A record you changed —
 - \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, \`after\` on an open one, tasks needing each other in a circle;
 - a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
 - nothing changed in the records since the last shift;
-- \`about\` empty, multi-line or longer than ${ABOUT_MAX} characters.
+- the history description exceeds ${ABOUT_MAX} characters.
 
 ## about.md — strict structure
 
 \`\`\`
 ---
-description: <about from the call>
+description: <opening paragraph from the letter>
 at: <ISO time of the shift, UTC>
 after: continue | wait
 result: pending | shifted (<before> → <after>), continuing | shifted (…), waiting for the owner | not shifted: <reason> | let go, not settled: <reason>
@@ -338,12 +339,12 @@ export const GRAPH_GUIDE_RECORDS = [
 ].join('\n\n')
 
 export const GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
-- Where I am: what you were doing and what you learned.
+- Where I am: ${LETTER_OPENING}
 - Next: the concrete work to resume and how to check it.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path, a single-line about (up to ${ABOUT_MAX} characters) and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
 
 List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
 

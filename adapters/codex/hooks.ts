@@ -33,7 +33,7 @@ import { projectAt } from '../npm/store'
 import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
 import { type MapPrints, mapAtTool, observeMap } from './map'
-import { type Fields, fields } from './protocol'
+import { contextBody, type Fields, fields } from './protocol'
 
 type ContextReceipt = { offset: number; length: number; hash: string }
 const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex')
@@ -182,7 +182,7 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   }
   const legacyStamps = state.looks.docs
   if (restoring) state.looks.refreshClaims = false
-  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring, String(input.prompt ?? ''))
+  const records = await promptRecords(courier, true, event !== 'SessionStart' && !restoring, contextBody(String(input.prompt ?? '')))
   const recordNotes = records.notes.map(wrap)
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some(note => note.includes(problem)))
   const notes = changedWarnings.filter(row => fresh || !problem || !alreadyReported || !row.includes(problem))

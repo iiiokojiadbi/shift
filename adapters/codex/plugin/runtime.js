@@ -1700,8 +1700,8 @@ async function archiveCall(p, request) {
     throw new Error("This adapter has no bundled history runtime.");
   return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
 }
-async function savedEntries(p) {
-  return await hasArchive(p) ? archiveCall(p, { action: "list" }) : [];
+async function savedEntries(p, current, session) {
+  return await hasArchive(p) ? archiveCall(p, { action: "list", id: current, session, limit: p.settings.historyLimit }) : [];
 }
 function readSaved(p, id, file) {
   if (!isSaved(id))
@@ -2002,17 +2002,20 @@ async function shiftNames({ store, root }) {
     return x.stamp === y.stamp ? x.n - y.n : x.stamp < y.stamp ? -1 : 1;
   });
 }
-async function lastShifts(project, count) {
+async function lastShifts(project, count, exclude, session) {
   const { store, root } = project;
-  const saved = await savedEntries(project);
-  if (saved.length)
-    return { total: saved.length, entries: saved.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
-  const names = await shiftNames(project);
+  const saved = await savedEntries(project, exclude && isSaved(exclude) ? exclude : undefined, session);
+  if (saved.length || exclude && isSaved(exclude)) {
+    const entries = saved.filter((entry) => entry.id !== exclude);
+    return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
+  }
+  const names = (await shiftNames(project)).filter((name) => name !== exclude);
   const entries = await Promise.all(names.slice(-count).map(async (name) => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })));
   return { entries, total: names.length };
 }
-function recentShifts(project) {
-  return lastShifts(project, RECENT_SHIFTS);
+function recentShifts(project, current, session) {
+  const count = current && isSaved(current) ? project.settings.historyLimit : RECENT_SHIFTS;
+  return lastShifts(project, count, current, session);
 }
 
 // core/src/texts/prompts.ts
@@ -2139,7 +2142,7 @@ function renderRecent(recent) {
   const shifts = (n) => n === 1 ? "1 shift" : `${n} shifts`;
   const lines = recent.entries.map((entry) => `- ${entry.name} \xB7 ${readAbout(entry.about ?? "").description ?? "no about.md"}`);
   return [
-    `What you did before: the last ${shifts(recent.entries.length)}, oldest first, the one you shifted from last.`,
+    `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
     ...earlier > 0 ? [
       `${shifts(earlier)} before them ${earlier === 1 ? "is" : "are"} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`
     ] : [],
@@ -2470,6 +2473,12 @@ async function acceptShift(project, call) {
   const letterProblem = checkLetter(letter);
   if (letterProblem !== null)
     return { deny: letterProblem };
+  const parts = sections(letter);
+  const opening = parts.get(LETTER_SECTIONS[0]) ?? "";
+  const [paragraph = ""] = opening.split(/\r?\n[ \t]*\r?\n/, 1);
+  const description = input.about ?? paragraph.replace(/\s+/g, " ").trim();
+  if (description.length > ABOUT_MAX)
+    return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` };
   if (settings.enabled)
     await refreshDocs(project);
   const modern = await usesNewStorage(project);
@@ -2491,12 +2500,12 @@ async function acceptShift(project, call) {
   const shift = {
     after: input.after,
     letter,
-    hold: sections(letter).get(HOLD) ?? "",
+    hold: parts.get(HOLD) ?? "",
     dir,
     board: `${root}/${BOARD}`,
     owner: `${root}/${settings.files.owner}`,
     sessionId: call.sessionId,
-    about: input.about,
+    about: description,
     at: call.at,
     segment: modern ? { done: [], dropped: [], archived: [], open: [] } : segment({ work, index }, previous),
     focus: modern ? [] : focusOf(work)
@@ -2662,7 +2671,7 @@ async function handBack(project, dir, actor) {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
     owner: project.settings.files.owner,
-    recent: await recentShifts(project),
+    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor),
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),
@@ -3724,6 +3733,8 @@ function parseShiftInput(raw) {
     return `letter is empty: write the letter to yourself (${LETTER}) and pass its path.`;
   if (!isOneOf(AFTER, after))
     return `after must be ${quote(AFTER, " or ")}.`;
+  if (raw.about === undefined)
+    return { letter, after };
   return about(raw, "what the stretch did and where you stand") ?? { letter, after, about: text(raw, "about") };
 }
 function parseArchiveInput(raw) {
@@ -4202,7 +4213,7 @@ var TOOL_SCHEMA = {
   properties: {
     letter: {
       type: "string",
-      description: `The path to the letter to yourself, usually ${LETTER}.`
+      description: `The path to your letter, usually ${LETTER}. Open "Where I am" with 2\u20133 short sentences about the work and its outcome. Shift uses that paragraph in history.`
     },
     after: {
       type: "string",
@@ -4211,10 +4222,10 @@ var TOOL_SCHEMA = {
     },
     about: {
       type: "string",
-      description: `One line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. The line of the shift history, shown after later shifts too; the work only, not whether you continue or wait.`
+      description: `Optional legacy description. Omit when using the opening paragraph of the letter.`
     }
   },
-  required: ["letter", "after", "about"]
+  required: ["letter", "after"]
 };
 var ARCHIVE_SCHEMA = {
   type: "object",
@@ -4430,6 +4441,7 @@ var SHIFT_RULES = `\`${SHIFT_FILE}\` is how this project keeps its knowledge: ru
 A \`> [!IMPORTANT]\` block in one of those documents is pinned: the map shows it under its document with its section, so it is in front of you in every session without opening the document. Pin only what you would get wrong in any task without it, in a line or two; change it in the document, never in the map. Nothing is pinned until you pin it. Past \`[docs] max_pinned\` the map says so and still shows every block \u2014 unpin what is not needed in every task.
 
 Those documents the mod keeps as you write them. After an Edit or a Write the map follows at once; with \`[docs] toc = true\` each document carries a toc between \`${TOC_START}\` and \`${TOC_END}\` under its \`# \` title, written by the mod from its \`##\` and \`###\` and the \`> \` line under a heading \u2014 never edit it by hand. The rest waits until the run is over, so a set of documents can be written in any order: with the next message the mod writes the tocs of the files you wrote \u2014 by any tool, a script's change is found by its file's stamp \u2014 and checks them, in one note \u2014 the tocs it wrote, so read such a file again before editing it, and the remarks: no description, a description or a file over the limits the settings set, a link to a document that is not there. Silence means all is well. The documents with remarks also come after a shift.`;
+var LETTER_OPENING = `Open "Where I am" with one paragraph of 2\u20133 short sentences (up to ${ABOUT_MAX} characters). Say what you worked on, what you found or verified, and where that leaves the work. This paragraph becomes the description in later shift history.`;
 function doctrineBody(tools) {
   return `# Shift
 
@@ -4437,7 +4449,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and tasks
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter.
+\`${BOARD}\` keeps the project outcome and choices other tasks depend on. Manage the chat's work with the task tools. Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and the current task view come into the session. The board, letter and active task details return after a shift. The settings may move the first three elsewhere in the project.
 
@@ -4476,7 +4488,6 @@ A soft hint leaves the timing to you. At the final hint, start the steps below i
 3. Call \`${TOOL}\`:
    - \`letter\` \u2014 the path to the letter, usually \`${LETTER}\`;
    - \`after\` \u2014 \`continue\` if there is work to do without the owner; \`wait\` if the owner is needed or the work is over;
-   - \`about\` \u2014 one line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. This is the history line you will look the stretch up by, and it comes back after the next shifts: write the work, not whether you continue or wait.
 4. End the turn, nothing more but what the call's result asks: with \`continue\` \u2014 one line; with \`wait\` \u2014 your answer to the owner, whole: what you did and found, what you ask them to decide. The owner reads that message, not your letter or records.
 
 After the shift you receive the board, active task descriptions, all open items, a count and the latest ${RECENT_CLOSED_ITEMS} closed items per track, with notes listed, and the map of knowledge \u2014 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` and \`${TASK_LIST}\` are read again into the session's own block; then the descriptions of the last ${RECENT_SHIFTS} shifts, an open task unchanged through ${STUCK_SHIFTS} shifts and the documents with remarks, if any; your letter last. Continue from "${NEXT}". With \`wait\` they come together with the owner's next message.
@@ -4485,7 +4496,7 @@ After the shift you receive the board, active task descriptions, all open items,
 
 Written anew, whole, before every shift. Sections \`##\`, all required and non-empty (nothing to say \u2014 "none"):
 ${described(LETTER_SECTIONS, {
-  "Where I am": "what you were doing at this moment, the thought you did not finish",
+  "Where I am": LETTER_OPENING,
   Next: "steps: a command or a file and what you expect",
   Unverified: "and what not to trust",
   Hold: "what from this stretch must stay in memory exactly: paths, commands, error texts, values, the line of reasoning. This section and the items in progress of the tasks in progress steer what stays in memory; do not repeat the board, the tasks or the letter \u2014 the current records and letter come back to you. A value found in the work and needed later goes into its track item too: memory fades over shifts, the records do not"
@@ -4504,13 +4515,13 @@ The mod looks at the records around every tool you run. A record you changed \u2
 - \`${TASK_LIST}\`: a task with an unknown status or name, a folder not listed, a listed task without a folder, a link to nothing, \`needs\` on an archived task, \`after\` on an open one, tasks needing each other in a circle;
 - a task without \`task.md\` or \`track.md\`, without a title or a section, a track item without a status, a \`continues:\` line left in \`task.md\`, a note without its \`description\` or linked from nowhere, a link to a note that is not there;
 - nothing changed in the records since the last shift;
-- \`about\` empty, multi-line or longer than ${ABOUT_MAX} characters.
+- the history description exceeds ${ABOUT_MAX} characters.
 
 ## about.md \u2014 strict structure
 
 \`\`\`
 ---
-description: <about from the call>
+description: <opening paragraph from the letter>
 at: <ISO time of the shift, UTC>
 after: continue | wait
 result: pending | shifted (<before> \u2192 <after>), continuing | shifted (\u2026), waiting for the owner | not shifted: <reason> | let go, not settled: <reason>
@@ -4615,12 +4626,12 @@ var GRAPH_GUIDE_RECORDS = [
 
 `);
 var GRAPH_GUIDE_FLOW = `Check this chat's tasks and the current board. At a final hint, act immediately. Write the letter at ${LETTER}. Include four nonempty sections:
-- Where I am: what you were doing and what you learned.
+- Where I am: ${LETTER_OPENING}
 - Next: the concrete work to resume and how to check it.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path, a single-line about (up to ${ABOUT_MAX} characters) and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. End the turn as the tool directs. A refusal names the record to fix. The restored letter accompanies the board and the chat's current work.
 
 List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
 
@@ -5168,6 +5179,16 @@ function fields(value) {
 }
 function textInput(text) {
   return { type: "text", text, text_elements: [] };
+}
+var contextStart = `<external_shift>
+`;
+var contextEnd = `
+</external_shift>`;
+function shiftContext(text) {
+  return contextStart + text + contextEnd;
+}
+function contextBody(text) {
+  return text.startsWith(contextStart) && text.endsWith(contextEnd) ? text.slice(contextStart.length, -contextEnd.length) : text;
 }
 function deferred() {
   let resolve;
@@ -5869,7 +5890,7 @@ async function contextFor(input, project, state, restoring = false) {
   const legacyStamps = state.looks.docs;
   if (restoring)
     state.looks.refreshClaims = false;
-  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, String(input.prompt ?? ""));
+  const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, contextBody(String(input.prompt ?? "")));
   const recordNotes = records.notes.map(wrap);
   const alreadyReported = problem && (state.reportedProblem === problem || recordNotes.some((note) => note.includes(problem)));
   const notes = changedWarnings.filter((row) => fresh || !problem || !alreadyReported || !row.includes(problem));
@@ -6369,7 +6390,7 @@ class Session {
           this.prepared = false;
         },
         continueWith: async (text) => {
-          const prepared = await this.prompt({ threadId: this.id, input: [textInput(text)] }, false);
+          const prepared = await this.prompt({ threadId: this.id, input: [textInput(shiftContext(text))] }, false);
           if (this.queued) {
             await this.inject([fields(fields(prepared.params.additionalContext).shift).value, text].filter(Boolean).join(`
 
@@ -6395,7 +6416,7 @@ class Session {
   async inject(text) {
     await this.request("thread/inject_items", {
       threadId: this.id,
-      items: [{ type: "message", role: "user", content: [{ type: "input_text", text }] }]
+      items: [{ type: "message", role: "user", content: [{ type: "input_text", text: shiftContext(text) }] }]
     });
   }
   close() {

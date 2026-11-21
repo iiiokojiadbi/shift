@@ -87,7 +87,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 | Tool | What it does |
 |---|---|
-| `shift` | make a shift: `letter`, `after` (`continue` or `wait`), `about` (one line for the history) |
+| `shift` | make a shift: `letter`, `after` (`continue` or `wait`); history uses the opening paragraph of the letter |
 | `shift_guide` | full guide or one section, `flow` or `records` |
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |

@@ -41,7 +41,7 @@ import { projectAt } from '../npm/store'
 import { readOnlyActions, recentEdits } from './edits'
 import { usageReading } from './gauge'
 import { type MapPrints, mapAtTool, observeMap } from './map'
-import { deferred, type Fields, fields, type Request, textInput } from './protocol'
+import { deferred, type Fields, fields, type Request, shiftContext, textInput } from './protocol'
 
 export const namespace = 'shift'
 const extraTools = [
@@ -412,7 +412,7 @@ export class Session {
             this.prepared = false
           },
           continueWith: async text => {
-            const prepared = await this.prompt({ threadId: this.id, input: [textInput(text)] }, false)
+            const prepared = await this.prompt({ threadId: this.id, input: [textInput(shiftContext(text))] }, false)
             if (this.queued) {
               await this.inject([fields(fields(prepared.params.additionalContext).shift).value, text].filter(Boolean).join('\n\n'))
             } else await this.request('turn/start', prepared.params)
@@ -438,7 +438,7 @@ export class Session {
   private async inject(text: string) {
     await this.request('thread/inject_items', {
       threadId: this.id,
-      items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text }] }],
+      items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: shiftContext(text) }] }],
     })
   }
 

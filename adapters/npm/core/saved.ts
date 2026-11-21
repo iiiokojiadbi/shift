@@ -13,8 +13,8 @@ export async function archiveCall<T>(p: Project, request: Record<string, unknown
   if (!p.store.beads) throw new Error('This adapter has no bundled history runtime.')
   return JSON.parse(await p.store.beads(p.root, ['shift-history'], JSON.stringify(request)))
 }
-export async function savedEntries(p: Project): Promise<SavedEntry[]> {
-  return (await hasArchive(p)) ? archiveCall(p, { action: 'list' }) : []
+export async function savedEntries(p: Project, current?: string, session?: string): Promise<SavedEntry[]> {
+  return (await hasArchive(p)) ? archiveCall(p, { action: 'list', id: current, session, limit: p.settings.historyLimit }) : []
 }
 export function readSaved(p: Project, id: string, file?: string): Promise<SavedEntry> {
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')

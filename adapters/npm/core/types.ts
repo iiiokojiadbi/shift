@@ -9,7 +9,7 @@ export type ShiftAfter = (typeof AFTER)[number]
 // a fresh process starts with none of it and restores it once from the last shift and the history.
 export type Gauge = { base: number | null; hinted: number | null; unassisted: boolean; growth: Record<string, number>; whole: boolean }
 
-export type ShiftInput = { letter: string; after: ShiftAfter; about: string }
+export type ShiftInput = { letter: string; after: ShiftAfter; about?: string }
 
 // What task_track asks for: items of a task's track, or the task's own line in TASKS.md.
 // One track item's change: an item found by its id, or a new item by its text.

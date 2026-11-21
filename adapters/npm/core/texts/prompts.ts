@@ -169,7 +169,7 @@ export function renderRecent(recent: Recent): string {
   const lines = recent.entries.map(entry => `- ${entry.name} · ${readAbout(entry.about ?? '').description ?? 'no about.md'}`)
 
   return [
-    `What you did before: the last ${shifts(recent.entries.length)}, oldest first, the one you shifted from last.`,
+    `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
     ...(earlier > 0
       ? [
           `${shifts(earlier)} before them ${earlier === 1 ? 'is' : 'are'} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`,

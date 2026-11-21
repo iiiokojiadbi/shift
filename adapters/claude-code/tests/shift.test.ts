@@ -359,11 +359,10 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   expect(String(contexts[1]).trimEnd().endsWith('</shift>')).toBe(true)
   expect(doctrine(['shift']).startsWith('<shift note=')).toBe(true)
   expect(String(contexts[1])).toContain('fix the parser')
-  // The records first, the recent shifts in the middle, the letter last.
   const handed = String(contexts[1])
-  expect(handed.indexOf('<file path=".shift/board.md">')).toBeLessThan(handed.indexOf('<shifts>'))
-  expect(handed.indexOf('</shifts>')).toBeLessThan(handed.indexOf('<letter path='))
-  expect(handed).toMatch(/- \d{8}-\d{6} · ABOUT\n<\/shifts>/)
+  expect(handed).toContain('No earlier shifts.')
+  expect(handed.indexOf('<file path=".shift/board.md">')).toBeLessThan(handed.indexOf('<letter path='))
+  expect(handed).not.toContain(' · ABOUT')
   expect(contexts[2] ?? []).toEqual([])
   // Rows in the transcript only: the status line under the input was noise.
   expect(logs).toEqual([

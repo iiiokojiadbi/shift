@@ -61,7 +61,7 @@ sequenceDiagram
   participant T as tools.ts
   participant L as loop.ts
   participant F as flows.ts
-  A->>H: shift(letter, after, about)
+  A->>H: shift(letter, after)
   H->>T: run(raw, call)
   T->>F: acceptShift(project) — checks, snapshot, about.md pending
   F-->>T: { result, shift }

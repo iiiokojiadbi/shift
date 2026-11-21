@@ -4,6 +4,7 @@ import { addToIndex, checkArchive, indexLine } from './archive'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary, segment, shiftDir } from './history'
 import {
+  ABOUT_MAX,
   ARCHIVE,
   BOARD,
   CLOSED,
@@ -13,6 +14,7 @@ import {
   INDEX,
   KNOWLEDGE,
   LETTER,
+  LETTER_SECTIONS,
   NAMES,
   OLD_DIR,
   SETTINGS,
@@ -197,6 +199,13 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const letterProblem = checkLetter(letter)
   if (letterProblem !== null) return { deny: letterProblem }
 
+  const parts = sections(letter)
+  const opening = parts.get(LETTER_SECTIONS[0]) ?? ''
+  const [paragraph = ''] = opening.split(/\r?\n[ \t]*\r?\n/, 1)
+  const description = input.about ?? paragraph.replace(/\s+/g, ' ').trim()
+  if (description.length > ABOUT_MAX)
+    return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` }
+
   if (settings.enabled) await refreshDocs(project)
   const modern = await usesNewStorage(project)
   if (!modern) await numberTracks(project)
@@ -214,12 +223,12 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const shift: PendingShift = {
     after: input.after,
     letter,
-    hold: sections(letter).get(HOLD) ?? '',
+    hold: parts.get(HOLD) ?? '',
     dir,
     board: `${root}/${BOARD}`,
     owner: `${root}/${settings.files.owner}`,
     sessionId: call.sessionId,
-    about: input.about,
+    about: description,
     at: call.at,
     segment: modern ? { done: [], dropped: [], archived: [], open: [] } : segment({ work, index }, previous),
     focus: modern ? [] : focusOf(work),
@@ -410,7 +419,7 @@ export async function handBack(project: Project, dir: string, actor?: string): P
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
     owner: project.settings.files.owner,
-    recent: await recentShifts(project),
+    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor),
     dir,
     remarks: await docsReport(project),
     stuck: isSaved(dir) ? [] : await stuckTasks(project),

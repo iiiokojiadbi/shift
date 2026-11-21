@@ -148,3 +148,38 @@ func TestCompletionOrderAndWaitingReceipt(t *testing.T) {
 		t.Fatal("rewrote completed shift")
 	}
 }
+
+func TestHandBackListsOnlyRetainedShifts(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "history.db")
+	makeShift := func(key, session string) string {
+		id := must[string](t, db, begin(key))
+		outcome := finish(id, 1)
+		outcome.Session, outcome.Wait = session, session != ""
+		must[string](t, db, outcome)
+		return id
+	}
+	other := makeShift("held by another chat", "other")
+	previous := makeShift("previous", "writer")
+	current := must[string](t, db, begin("current"))
+	preview := Request{Action: "list", ID: current, Session: "writer", Limit: 1}
+	check := func(req Request, ids ...string) {
+		t.Helper()
+		entries := must[[]Entry](t, db, req)
+		if len(entries) != len(ids) {
+			t.Fatalf("wanted %v, got %v", ids, entries)
+		}
+		for i, e := range entries {
+			if e.ID != ids[i] {
+				t.Fatalf("wanted %v, got %v", ids, entries)
+			}
+		}
+	}
+	check(preview, other, current)
+	check(Request{Action: "list"}, other, previous, current)
+	outcome := finish(current, 1)
+	outcome.Session, outcome.Wait = "writer", true
+	must[string](t, db, outcome)
+	check(preview, other, current)
+	must[string](t, db, Request{Action: "received", ID: current, Session: "writer", Limit: 1})
+	check(Request{Action: "list"}, other, current)
+}

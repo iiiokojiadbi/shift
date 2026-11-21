@@ -163,7 +163,7 @@ export const TOOL_SCHEMA = {
   properties: {
     letter: {
       type: 'string',
-      description: `The path to the letter to yourself, usually ${LETTER}.`,
+      description: `The path to your letter, usually ${LETTER}. Open "Where I am" with 2–3 short sentences about the work and its outcome. Shift uses that paragraph in history.`,
     },
     after: {
       type: 'string',
@@ -172,10 +172,10 @@ export const TOOL_SCHEMA = {
     },
     about: {
       type: 'string',
-      description: `One line up to ${ABOUT_MAX} characters: what the stretch did and where you stand. The line of the shift history, shown after later shifts too; the work only, not whether you continue or wait.`,
+      description: `Optional legacy description. Omit when using the opening paragraph of the letter.`,
     },
   },
-  required: ['letter', 'after', 'about'],
+  required: ['letter', 'after'],
 }
 
 export const ARCHIVE_SCHEMA = {

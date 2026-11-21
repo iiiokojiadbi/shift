@@ -76,6 +76,8 @@ Whether knowledge goes into the project's own docs or stays local is the owner's
 
 ## Saved shifts
 
+The opening paragraph of “Where I am” supplies the history description. Put the essential work and result in two or three sentences (400 characters total). Further paragraphs stay in the full letter. A restore includes the current opening once in that letter and the earlier retained shifts as brief entries.
+
 An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
 
 `shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to get local matches labeled by source. `delete` removes an eligible shift. Read task revisions with `task_query(view="history")`.

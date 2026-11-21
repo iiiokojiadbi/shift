@@ -7,10 +7,11 @@ import { cleanup, scratch } from '../../npm/test/scratch'
 import { deferred, fields, type Packet, Requests, textInput } from '../protocol'
 
 afterAll(cleanup)
-for (const mode of ['continue', 'wait'])
+for (const mode of ['continue', 'wait', 'continue twice'])
   test.skipIf(!Bun.which('codex'))(
     `installed marketplace plugin returns the map and letter on ${mode}`,
     async () => {
+      const twice = mode === 'continue twice'
       const home = await scratch('plugin-profile')
       const root = await scratch('plugin-project')
       const records = join(root, '.shift')
@@ -30,18 +31,25 @@ for (const mode of ['continue', 'wait'])
           // Tool hooks can see the preceding usage sample. Keep taking readings through
           // one tool after the reminder, then check the actual retained model input.
           const hasHint = requests[step - 1]?.includes('Shift hint: ') === true
-          const finished = step >= 4 && (hintSeen || step >= 16)
+          const restored = twice ? 7 : 4
+          const shiftCall = step === 1 || (twice && step === 4)
+          if (twice && step === 4) {
+            await writeFile(
+              join(records, 'letter.md'),
+              LETTER.replace('fixing tests', 'Second opening. Both restores ran.').replace('HOLD-THIS', 'Second hold detail'),
+            )
+            await writeFile(join(records, 'board.md'), BOARD.replace('the mod', 'the second fixture'))
+          }
+          const finished = step >= restored && (twice || hintSeen || step >= 16)
           hintSeen ||= hasHint
           const item =
-            step === 1 || (step >= 4 && !finished)
+            shiftCall || (step >= restored && !finished)
               ? {
                   type: 'function_call',
                   call_id: `fixture-call-${step}`,
                   namespace: 'mcp__shift',
-                  name: step === 1 ? 'shift' : 'shift_status',
-                  arguments: JSON.stringify(
-                    step === 1 ? { after: mode, about: 'Checked plugin installation', letter: '.shift/letter.md' } : {},
-                  ),
+                  name: shiftCall ? 'shift' : 'shift_status',
+                  arguments: JSON.stringify(shiftCall ? { after: mode === 'wait' ? 'wait' : 'continue', letter: '.shift/letter.md' } : {}),
                 }
               : {
                   type: 'message',
@@ -64,7 +72,13 @@ for (const mode of ['continue', 'wait'])
       const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
       await Promise.all([
         writeFile(join(records, 'board.md'), BOARD),
-        writeFile(join(records, 'letter.md'), LETTER.replace('fixing tests', 'Unique fixture letter body')),
+        writeFile(
+          join(records, 'letter.md'),
+          LETTER.replace('fixing tests', 'Unique fixture letter body. The first restore is ready.').replace(
+            'claude plugin test',
+            'First letter private next step',
+          ),
+        ),
         writeFile(join(records, 'TASKS.md'), '# Tasks\n'),
         writeFile(join(records, 'OWNER.md'), 'none'),
         writeFile(join(records, 'settings.toml'), '[docs]\ndirs = ["docs"]\n'),
@@ -136,7 +150,7 @@ trust_level = "trusted"
           if (!skill) throw new Error(`Missing skill: ${action}`)
           return [textInput(`$${skill.name}`), { type: 'skill', name: skill.name, path: skill.path }]
         }
-        const sizes = mode === 'continue'
+        const sizes = mode !== 'wait'
         await rpc.call('turn/start', { threadId, input: pick(sizes ? 'sizes' : 'tasks') })
         await reportDone.promise
         expect(requests).toHaveLength(0)
@@ -175,7 +189,14 @@ trust_level = "trusted"
         expect(requests[3]?.split('Unique fixture letter body').length).toBe(2)
         expect(requests[3]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[3]?.split('Acceptance marker').length).toBe(2)
-        expect(requests.at(-1)?.match(/Shift hint: /g)).toHaveLength(1)
+        if (twice) {
+          const second = requests[6]
+          expect(second?.split('Unique fixture letter body. The first restore is ready.')).toHaveLength(2)
+          expect(second?.split('Second opening. Both restores ran.')).toHaveLength(2)
+          expect(second).not.toContain('First letter private next step')
+          expect(second).not.toContain('HOLD-THIS')
+          expect(second).toContain('Second hold detail')
+        } else expect(requests.at(-1)?.match(/Shift hint: /g)).toHaveLength(1)
         const [snapshot] = await readdir(join(records, 'shifts'))
         expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')
       } finally {

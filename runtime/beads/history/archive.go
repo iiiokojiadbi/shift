@@ -77,11 +77,18 @@ func save(entries, blobs *bolt.Bucket, e Entry, files map[string]string) error {
 	return entries.Put([]byte(e.ID), v)
 }
 
-func rotate(entries, blobs *bolt.Bucket, limit int) error {
+// For a hand-back prepared before settlement, count the pending shift as the newest
+// completion and release this session's hold, just as finish and its receipt will.
+func expiredEntries(entries *bolt.Bucket, limit int, current, releaseSession string) ([]Entry, error) {
 	protected := map[string]bool{}
 	if queue := entries.Tx().Bucket(waiting); queue != nil {
-		if err := queue.ForEach(func(_, id []byte) error { protected[string(id)] = true; return nil }); err != nil {
-			return err
+		if err := queue.ForEach(func(session, id []byte) error {
+			if string(session) != releaseSession {
+				protected[string(id)] = true
+			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 	}
 	var completed []Entry
@@ -90,19 +97,29 @@ func rotate(entries, blobs *bolt.Bucket, limit int) error {
 		if err != nil {
 			return err
 		}
-		if e.State == "complete" && !protected[e.ID] {
+		if e.ID == current && e.State == "pending" {
+			// This completion will receive the next sequence number.
+			limit--
+		} else if e.State == "complete" && !protected[e.ID] {
 			completed = append(completed, e)
 		}
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	sort.Slice(completed, func(i, j int) bool { return completed[i].Completion < completed[j].Completion })
-	for len(completed) > limit {
-		if err := entries.Delete([]byte(completed[0].ID)); err != nil {
+	return completed[:max(0, len(completed)-limit)], nil
+}
+
+func rotate(entries, blobs *bolt.Bucket, limit int) error {
+	expired, err := expiredEntries(entries, limit, "", "")
+	if err != nil {
+		return err
+	}
+	for _, e := range expired {
+		if err := entries.Delete([]byte(e.ID)); err != nil {
 			return err
 		}
-		completed = completed[1:]
 	}
 	referenced := map[string]bool{}
 	if err := entries.ForEach(func(_, v []byte) error {
@@ -334,8 +351,28 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		}
 		return matches, nil
 	case "list":
+		skip := map[string]bool{}
+		if r.ID != "" && r.Limit > 0 && b.Get([]byte(r.ID)) != nil {
+			current, err := load(b.Get([]byte(r.ID)))
+			if err != nil {
+				return nil, err
+			}
+			queue := tx.Bucket(waiting)
+			if current.State == "pending" || (queue != nil && string(queue.Get([]byte(r.Session))) == current.ID) {
+				expired, err := expiredEntries(b, r.Limit, r.ID, r.Session)
+				if err != nil {
+					return nil, err
+				}
+				for _, e := range expired {
+					skip[e.ID] = true
+				}
+			}
+		}
 		result := []Entry{}
-		err := b.ForEach(func(_, v []byte) error {
+		err := b.ForEach(func(k, v []byte) error {
+			if skip[string(k)] {
+				return nil
+			}
 			e, err := load(v)
 			if err == nil {
 				e.Files = nil
