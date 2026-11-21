@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import { beadsExecutable, dirname, loadProject, type Project, type Store } from './core/index'
+import { beadsExecutable, loadProject, type Project, type Store } from './core/index'
 
 // The core's store over Claude Code's files and processes.
 export function claudeStore($: EngineInterface): Store {
@@ -12,7 +12,7 @@ export function claudeStore($: EngineInterface): Store {
       const name = beadsExecutable(os ?? '', arch ?? '')
       if (!name) throw new Error(`No embedded Beads build for ${os}/${arch}.`)
       const argv = [`${$.plugin.root}/vendor/${name}`, root, ...args]
-      if (args[0] === 'shift-history' || args[0] === 'show') {
+      if (args[0] === 'shift-history') {
         const child = $.process.spawn({ argv, ...(stdin === undefined ? {} : { input: stdin }) })
         const stdout: string[] = [],
           stderr: string[] = []
@@ -27,7 +27,7 @@ export function claudeStore($: EngineInterface): Store {
       }
       const run = await $.process.run(argv, stdin === undefined ? {} : { stdin })
       if (run.exitCode !== 0) throw new Error(run.stderr.trim() || `Beads exited with ${run.exitCode}.`)
-      if (run.isStdoutTruncated) throw new Error('Task output exceeded the host process limit. Narrow the query.')
+      if (run.isStdoutTruncated) throw new Error('Bundled runtime output exceeded the host process limit.')
       return run.stdout
     },
     read: path =>
@@ -52,12 +52,6 @@ export function claudeStore($: EngineInterface): Store {
       await $.fs.write(path, text)
     },
     exists: path => $.fs.exists(path),
-    move: async (from, to) => {
-      await $.process.run(['mkdir', '-p', dirname(to)])
-      const moved = await $.process.run(['mv', from, to])
-
-      return moved.exitCode === 0 ? null : moved.stderr.trim()
-    },
     git: async (root, args) => {
       const ran = await $.process.run(['git', '-C', root, ...args]).catch(() => null)
 

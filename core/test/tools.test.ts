@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { tasksView } from '../src/flows'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import type { Project } from '../src/project'
+import { archiveCall } from '../src/saved'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { sessionDoctrine, shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
 import { R } from './fixtures'
@@ -39,12 +40,12 @@ test('every row has its texts; the docs tools only where the mod keeps docs, non
   expect(names(DEFAULT_SETTINGS)).toContain('doc_outline')
   expect(names({ ...DEFAULT_SETTINGS, docs: { ...DEFAULT_SETTINGS.docs, dirs: [] } })).not.toContain('docs_mentioning')
   expect(names({ ...DEFAULT_SETTINGS, enabled: false })).toEqual([])
-  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual(['shift', 'shift_migrate', 'shift_history', 'shift_setup'])
+  expect(TOOLS.filter(each => each.writes).map(each => each.name)).toEqual(['shift', 'shift_history', 'shift_setup'])
   expect(TOOLS.some(tool => tool.name.startsWith('task_'))).toBe(false)
 })
 
 test('a run parses its arguments and refuses; only the main agent shifts, once a turn', async () => {
-  const project = await memoryProject({ [`${R}/TASKS.md`]: 'none' })
+  const project = await memoryProject()
   expect(await tool('shift').run({ letter: 'l.md', after: 'wait', about: 'a' }, callOn(project, { subagent: true }))).toEqual({
     deny: 'Only the main agent shifts, not a subagent.',
   })
@@ -93,15 +94,22 @@ test('a doctrine built without a session start names the files where the setting
 })
 
 test('size table shows only sizes and the three newest available letters', async () => {
-  const project = await memoryProject(
-    Object.fromEntries(['01', '02', '03', '04'].map(n => [`${R}/shifts/202401${n}-000000/letter.md`, 'Private sample'])),
-  )
+  const project = await memoryProject()
+  for (const key of ['one', 'two', 'three', 'four']) {
+    const id = await archiveCall<string>(project, {
+      action: 'begin',
+      key,
+      about: key,
+      files: { 'board.md': key, 'letter.md': 'Private sample' },
+    })
+    await archiveCall(project, { action: 'finish', id, state: 'complete', about: key, limit: 30 })
+  }
   const report = await tool('shift_sizes').run({}, callOn(project))
   expect(report).toHaveProperty('result')
   if (!('result' in report)) throw Error('missing report')
-  expect(report.result.match(/^\s*4 {2}202401\d{2}-000000$/gm)).toHaveLength(3)
+  expect(report.result.match(/^\s*4 {2}s-[a-f0-9]{16}$/gm)).toHaveLength(3)
   expect(report.result).not.toContain('Private sample')
-  expect(report.result).not.toContain('20240101')
+  expect(report.result).not.toContain('s-0000000000000001')
   expect(report.result).toContain('Session + continue')
   for (const section of ['flow', 'records']) {
     const result = await tool('shift_guide').run({ section }, callOn(project))

@@ -16,9 +16,10 @@ import {
   waitingNote,
 } from '../src/loop'
 import { frontmatter } from '../src/markdown'
+import { readSaved } from '../src/saved'
 import { ourWords, WAKE } from '../src/texts/prompts'
 import type { Gauge } from '../src/types'
-import { BOARD, LETTER, listWith, R, ROOT, taskMd } from './fixtures'
+import { BOARD, LETTER, R, ROOT } from './fixtures'
 import { memoryProject } from './memory'
 
 // A loop over a variable that keeps its rows, and a project with one shift accepted and held.
@@ -28,9 +29,6 @@ async function setUp(after: 'continue' | 'wait' = 'continue') {
       [`${R}/letter.md`]: LETTER,
       [`${R}/board.md`]: BOARD,
       [`${R}/OWNER.md`]: 'none',
-      [`${R}/TASKS.md`]: listWith(['- [in progress] [t](tasks/t/) — t']),
-      [`${R}/tasks/t/task.md`]: taskMd('T'),
-      [`${R}/tasks/t/track.md`]: '- [done] x',
     },
     ROOT,
   )
@@ -64,7 +62,7 @@ test('an aborted turn lets nothing go; a failed let-go is told as an error; both
   await afterTurn(aborted.project, aborted.loop, harness(digest), true)
   expect(aborted.rows).toEqual([['warning', expect.stringContaining('not made — the turn was aborted')]])
   expect(aborted.kept.state.pending).toBeNull()
-  expect(frontmatter(aborted.project.files.get(`${aborted.dir}/about.md`) ?? '').get('result')).toBe('not shifted: the turn was aborted')
+  expect(frontmatter((await readSaved(aborted.project, aborted.dir)).about).get('result')).toBe('not shifted: the turn was aborted')
   // The owner stopped the turn: the agent, told the shift was accepted, learns otherwise with the owner's next message.
   expect(aborted.kept.state.note?.context).toContain('was not made — the turn was aborted. Nothing was let go')
 
@@ -105,7 +103,7 @@ test('a failure note that cannot start the next turn waits for the owner instead
 
 test('a failure whose about.md cannot be written is still told, and says so', async () => {
   const { project, loop, rows } = await setUp()
-  project.store.write = async () => {
+  project.store.beads = async () => {
     throw new Error('disk full')
   }
   await afterTurn(project, loop, harness(digest), true)
@@ -121,7 +119,7 @@ test('a failure after the let-go is told and written as let go but not settled',
   expect(broken.rows).toEqual([['error', expect.stringContaining('the history was let go, but the message after it failed')]])
   // The agent lost its history and got nothing back: it is sent to its records.
   expect(broken.kept.state.note).toBeNull()
-  expect(frontmatter(broken.project.files.get(`${broken.dir}/about.md`) ?? '').get('result')).toBe('let go, not settled: Error: disk')
+  expect(frontmatter((await readSaved(broken.project, broken.dir)).about).get('result')).toBe('let go, not settled: Error: disk')
 })
 
 test('continue starts the next turn; on wait the note waits for the owner', async () => {
@@ -167,7 +165,7 @@ test('a turn that does not start after the shift is told, not recorded against t
     continueWith: async () => Promise.reject(new Error('busy')),
   }
   await afterTurn(project, loop, harness, false)
-  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
+  expect(frontmatter((await readSaved(project, dir)).about).get('result')).toBe('shifted (300K → 20K), continuing')
   expect(rows.at(-1)).toEqual(['error', expect.stringContaining('the next turn did not start after the shift — Error: busy')])
   // The letter waits for the owner's next message instead.
   const note = await waitingNote(loop)
@@ -187,12 +185,12 @@ test('a harness that carries the message starts the turn with one line, never th
   // The message is built before the let-go and taken by the harness.
   expect(carries).toHaveLength(1)
   expect(carries[0]).toContain('Shift done. You continue from where you stopped.')
-  expect(carries[0]).toContain('<letter path=')
+  expect(carries[0]).toContain('<letter shift=')
   // The turn starts from one line: the letter is in the history already.
   expect(prompts).toEqual([WAKE])
   expect(kept.state.note).toBeNull()
   expect(rows.at(-1)).toEqual(['info', expect.stringContaining('continuing from the letter')])
-  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
+  expect(frontmatter((await readSaved(project, dir)).about).get('result')).toBe('shifted (300K → 20K), continuing')
 })
 
 test('a wake line that does not start the turn waits as the note, never the whole message again', async () => {
@@ -209,7 +207,7 @@ test('a wake line that does not start the turn waits as the note, never the whol
 
 test('durable wait delivery is acknowledged before the waiting outcome is published', async () => {
   const { project, loop, dir, kept } = await setUp('wait')
-  const about = () => project.store.read(`${dir}/about.md`)
+  const about = async () => (await readSaved(project, dir)).about
   const observed: string[] = []
   const letters: string[] = []
   await afterTurn(
@@ -244,7 +242,7 @@ test('a wait shift carries nothing: a harness is never asked to put the letter i
     false,
   )
   expect(carries).toEqual([undefined])
-  expect(kept.state.note?.context).toContain('<letter path=')
+  expect(kept.state.note?.context).toContain('<letter shift=')
 })
 
 test('two ends of one turn let go once; a fill that cannot be read does not stop the shift', async () => {
@@ -259,7 +257,7 @@ test('two ends of one turn let go once; a fill that cannot be read does not stop
   }
   await Promise.all([afterTurn(project, loop, counting, false), afterTurn(project, loop, counting, false)])
   expect(letGoes).toBe(1)
-  expect(frontmatter(project.files.get(`${dir}/about.md`) ?? '').get('result')).toStartWith('shifted (')
+  expect(frontmatter((await readSaved(project, dir)).about).get('result')).toStartWith('shifted (')
 })
 
 test('the owner speaking while a wait shift lets go gets the letter right after their message', async () => {
@@ -272,12 +270,12 @@ test('the owner speaking while a wait shift lets go gets the letter right after 
   }
   await afterTurn(project, loop, harness(during, prompts), false)
   expect(prompts).toHaveLength(1)
-  expect(prompts[0]).toContain('<letter path=')
+  expect(prompts[0]).toContain('<letter shift=')
   expect(kept.state).toMatchObject({ note: null, letting: null })
 
   const quiet = await setUp('wait')
   await afterTurn(quiet.project, quiet.loop, harness(digest, []), false)
-  expect(quiet.kept.state.note?.context).toContain('<letter path=')
+  expect(quiet.kept.state.note?.context).toContain('<letter shift=')
   expect(quiet.kept.state.letting).toBeNull()
 })
 
@@ -288,7 +286,7 @@ test('the owner speaking after the turn ends and before the let-go is heard too'
   expect(kept.state.letting).toEqual({ heard: true })
   const prompts: string[] = []
   await afterTurn(project, loop, harness(digest, prompts), false)
-  expect(prompts[0]).toContain('<letter path=')
+  expect(prompts[0]).toContain('<letter shift=')
   expect(kept.state).toMatchObject({ note: null, letting: null })
 })
 
@@ -321,8 +319,8 @@ test("the owner's message held during a shift goes after the letter in one promp
     )
     expect(sent).toHaveLength(1)
     const { prompt } = sent[0] ?? { prompt: '' }
-    expect(prompt.indexOf('<letter path=')).toBeGreaterThanOrEqual(0)
-    expect(prompt.indexOf('the owner wrote while you shifted')).toBeGreaterThan(prompt.indexOf('<letter path='))
+    expect(prompt.indexOf('<letter shift=')).toBeGreaterThanOrEqual(0)
+    expect(prompt.indexOf('the owner wrote while you shifted')).toBeGreaterThan(prompt.indexOf('<letter shift='))
     expect(prompt).toEndWith('FIRST\n\nSECOND')
     expect(sent[0]?.attachments).toEqual(['IMAGE'])
     expect(kept.state).toMatchObject({ note: null, letting: null })
@@ -343,7 +341,7 @@ test("the owner's held message is never lost: a turn that does not start keeps i
     },
     false,
   )
-  expect(failing.kept.state.note?.context).toContain('<letter path=')
+  expect(failing.kept.state.note?.context).toContain('<letter shift=')
   expect(failing.kept.state.note?.context).toEndWith('KEEP ME')
   expect((await waitingNote(failing.loop))?.attachments).toEqual(['IMAGE'])
   expect(failing.kept.state.letting).toBeNull()
@@ -374,7 +372,7 @@ test("the owner's message kept in a harness's hook until the shift is over takes
     expect(prompts).toEqual([])
     expect(kept.state.letting).toBeNull()
     const note = await waitingNote(loop)
-    expect(note?.context).toContain(after === 'continue' ? 'Shift done' : '<letter path=')
+    expect(note?.context).toContain(after === 'continue' ? 'Shift done' : '<letter shift=')
   }
 
   // No shift under way: the message goes at once, as it is. A hook that gives up lets the shift's message go on its own.
@@ -410,7 +408,7 @@ test('a delivered letter clears only itself; a newer shift or /unshift drops an 
 test("a harness's reason reaches the agent in the mod's words, a path as it is", () => {
   expect(ourWords('Compaction cancelled: nothing to summarize')).toBe('let-go cancelled: nothing to let go')
   // A path keeps its file's name.
-  expect(ourWords('EACCES: .shift/shifts/x/.summary.md.12.tmp')).toBe('EACCES: .shift/shifts/x/.summary.md.12.tmp')
+  expect(ourWords('EACCES: .shift/.board.md.12.tmp')).toBe('EACCES: .shift/.board.md.12.tmp')
   expect(ourWords('wrote summary.md, the summary failed')).toBe('wrote summary.md, the digest failed')
 })
 
@@ -418,19 +416,92 @@ test("the owner's /shift takes a letter still waiting; an older letter does not 
   const waiting = await setUp('wait')
   await afterTurn(waiting.project, waiting.loop, harness(digest), false)
   const now = await shiftNow(waiting.loop, 'please')
-  expect(now.text).toMatch(/<letter path=[\s\S]*The owner asks you to shift now/)
+  expect(now.text).toMatch(/<letter shift=[\s\S]*The owner asks you to shift now/)
   await now.delivered()
   expect(waiting.kept.state.note).toBeNull()
-  expect((await shiftNow(waiting.loop, '')).text).not.toContain('<letter path=')
+  expect((await shiftNow(waiting.loop, '')).text).not.toContain('<letter shift=')
 
   // Letter A waits while shift B lets go: the owner's message takes A, and B's letter follows it at once.
   const newer = await setUp('wait')
-  newer.kept.state = { ...newer.kept.state, note: { context: 'LETTER A', dir: 'a', files: [] } }
+  newer.kept.state = { ...newer.kept.state, note: { context: 'LETTER A', dir: 's-000000000000000a', files: [] } }
   const prompts: string[] = []
   const during: LetGoHarness['letGo'] = async instructions => {
     expect((await waitingNote(newer.loop))?.context).toBe('LETTER A')
     return digest(instructions)
   }
   await afterTurn(newer.project, newer.loop, harness(during, prompts), false)
-  expect(prompts[0]).toContain('<letter path=')
+  expect(prompts[0]).toContain('<letter shift=')
+})
+
+test('a stale host receipt preserves only held owner input alongside the current archive letter', async () => {
+  const waiting = await setUp('wait')
+  const project = { ...waiting.project, actor: 's' }
+  await afterTurn(project, waiting.loop, harness(digest), false)
+  const stale = {
+    dir: '.shift/shifts/old',
+    files: [],
+    context: 'obsolete letter',
+    held: [{ text: 'owner message', attachments: ['image'] }],
+  }
+  waiting.kept.state.note = stale
+  let failClear = true
+  const loop = {
+    ...waiting.loop,
+    update: (change: (state: LoopState) => LoopState) =>
+      waiting.loop.update(state => {
+        const next = change(state)
+        if (failClear && state.note && !next.note) throw Error('host storage failure')
+        return next
+      }),
+  }
+  const offer = await waitingNote(loop, project)
+  expect(offer?.dir).toBe(waiting.dir)
+  expect(offer?.context).toContain('HOLD-THIS')
+  expect(offer?.context).not.toContain('obsolete letter')
+  expect(offer?.context.match(/owner message/g)).toHaveLength(1)
+  expect(offer?.attachments).toEqual(['image'])
+  if (!offer) throw Error('Expected a waiting letter')
+  await expect(offer.delivered()).rejects.toThrow('host storage failure')
+  const retry = await waitingNote(loop, project)
+  expect(retry?.context).toBe(offer.context)
+  expect(retry?.attachments).toEqual(['image'])
+  failClear = false
+  await retry?.delivered()
+  expect(await waitingNote(waiting.loop, project)).toBeNull()
+
+  waiting.kept.state.note = stale
+  const ownerOnly = await waitingNote(waiting.loop, project)
+  expect(ownerOnly?.context).toContain('owner message')
+  expect(ownerOnly?.context).not.toContain('obsolete letter')
+  expect(ownerOnly?.attachments).toEqual(['image'])
+  await ownerOnly?.delivered()
+  expect(await waitingNote(waiting.loop, project)).toBeNull()
+})
+
+test('an invalid pending receipt admits the owner to the current wait without starting another turn', async () => {
+  const { loop, project, kept } = await setUp('wait')
+  const pending = kept.state.pending
+  if (!pending) throw Error('Expected an accepted shift')
+  project.actor = pending.sessionId
+  await afterTurn(project, loop, harness(digest), false)
+  kept.state = {
+    ...kept.state,
+    pending: { ...pending, dir: '.shift/shifts/old' },
+    letting: { heard: true, held: [{ text: 'earlier owner input', attachments: ['image'] }] },
+  }
+  expect(await holdOwner(loop, { text: 'next owner input' })).toBe(false)
+  const offer = await waitingNote(loop, project)
+  expect(offer?.context).toContain('HOLD-THIS')
+  expect(offer?.context.split('earlier owner input')).toHaveLength(2)
+  expect(offer?.attachments).toEqual(['image'])
+  await offer?.delivered()
+  await afterTurn(
+    project,
+    loop,
+    harness(async () => {
+      throw Error('unexpected let-go')
+    }),
+    false,
+  )
+  expect(await waitingNote(loop, project)).toBeNull()
 })

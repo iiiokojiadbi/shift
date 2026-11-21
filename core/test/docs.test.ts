@@ -109,7 +109,6 @@ test('the report at a shift, the outline and mentions tools, and [files] always'
     [`${ROOT}/docs/a.md`]: DOC,
     [`${ROOT}/docs/dates.md`]: '---\ndescription: dates\n---\n\n# Dates\n\n| when | what |\n\nruns `fetch.js` daily',
     [`${ROOT}/AGENTS.md`]: 'map: docs/a.md, docs/gone.md',
-    [`${R}/TASKS.md`]: 'none',
   })
   expect(await docsReport(await at(store))).toBe('- `AGENTS.md`: a link to `docs/gone.md` that is not there')
 
@@ -132,7 +131,6 @@ test('the setup report: every key with its value here and its version, and which
   const store = memoryStore({
     [SETTINGS]: '[docs]\ntoc = true # the toc',
     [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
-    [`${R}/TASKS.md`]: 'none',
   })
   const fresh = await setupReport(await at(store), null)
   expect(fresh).toContain('- `[docs] toc` = true — set here, default false, since 0.5.0:')
@@ -145,7 +143,6 @@ test('the setup report: every key with its value here and its version, and which
   expect(fresh).toContain("This session's block matches them.")
   expect(fresh).toContain('## Documents\n\nNo remarks.')
   expect(fresh).toContain('## Records\n\nNo board yet: create .shift/board.md')
-  expect(fresh).toContain('## Coming from the earlier layout')
 
   const loaded = renderSessionFiles(await sessionFiles(await at(store)))
   store.files.set(`${R}/OWNER.md`, '# Owner decisions\n\n## Scope\n\n- new')
@@ -156,7 +153,6 @@ test('the setup report: every key with its value here and its version, and which
   store.files.set(`${R}/board.md`, '## Goal\n\nthe mod')
   expect(await setupReport(await at(store), null)).toContain('## Records\n\nA shift would refuse them now: The board lacks sections')
   store.files.set(`${R}/board.md`, '## Goal\n\nthe mod\n\n## Decisions\n\nnone\n\n## Dead ends\n\nnone')
-  store.files.set(`${R}/TASKS.md`, '# Tasks\n\nnone')
   expect(await setupReport(await at(store), null)).toContain(
     '## Records\n\nThey pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself.',
   )
@@ -165,7 +161,7 @@ test('the setup report: every key with its value here and its version, and which
 })
 
 test('the report after a shift folds the undescribed documents into one line and names at most ten others', async () => {
-  const seed: Record<string, string> = { [`${R}/TASKS.md`]: 'none' }
+  const seed: Record<string, string> = {}
   for (let i = 0; i < 30; i++) seed[`${ROOT}/docs/${String(i).padStart(2, '0')}.md`] = `# D\n\nsee [x](gone-${i}.md)`
   const report = (await docsReport(await at(memoryStore(seed)))) ?? ''
   expect(report.split('\n')[0]).toBe(

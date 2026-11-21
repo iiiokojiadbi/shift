@@ -40,7 +40,7 @@ export async function loadFiles($: EngineInterface, project: Project, resume = t
   const loaded = await sessionFiles(project, { refresh: resume })
   const map = await initialMap(project, loaded)
   await update($, files, () => renderSessionFiles(loaded))
-  await update($, looks, current => ({ ...(resume ? FRESH_LOOKS : current), map, mapNotes: [], migrationChecked: false }))
+  await update($, looks, current => ({ ...(resume ? FRESH_LOOKS : current), map, mapNotes: [] }))
   await persistMap($)
 }
 

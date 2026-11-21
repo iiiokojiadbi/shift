@@ -1,11 +1,21 @@
-import { afterAll, expect, spyOn, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import shift from '../index'
 import { nodeStore } from '../store'
+import { historyRuntime } from './native-history'
 import { cleanup, scratch } from './scratch'
 
-afterAll(cleanup)
+let native: Awaited<ReturnType<typeof historyRuntime>>
+const bundled = nodeStore.beads
+beforeAll(async () => {
+  native = await historyRuntime()
+  nodeStore.beads = async (root, args, input) => native.run(root, args, input)
+}, 60000)
+afterAll(async () => {
+  nodeStore.beads = bundled
+  await cleanup()
+})
 
 // The extension over a stand-in of pi's API: what it registers, the handlers it puts on events, the active tools.
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown> | unknown
@@ -59,7 +69,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
       active = names
     },
     sendMessage: (message: { content: string }) => sent.push(message.content),
-    sendUserMessage: () => {},
+    sendUserMessage: (_content: string) => {},
     appendEntry: (customType: string, data: unknown) => saved.push({ type: 'custom', customType, data }),
   }
   shift(pi as never)
@@ -69,7 +79,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
     hasUI: false,
     ui: { notify: (text: string) => notes.push(text) },
     sessionManager: {
-      getBranch: () => entries?.() ?? branch(chars),
+      getBranch: () => entries?.() ?? [...branch(chars), ...saved],
       getSessionId: () => 's1',
       buildSessionProjection: () => ({ messages: [] }),
     },
@@ -104,8 +114,6 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
 test('a project without docs shows no docs tools, neither as tools nor in the doctrine; the tools run over the records', async () => {
   const root = await project({
     '.shift/settings.toml': '[docs]\ndirs = []\n',
-    '.shift/TASKS.md': '# Tasks\n\n- [in progress] [t](tasks/t/) — t\n',
-    '.shift/tasks/t/track.md': '- [open] write the test\n',
   })
   const pi = load(root)
   await pi.on('session_start')
@@ -121,7 +129,7 @@ test('a project without docs shows no docs tools, neither as tools nor in the do
 })
 
 test('the status counts what the history grew from; settings that turn the mod off take every tool out', async () => {
-  const pi = load(await project({ '.shift/TASKS.md': 'none\n' }))
+  const pi = load(await project({ '.shift/OWNER.md': 'none\n' }))
   await pi.on('session_start')
   await pi.on('message_end', { message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(5000) }] } })
   expect(await pi.call('shift_status')).toContain('Grown mostly from: your responses 100%.')
@@ -136,7 +144,6 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
     '.shift/letter.md': ['## Where I am', 'here', '## Next', 'go', '## Unverified', 'none', '## Hold', 'HOLD'].join('\n'),
     '.shift/board.md': ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n'),
     '.shift/OWNER.md': 'none\n',
-    '.shift/TASKS.md': 'none\n',
     '.shift/settings.toml': 'commit = true\n',
   }
   const going = load(await project(records))
@@ -172,9 +179,7 @@ test('a shift lets go once the run settles and continues; an aborted run lets no
 test("records are looked at around every tool: the agent's own change told only when broken, someone else's always", async () => {
   const root = await project({
     '.shift/board.md': '## Goal\ng\n## Decisions\nnone\n## Dead ends\nnone\n',
-    '.shift/TASKS.md': '# Tasks\n\n- [in progress] [t](tasks/t/) — t\n',
-    '.shift/tasks/t/task.md': '# T\n\n## Goal\ng\n## Done when\nd\n## Owner decisions\nnone\n## Decisions\nnone\n## Dead ends\nnone\n',
-    '.shift/tasks/t/track.md': '- [open] write the test\n',
+    '.shift/OWNER.md': 'Owner decision.',
   })
   const pi = load(root)
   await pi.on('session_start')
@@ -189,21 +194,21 @@ test("records are looked at around every tool: the agent's own change told only 
   const put = (path: string, text: string) => () => writeFile(join(root, path), text)
 
   await bash()
-  expect(await bash(put('.shift/tasks/t/track.md', '- [done] write the test\n'))).toBe('')
+  expect(await bash(put('.shift/OWNER.md', 'Owner confirmed the test.'))).toBe('')
   expect(await bash(put('.shift/board.md', '## Goal\nthe mod, broken\n'))).toContain('`.shift/board.md`: The board lacks sections')
-  await put('.shift/TASKS.md', '# Tasks\n\n- [in progress] [t](tasks/t/) — t, by hand\n')()
+  await put('.shift/OWNER.md', 'Updated outside the chat.')()
   const outside = await bash()
-  expect(outside).toContain('`.shift/TASKS.md` changed outside your tools')
+  expect(outside).toContain('`.shift/OWNER.md` changed outside your tools')
   expect(outside).not.toContain('board.md')
 })
 
 test('a call blocked before it ran ends at its execution end; the run after it still tells a change outside', async () => {
-  const root = await project({ '.shift/TASKS.md': 'none\n' })
+  const root = await project({ '.shift/OWNER.md': 'none\n' })
   const pi = load(root)
   await pi.on('session_start')
   await pi.on('tool_call', { toolCallId: '1', toolName: 'bash', input: {} })
   await pi.on('tool_execution_end', { toolCallId: '1', toolName: 'bash', isError: true })
-  await writeFile(join(root, '.shift/TASKS.md'), '# Tasks\n\nnone\n')
+  await writeFile(join(root, '.shift/OWNER.md'), 'An outside change.')
   await pi.on('tool_call', { toolCallId: '2', toolName: 'bash', input: {} })
   const done = (await pi.on('tool_result', { toolCallId: '2', toolName: 'bash', input: {}, content: [], isError: false })) as
     | { content: { text: string }[] }
@@ -216,7 +221,6 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
     '.shift/letter.md': ['## Where I am', 'here', '## Next', 'go', '## Unverified', 'none', '## Hold', 'HOLD'].join('\n'),
     '.shift/board.md': ['## Goal', 'g', '## Decisions', 'none', '## Dead ends', 'none'].join('\n'),
     '.shift/OWNER.md': 'none\n',
-    '.shift/TASKS.md': 'none\n',
     '.shift/settings.toml': 'commit = true\n',
   }
   const pi = load(await project(records))
@@ -231,13 +235,13 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   // The owner's input taken by another extension without a run, then an extension's own message: no letter.
   await pi.on('input', { text: 'hi', source: 'interactive' })
   await pi.on('input', { text: 'x', source: 'extension' })
-  expect(await letter()).not.toContain('<letter path=')
+  expect(await letter()).not.toContain('<letter shift=')
   await pi.on('input', { text: 'hi', source: 'interactive' })
-  expect(await letter()).toContain('<letter path=')
+  expect(await letter()).toContain('<letter shift=')
 
   // The message that took the letter rewound away: the clearing entry stays on the branch, the letter waits again.
   const wait = (note: unknown) => ({ type: 'custom', customType: 'shift:wait', data: { note } })
-  const note = { context: 'THE LETTER', dir: 'x', files: [] }
+  const note = { context: 'THE LETTER', dir: 's-0000000000000001', files: [] }
   const rewound = load(await project(records), 200_000, () => [wait(note), wait(null)])
   await rewound.on('session_start')
   await rewound.on('input', { text: 'hi', source: 'interactive' })
@@ -246,13 +250,31 @@ test("a waiting letter: pi's own let-go waits for the shift, an extension's mess
   await patched.on('session_start')
   await patched.on('input', { text: 'hi', source: 'interactive' })
   expect(((await patched.on('before_agent_start', run())) as { message: { content: string } }).message.content).toContain('THE LETTER')
-  const told = load(await project(records), 200_000, () => [wait(note), wait(null), { type: 'custom_message', customType: 'shift' }])
+  const told = load(await project(records), 200_000, () => [
+    wait(note),
+    wait(null),
+    { type: 'custom_message', customType: 'shift', content: note.context },
+  ])
   await told.on('session_start')
   await told.on('input', { text: 'hi', source: 'interactive' })
-  const startup = JSON.stringify(await told.on('before_agent_start', run()))
-  expect(startup).toContain('Legacy records need migration')
-  expect(startup).not.toContain('THE LETTER')
   expect(await told.on('before_agent_start', run())).toBeUndefined()
+})
+
+test('a reopened pi branch ignores an obsolete folder letter and lets owner input through', async () => {
+  const root = await project({})
+  const dir = join(root, '.shift/shifts/20260101-000000')
+  const entries = [
+    { type: 'custom', customType: 'shift:delivery', data: dir },
+    { type: 'custom', customType: 'shift:wait', data: { note: { dir, context: 'Obsolete letter.', files: ['letter.md'] } } },
+  ]
+  const pi = load(root, 200_000, () => entries)
+  await pi.on('session_start')
+  for (const text of ['First owner message.', 'Second owner message.']) {
+    expect(await pi.on('input', { text, source: 'interactive' })).toBeUndefined()
+    const event = { messageType: 'user', systemPromptOptions: { sections: {}, contextFiles: [] } }
+    expect(await pi.on('before_agent_start', event)).toBeUndefined()
+    expect(pi.sent).toEqual([])
+  }
 })
 
 test.each(['wait', 'continue'])('a sibling cannot consume a %s letter; the original branch recovers it after restart', async after => {
@@ -263,98 +285,89 @@ test.each(['wait', 'continue'])('a sibling cannot consume a %s letter; the origi
     '.shift/settings.toml': 'commit = true',
   })
   const id = 's-0000000000000001'
-  const queue = new Map<string, string>()
-  let about = ''
-  let files: Record<string, string> = {}
-  const archive = spyOn(nodeStore, 'beads').mockImplementation(async (_root, args, stdin) => {
-    expect(args).toEqual(['shift-history'])
-    const request = JSON.parse(stdin ?? '{}')
-    switch (request.action) {
-      case 'begin':
-        about = request.about
-        files = request.files
-        await writeFile(join(root, '.shift/history.db'), '')
-        return JSON.stringify(id)
-      case 'finish':
-        about = request.about
-        if (request.wait) queue.set(request.session, id)
-        return 'null'
-      case 'waiting':
-        return JSON.stringify(queue.get(request.session) ?? '')
-      case 'received':
-        if (queue.get(request.session) === request.id) queue.delete(request.session)
-        return 'null'
-      case 'list':
-        return JSON.stringify([{ id, about, state: 'complete', files: {} }])
-      case 'read':
-        return JSON.stringify({ id, about, files })
-      default:
-        throw new Error(`Unexpected archive request: ${request.action}`)
-    }
-  })
-  try {
-    let entries: unknown[] = []
-    const history = branch(200_000)
-    const pi = load(root, 200_000, () => [...history, ...entries])
-    entries = pi.saved
-    // pi's sendMessage returns void even if its later attempt to start the run fails before message_end.
-    if (after === 'continue') pi.api.sendMessage = () => 0
-    await pi.on('session_start')
-    expect(await pi.call('shift', { letter: '.shift/letter.md', after, about: 'branch A' })).toContain('Shift accepted')
-    await pi.on('agent_settled', { aborted: false })
-    expect([...queue.values()]).toEqual([id])
+  let entries: unknown[] = []
+  const history = branch(200_000)
+  const pi = load(root, 200_000, () => [...history, ...entries])
+  entries = pi.saved
+  // pi's sendMessage returns void even if its later attempt to start the run fails before message_end.
+  if (after === 'continue') pi.api.sendMessage = () => 0
+  await pi.on('session_start')
+  expect(await pi.call('shift', { letter: '.shift/letter.md', after, about: 'branch A' })).toContain('Shift accepted')
+  await pi.on('agent_settled', { aborted: false })
+  const anchor = pi.saved.find(entry => (entry as { customType?: string }).customType === 'shift:delivery') as { data: string }
+  const getWait = () => native.query(root, { action: 'waiting', session: JSON.stringify(['s1', anchor.data]) })
+  expect(getWait()).toBe(id)
 
-    // A process can die between settlement and the branch-local wait entry. The earlier shift anchor survives.
-    const beforeAdmission = [...entries]
-    const original = entries.filter(entry => (entry as { customType?: string }).customType !== 'shift:wait')
-    const ownerPrompt = async (session: typeof pi) => {
-      await session.on('input', { text: 'hello', source: 'interactive' })
-      const result = (await session.on('before_agent_start', {
-        systemPromptOptions: { sections: {}, contextFiles: [] },
-        messageType: 'user',
-      })) as { message: { content: string } } | undefined
-      return result?.message.content ?? ''
-    }
-    entries = []
-    await pi.on('session_tree')
-    expect(await ownerPrompt(pi)).not.toContain('BRANCH A ONLY')
-    expect([...queue.values()]).toEqual([id])
-
-    const resumed = load(root, 200_000, () => [...history, ...original, ...resumed.saved])
-    await resumed.on('session_start')
-    const delivered = await ownerPrompt(resumed)
-    expect(delivered).toContain('BRANCH A ONLY')
-    expect(delivered).toContain(after === 'continue' ? 'Shift done.' : 'You shifted and waited')
-    expect([...queue.values()]).toEqual([id])
-    resumed.saved.push({ type: 'custom_message', customType: 'shift', content: 'Another message' })
-    await resumed.on('agent_settled', { aborted: false })
-    expect([...queue.values()]).toEqual([id])
-    resumed.saved.push({ type: 'custom_message', customType: 'shift', content: delivered })
-    await resumed.on('agent_settled', { aborted: false })
-    expect(queue.size).toBe(0)
-    expect(await ownerPrompt(resumed)).not.toContain('BRANCH A ONLY')
-
-    // Rewinding away the admitted message restores this branch's local note even after its archive receipt was cleared.
-    const rewound = load(root, 200_000, () => [...history, ...beforeAdmission, ...rewound.saved])
-    await rewound.on('session_start')
-    expect(await ownerPrompt(rewound)).toContain('BRANCH A ONLY')
-  } finally {
-    archive.mockRestore()
+  // A process can die between settlement and the branch-local wait entry. The earlier shift anchor survives.
+  const beforeAdmission = [...entries]
+  const original = entries.filter(entry => (entry as { customType?: string }).customType !== 'shift:wait')
+  const ownerPrompt = async (session: typeof pi) => {
+    await session.on('input', { text: 'hello', source: 'interactive' })
+    const result = (await session.on('before_agent_start', {
+      systemPromptOptions: { sections: {}, contextFiles: [] },
+      messageType: 'user',
+    })) as { message: { content: string } } | undefined
+    return result?.message.content ?? ''
   }
+  entries = []
+  await pi.on('session_tree')
+  expect(await ownerPrompt(pi)).not.toContain('BRANCH A ONLY')
+  expect(getWait()).toBe(id)
+
+  const resumed = load(root, 200_000, () => [...history, ...original, ...resumed.saved])
+  await resumed.on('session_start')
+  const delivered = await ownerPrompt(resumed)
+  expect(delivered).toContain('BRANCH A ONLY')
+  expect(delivered).toContain(after === 'continue' ? 'Shift done.' : 'You shifted and waited')
+  expect(getWait()).toBe(id)
+  resumed.saved.push({ type: 'custom_message', customType: 'shift', content: 'Another message' })
+  await resumed.on('agent_settled', { aborted: false })
+  expect(getWait()).toBe(id)
+  resumed.saved.push({ type: 'custom_message', customType: 'shift', content: delivered })
+  await resumed.on('agent_settled', { aborted: false })
+  expect(getWait()).toBe('')
+  expect(await ownerPrompt(resumed)).not.toContain('BRANCH A ONLY')
+
+  // Rewinding away the admitted message restores this branch's local note even after its archive receipt was cleared.
+  const rewound = load(root, 200_000, () => [...history, ...beforeAdmission, ...rewound.saved])
+  await rewound.on('session_start')
+  expect(await ownerPrompt(rewound)).toContain('BRANCH A ONLY')
 })
 
-test('a rejected shift command keeps the waiting letter for the next owner input', async () => {
-  const root = await project({ '.shift/TASKS.md': 'none' })
-  const note = { context: 'KEEP THIS LETTER', dir: 'legacy', files: ['letter.md'] }
-  const pi = load(root, 200_000, () => [{ type: 'custom', customType: 'shift:wait', data: { note } }])
+test('a queued shift command keeps its waiting letter until pi records the matching owner message', async () => {
+  const root = await project({ '.shift/OWNER.md': 'none' })
+  const session = JSON.stringify(['s1', null])
+  const about = '---\ndescription: Command fixture\nafter: wait\n---'
+  const id = native.query<string>(root, {
+    action: 'begin',
+    key: 'command',
+    about,
+    files: { 'letter.md': 'KEEP THIS LETTER', 'board.md': 'Current work.' },
+  })
+  native.query(root, { action: 'finish', id, state: 'complete', about, limit: 30, session, wait: true })
+  const waiting = () => native.query(root, { action: 'waiting', session })
+  const pi = load(root)
   await pi.on('session_start')
   pi.api.sendUserMessage = () => {
     throw new Error('queue unavailable')
   }
   await expect(Promise.resolve(pi.command('shift'))).rejects.toThrow('queue unavailable')
-  await pi.on('input', { text: 'back', source: 'interactive' })
-  const prompt = { systemPromptOptions: { sections: {}, contextFiles: [] }, messageType: 'user' }
-  expect(JSON.stringify(await pi.on('before_agent_start', prompt))).toContain(note.context)
+  expect(waiting()).toBe(id)
+
+  let queued = ''
+  pi.api.sendUserMessage = text => {
+    queued = text
+  }
+  await pi.command('shift', 'Owner words after the letter.')
+  expect(queued.split('KEEP THIS LETTER')).toHaveLength(2)
+  expect(queued.split('Owner words after the letter.')).toHaveLength(2)
+  expect(waiting()).toBe(id)
+  pi.saved.push({ type: 'message', message: { role: 'user', content: 'Unrelated owner message.' } })
+  await pi.on('agent_settled', { aborted: false })
+  expect(waiting()).toBe(id)
+  pi.saved.push({ type: 'message', message: { role: 'user', content: queued } })
+  await pi.on('agent_settled', { aborted: false })
+  expect(waiting()).toBe('')
 })
 
 test('branch checkpoints keep a stable map for two observers, a resumed observer and a fresh stretch', async () => {

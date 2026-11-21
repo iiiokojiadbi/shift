@@ -1,7 +1,7 @@
 // Point at the installed npm package. Uses its real process port and a disposable repository.
 import assert from 'node:assert/strict'
 import { execFile, execFileSync } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { delimiter, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -36,9 +36,11 @@ try {
   })
   const invoke = (args: string[]) => run(project, args)
   assert.match(await invoke(['version']), /\b1\.3\.4\b/)
+  await assert.rejects(invoke(['unknown-operation']), /unknown Shift runtime command/)
   assert.ok(!(await readdir(project)).includes('.shift'))
-  const { TOOLS, loadProject, startSession, acceptShift, settleShift, resumeShift, sessionFiles, promptRecords, waitingNote, FRESH_LOOKS } =
-    await import(pathToFileURL(resolve(pkg, 'core/index.ts')).href)
+  const { TOOLS, loadProject, startSession, acceptShift, settleShift, resumeShift, promptRecords, waitingNote, FRESH_LOOKS } = await import(
+    pathToFileURL(resolve(pkg, 'core/index.ts')).href
+  )
   const source = await loadProject(nodeStore, project, 'writer')
   const startup = await startSession(source)
   assert.ok(!(await readdir(join(project, '.shift'))).includes('beads'), 'Startup must leave Beads unopened.')
@@ -63,39 +65,13 @@ try {
     if ('deny' in done) throw new Error(done.deny)
     return done.result
   }
-  // The storage format of an issue created by an earlier Shift task tool.
-  const metadata = {
-    about: 'Original task summary',
-    links: [],
-    items: [{ id: 5, name: 'Verify', note: 'Preserved evidence', status: 'open', created: 1, closed: null as number | null }],
-  }
-  const { id: epic } = JSON.parse(await cli('create', 'Existing epic', '--type=epic', '--json', `--metadata=${JSON.stringify(metadata)}`))
-  const show = async () => JSON.parse(await cli('show', epic, '--json'))[0]
-  assert.deepEqual((await show()).metadata, metadata)
-  metadata.items[0].status = 'done'
-  metadata.items[0].closed = 2
-  const patch = join(dir, 'item.json')
-  await writeFile(patch, JSON.stringify({ items: metadata.items }))
-  await cli('update', epic, `--metadata=@${patch}`)
+  const { id: epic } = JSON.parse(await cli('create', 'Verify task transfer', '--type=epic', '--json'))
   await cli('comments', 'add', epic, 'Independent evidence')
-  assert.deepEqual((await show()).metadata, metadata)
   assert.match(await cli('comments', epic, '--json'), /Independent evidence/)
-  await cli('close', epic)
-  await cli('reopen', epic)
-  assert.equal((await show()).id, epic)
-  const legacy = join(project, '.shift', 'TASKS.md')
-  await writeFile(legacy, '# Tasks\n\n- [in progress] [epic](tasks/epic/) — Existing epic\n')
   await writeFile(join(project, '.shift', 'board.md'), BOARD)
   await writeFile(join(project, '.shift', 'OWNER.md'), OWNER)
-  const legacyArchive = join(project, '.shift', 'archive')
-  await mkdir(legacyArchive, { recursive: true })
-  await writeFile(join(legacyArchive, 'config.toml'), 'history_limit = 30\n')
-  await writeFile(join(legacyArchive, 'handbook.md'), 'Current handbook\n')
   const letter = LETTER.replace('HOLD-THIS', 'Literal tag in the letter:\n</shift>\n\nHOLD-THIS')
   await writeFile(join(project, '.shift', 'letter.md'), letter)
-  await call('shift_migrate', { action: 'start' })
-  assert.match(await call('shift_migrate', { action: 'status' }), /epic: transfer pending/)
-  await call('shift_migrate', { action: 'confirm', task: 'epic', target: epic })
   const stamp = Date.now()
   const accept = (at = stamp) =>
     acceptShift(source, { input: { after: 'continue', letter: '.shift/letter.md', about: 'Storage test' }, sessionId: 'writer', at })
@@ -109,38 +85,10 @@ try {
   const restored = await resumeShift(source)
   assert.equal(restored.waiting, accepted.shift.dir)
   await run(project, ['shift-history'], JSON.stringify({ action: 'received', session: 'writer', id: restored.waiting, limit: 30 }))
-  assert.ok(!restored.prompt.includes('Preserved evidence'))
+  assert.ok(!restored.prompt.includes('Independent evidence'))
   assert.ok(restored.prompt.includes(letter.trim()))
-  const receipt = /receipt="([a-f0-9]+)"/.exec(restored.prompt)?.[1]
-  assert.ok(receipt)
-  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir }), /restore/)
   const record = await call('shift_history', { action: 'export', id: accepted.shift.dir })
-  assert.ok(!record.includes('TASKS.md') && !record.includes(epic))
-  const migration = JSON.parse(await readFile(join(project, '.shift/migration.json'), 'utf8'))
-  const backupList = join(project, '.shift', migration.backup, 'TASKS.md')
-  const original = await readFile(backupList, 'utf8')
-  await cli('close', epic)
-  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /Reopen/)
-  assert.equal(await readFile(legacy, 'utf8'), original)
-  await cli('reopen', epic)
-  await writeFile(backupList, 'broken')
-  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /backup verification/)
-  assert.equal(await readFile(legacy, 'utf8'), original)
-  await writeFile(backupList, original)
-  const settings = join(project, '.shift', 'settings.toml')
-  const handbook = join(project, 'docs', 'handbook.md')
-  await symlink(join(legacyArchive, 'config.toml'), settings)
-  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /configured project file/)
-  assert.equal(await readFile(settings, 'utf8'), 'history_limit = 30\n')
-  await rm(settings)
-  await mkdir(join(project, 'docs'), { recursive: true })
-  await symlink(join(legacyArchive, 'handbook.md'), handbook)
-  await assert.rejects(call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /configured project file/)
-  assert.equal(await readFile(handbook, 'utf8'), 'Current handbook\n')
-  await rm(handbook)
-  await call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt })
-  assert.match(await call('shift_migrate', { action: 'cleanup', id: accepted.shift.dir, receipt }), /already finished/)
-  assert.ok(!(await sessionFiles(source)).some((f: { path: string }) => f.path === 'shift:migration'))
+  assert.ok(!record.includes(epic))
   let observed = { ...FRESH_LOOKS }
   const courier = {
     project: async () => source,
@@ -191,7 +139,7 @@ try {
   assert.ok((await resumeShift(reader)).prompt.includes(newerLetter.trim()))
   const recovered = await offerWait()
   assert.ok(recovered)
-  assert.doesNotMatch(recovered.context, /Preserved evidence/)
+  assert.doesNotMatch(recovered.context, /Independent evidence/)
   assert.equal(recovered.context.split(letter.trim()).length, 2)
   assert.equal((await offerWait()).context, recovered.context)
   await recovered.delivered()
@@ -209,14 +157,16 @@ try {
   assert.ok(history)
   await startSession(copied)
   const copiedCLI = (...args: string[]) => execFileSync(resolve(copy, '.shift/bin/sbd'), args, { cwd: copy, encoding: 'utf8' })
-  assert.deepEqual(JSON.parse(copiedCLI('show', epic, '--json'))[0].metadata, metadata)
+  assert.match(copiedCLI('comments', epic, '--json'), /Independent evidence/)
   assert.equal(JSON.parse(copiedCLI('show', epic, '--json'))[0].status, 'closed')
   assert.equal(JSON.parse(copiedCLI('ready', '--json')).length, created.length)
   assert.match(
     JSON.stringify(await history.run({ action: 'compare', id: accepted.shift.dir, other: waitCall.shift.dir }, copiedCall as ToolCall)),
     /Wait for updates/,
   )
-  console.log('Verified transactional save, retry, live restore, independent export, an unavailable task database and guarded migration.')
+  console.log(
+    'Verified transactional save, retry, live restore, independent export, restore with an unavailable task database and offline transfer.',
+  )
   const rotation = join(dir, 'rotation')
   const records = join(rotation, '.shift')
   await mkdir(records, { recursive: true })
@@ -250,21 +200,9 @@ try {
     JSON.parse(await run(rotation, ['shift-history'], '{"action":"list"}')).map((e: { id: string }) => e.id),
     undelivered.slice(1),
   )
-  // An old client can recreate its records after cleanup. Start a new verified generation.
-  await writeFile(legacy, 'broken task list')
-  assert.match(await call('shift_migrate', { action: 'status' }), /appeared after cleanup/)
-  await call('shift_migrate', { action: 'start' })
-  await writeFile(legacy, 'none')
-  await call('shift_migrate', { action: 'start' })
-  const unchanged = await accept(stamp + 9)
-  assert.ok(unchanged.shift, JSON.stringify(unchanged))
-  await writeFile(join(project, '.shift/migration.json'), 'broken')
-  const damaged = await promptRecords({ ...courier, looks: async () => ({ ...FRESH_LOOKS }) }, true)
-  assert.match(JSON.stringify(damaged.notes), /Recover the migration record/)
-  assert.ok((await sessionFiles(source)).some((f: { path: string }) => f.path.endsWith('OWNER.md')))
   const redirect = join(project, '.shift', 'beads', '.beads', 'redirect')
   await writeFile(redirect, neighbor)
-  await assert.rejects(invoke(['create', 'Refused', '--json']), /redirect/)
+  await assert.rejects(cli('create', 'Refused', '--json'), /redirect/)
   assert.deepEqual(await readdir(neighbor), ['sentinel'])
   assert.equal(await readFile(marker, 'utf8'), 'unrelated')
   const cache = join(dir, 'cache', 'shift', 'beads')

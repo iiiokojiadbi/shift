@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { AFTER } from './layout'
-import { bullets, formatK, frontmatter, isOneOf, sections } from './markdown'
+import { formatK, frontmatter, isOneOf } from './markdown'
 import type { AboutMeta, ShiftAfter } from './types'
 
 // about.md, a shift in brief with a strict structure: written once when the shift is accepted and again with its
@@ -25,14 +25,9 @@ export type About = {
   shifted: boolean
   // The fill right after the let-go; null when unknown.
   tokensAfter: number | null
-  done: string[]
-  dropped: string[]
-  archived: string[]
-  open: string[]
 }
 
 export function renderAbout(meta: AboutMeta): string {
-  const list = (items: string[]) => (items.length === 0 ? ['none'] : items.map(item => `- ${item}`))
   const fill = (tokens: number | undefined) => (tokens === undefined ? '?' : formatK(tokens))
   const tokens =
     meta.tokensBefore === undefined && meta.tokensAfter === undefined ? 'unknown' : `${fill(meta.tokensBefore)} → ${fill(meta.tokensAfter)}`
@@ -49,28 +44,11 @@ export function renderAbout(meta: AboutMeta): string {
     `session: ${meta.sessionId}`,
     '---',
     '',
-    '## Done',
-    '',
-    ...list(meta.segment.done),
-    '',
-    '## Dropped',
-    '',
-    ...list(meta.segment.dropped),
-    '',
-    '## Archived',
-    '',
-    ...list(meta.segment.archived),
-    '',
-    '## Open',
-    '',
-    ...list(meta.segment.open),
-    '',
   ].join('\n')
 }
 
 export function readAbout(text: string): About {
   const meta = frontmatter(text)
-  const found = sections(text)
   const after = meta.get('after') ?? meta.get('then') ?? null
   const result = meta.get('result') ?? null
   // `tokens: 300K → 20K`, a fill under 1000 printed as it is.
@@ -83,10 +61,6 @@ export function readAbout(text: string): About {
     session: meta.get('session') ?? null,
     shifted: result?.startsWith('shifted') ?? false,
     tokensAfter: fill === null ? null : Number(fill[1]) * (fill[2] === 'K' ? 1000 : 1),
-    done: bullets(found.get('Done')),
-    dropped: bullets(found.get('Dropped')),
-    archived: bullets(found.get('Archived')),
-    open: bullets(found.get('Open')),
   }
 }
 

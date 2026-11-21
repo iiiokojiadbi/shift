@@ -1,12 +1,19 @@
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { BOARD, LETTER } from '../../../core/test/data'
+import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
 import { deferred, fields, type Packet, Requests, textInput } from '../protocol'
 
+let launcher: string
+let archive: Awaited<ReturnType<typeof historyRuntime>>
+beforeAll(async () => {
+  archive = await historyRuntime()
+  launcher = await archive.sourceLauncher()
+}, 60000)
 afterAll(cleanup)
 
 // An isolated real app server with deterministic model responses. Inspect the actual model inputs.
@@ -24,7 +31,6 @@ for (const scenario of ['continue', 'continue with steering', 'wait', 'wait with
         writeFile(join(records, 'letter.md'), LETTER),
         writeFile(join(records, 'OWNER.md'), 'none'),
         writeFile(join(records, 'board.md'), BOARD),
-        writeFile(join(records, 'TASKS.md'), '# Tasks\n'),
         writeFile(join(records, 'SHIFT.md'), '# Shift\n\nKeep lessons here.\n'),
         writeFile(join(records, 'settings.toml'), '[docs]\ndirs = ["docs"]\n'),
         writeFile(join(project, 'docs', 'guide.md'), '---\ndescription: Fixture document.\n---\n# Guide\n\n## First section\n'),
@@ -86,10 +92,10 @@ trust_level = "trusted"
       const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
       if (scenario === 'continue') {
         const options = { cwd: project, env, stdio: 'pipe' as const }
-        execFileSync('codex', ['plugin', 'marketplace', 'add', join(import.meta.dir, '../../..')], options)
+        execFileSync('codex', ['plugin', 'marketplace', 'add', archive.marketplace], options)
         execFileSync('codex', ['plugin', 'add', 'shift@shift'], options)
       }
-      const child = spawn(process.execPath, [join(import.meta.dir, '../index.ts'), '--stdio'], {
+      const child = spawn(process.execPath, [launcher, '--stdio'], {
         cwd: project,
         env,
         stdio: 'pipe',
@@ -152,9 +158,9 @@ trust_level = "trusted"
           expect(inputs[3]).toContain('Owner follow-up.')
           expect(inputs[3]?.indexOf('fixing tests')).toBeLessThan(inputs[3]?.indexOf('Owner follow-up.') ?? -1)
         }
-        const [snapshot] = await readdir(join(records, 'shifts'))
-        expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')
-        expect(await readFile(join(records, 'shifts', snapshot ?? '', 'summary.md'), 'utf8')).toContain('Fixture digest.')
+        const snapshot = archive.latest(project)
+        expect(snapshot?.state).toBe('complete')
+        expect(snapshot?.files['summary.md']).toContain('Fixture digest.')
       } finally {
         release.resolve()
         child.stdin.end()

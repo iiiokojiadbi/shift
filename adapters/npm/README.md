@@ -13,7 +13,7 @@ pi install npm:@iiiokojiadbi/shift
 opencode plugin add @iiiokojiadbi/shift
 ```
 
-It adds a "Shift" section to the system prompt, the `shift` tool with its companions (`shift_guide`, `shift_status`, `shift_history`, `shift_setup`, `shift_sizes`, `shift_migrate`, `doc_outline`, `docs_mentioning`), and three commands: `/shift` asks the agent to shift now, `/shift-tasks` shows the project task command or lists legacy tasks, `/unshift` picks up the last shift in a fresh session. It hints a shift as the history grows.
+It adds a "Shift" section to the system prompt, the `shift` tool with its companions (`shift_guide`, `shift_status`, `shift_history`, `shift_setup`, `shift_sizes`, `doc_outline`, `docs_mentioning`), and three commands: `/shift` asks the agent to shift now, `/shift-tasks` shows the project task command, `/unshift` picks up the last shift in a fresh session. It hints a shift as the history grows.
 
 The platform package supplies the private task runtime. Tasks and comments live in `.shift/beads/`; letters and snapshots live in `.shift/history.db`.
 

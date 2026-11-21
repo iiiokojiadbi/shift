@@ -1,18 +1,17 @@
 import { docsReport } from './docs'
 import { sessionFiles, staleLayout } from './flows'
-import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS, TASK_LIST } from './layout'
+import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS } from './layout'
 import { formatK } from './markdown'
 import type { Project } from './project'
 import { checkWork } from './records'
-import { usesNewStorage } from './saved'
 import { DEFAULT_SETTINGS, SETTING_KEYS, settingValue } from './settings'
 import { readRecords } from './store'
-import { doctrine, GRAPH_LAYOUT, SETUP_LAYOUT, SETUP_MIGRATION } from './texts/doctrine'
+import { doctrine, GRAPH_LAYOUT } from './texts/doctrine'
 import { fileBlock } from './texts/prompts'
 import { shownTools } from './tools'
 
 // How the mod is set up in this project: every setting with its value here and the version it came in, the files of
-// the session's block and whether the block the session holds is older than them, the layout and the migrations.
+// the session's block and whether the block the session holds is older than them, the record layout.
 // `loaded` is the block as this session read it; null when the harness does not keep one.
 export async function setupReport(project: Project, loaded: string | null): Promise<string> {
   const { settings } = project
@@ -43,8 +42,8 @@ export async function setupReport(project: Project, loaded: string | null): Prom
   const none = !settings.enabled
     ? 'None: the mod is off here, `enabled = false`.'
     : (await staleLayout(project)) !== null
-      ? 'None: the records are in an older layout; the Records section says what to move.'
-      : `None yet: none of ${[settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST].map(path => `\`${path}\``).join(', ')} is here.`
+      ? 'None: the records are in an older layout; see the Records section.'
+      : `None yet: none of ${[settings.files.shift, settings.files.owner, settings.files.glossary].map(path => `\`${path}\``).join(', ')} is here.`
   const shown = settings.enabled ? doctrineChars : 0
   const block = [
     ...(files.length === 0 ? [none] : files.map(file => `- \`${file.path}\` — ${weight(fileBlock(file.path, file.text).length)}`)),
@@ -87,10 +86,8 @@ export async function setupReport(project: Project, loaded: string | null): Prom
     '',
     `## Files`,
     '',
-    (await usesNewStorage(project)) ? GRAPH_LAYOUT : SETUP_LAYOUT,
+    GRAPH_LAYOUT,
     ...(moved.length === 0 ? [] : ['', `Moved by the settings: ${moved.join('; ')}.`]),
-    '',
-    atPlaces(SETUP_MIGRATION, settings.files),
   ].join('\n')
 }
 
@@ -102,7 +99,7 @@ async function recordsState(project: Project): Promise<string> {
   if (stale !== null) return stale
   const work = await readRecords(project)
   if (work === null) return `No board yet: create ${BOARD} by the sections in ${GUIDE_TOOL} before the first shift.`
-  const problem = checkWork(work, null, project)
+  const problem = checkWork(work, project)
 
   return problem === null
     ? 'They pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself.'

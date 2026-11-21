@@ -3,15 +3,12 @@ import { afterWrite, atPrompt, type Courier, FRESH_LOOKS, type Looks } from '../
 import { brokenLinks, docOutline, docStamps, docsReport, MAP_END, MAP_START, refreshDocs, settleDocs, withMap, withToc } from '../src/docs'
 import { checkGlossary } from '../src/glossary'
 import { FRESH_GAUGE, type GaugeKeeper, letGoGauge, offerHint } from '../src/hint'
-import { segment } from '../src/history'
 import { FRESH_LOOP, type LoopState } from '../src/loop'
 import { findDate } from '../src/markdown'
 import { parseSettings } from '../src/settings'
 import { setupReport } from '../src/setup'
-import { shiftNames } from '../src/store'
-import { archiveInList, checkTaskList } from '../src/tasks'
 import type { Gauge } from '../src/types'
-import { R, ROOT, taskMd, WORK } from './fixtures'
+import { R, ROOT } from './fixtures'
 import { memoryProject, memoryStore } from './memory'
 
 // Cases the review of the documents found: owner text lost to a marker, links checked wrongly, a write left unchecked.
@@ -142,13 +139,8 @@ test('dates in names and ranges are found; versions and impossible days are not'
   expect(findDate('on 29.02.2028')).not.toBeNull()
 })
 
-test('two articles of one title clash; a needs joined by "and" keeps the task still open', () => {
+test('two glossary articles of one title clash', () => {
   expect(checkGlossary('# Glossary\n\n## OAuth\nMeans: a.\n\n## OAuth\nMeans: b.\n', 'GLOSSARY.md')).toContain('in both')
-  const row = (name: string) => `- [in progress] [${name}](tasks/${name}/) — ${name}`
-  const list = `# Tasks\n\n${row('a')}\n  - needs: [b](tasks/b/) and [c](tasks/c/)\n${row('b')}\n${row('c')}\n`
-  const left = archiveInList(list, 'b')
-  expect(left).toContain('  - needs: [c](tasks/c/)\n  - after: [b](archive/b/)')
-  expect(checkTaskList(left, ['a', 'c'], ['b'])).toBeNull()
 })
 
 test("the map's opener is the mod's whole comment; a link decodes every escape and may sit in angle brackets", async () => {
@@ -190,15 +182,6 @@ test('settings: a key set twice, an unknown table, an empty item are refused; qu
   expect(parseSettings('[docs]\ndirs = ["."]')).toContain('inside the project')
 })
 
-test("shift folders are the mod's names only; a closed item is known by its id when both have one", async () => {
-  const project = await memoryProject({ [`${R}/shifts/20260102-030405/about.md`]: 'x', [`${R}/shifts/backup/letter.md`]: 'old' }, ROOT)
-  expect(await shiftNames(project)).toEqual(['20260102-030405'])
-  const work = (track: string) => ({ ...WORK, tasks: [{ name: 't', task: taskMd('T'), track, notes: [] }] })
-  expect(segment({ work: work('- [done] #3 deploy'), index: null }, { work: work('- [done] #1 deploy'), index: null }).done).toEqual([
-    't: #3 deploy',
-  ])
-})
-
 test("the map's opener is one comment; a reference may sit in angle brackets; an outline reads an absolute path", async () => {
   const shift = `# Shift\n${MAP_START} explained <!-- note -->\n\nOWNER RULE\n\n${MAP_START}\nold\n${MAP_END}\n`
   expect(withMap(shift, `${MAP_START}\nnew\n${MAP_END}`)).toContain('OWNER RULE')
@@ -217,16 +200,16 @@ test('shift_setup writes nothing, names what is missing, and moves its paths whe
   const report = await setupReport(project, null)
   expect(await project.store.read(`${ROOT}/docs/d.md`)).toBe(doc)
   expect(report).toContain('None yet: none of')
-  expect(report).toContain('→ `OWNER.md`, renamed as it is')
+  expect(report).toContain('Moved by the settings: `.shift/OWNER.md` is at `OWNER.md` here.')
 })
 
 test('shift_setup: a file tag inside a record is no file; a moved record is named under the tree', async () => {
   const owner = '# Owner decisions\n\n```\n<file path="example.md">\n```\n'
   const project = await memoryProject(
-    { [`${R}/settings.toml`]: '[files]\nowner = "rules/OWNER.md"', [`${ROOT}/rules/OWNER.md`]: owner, [`${R}/TASKS.md`]: 'none' },
+    { [`${R}/settings.toml`]: '[files]\nowner = "rules/OWNER.md"', [`${ROOT}/rules/OWNER.md`]: owner },
     ROOT,
   )
-  const loaded = `<file path="rules/OWNER.md">\n${owner.trim()}\n</file>\n\n<file path=".shift/TASKS.md">\nnone\n</file>`
+  const loaded = `<file path="rules/OWNER.md">\n${owner.trim()}\n</file>`
   const report = await setupReport(project, loaded)
   expect(report).toContain("This session's block matches them.")
   expect(report).toContain('Moved by the settings: `.shift/OWNER.md` is at `rules/OWNER.md` here.')
@@ -272,11 +255,10 @@ test('a document a script changed gets its toc with the next prompt, once', asyn
 
 test('shift_setup names a file the block held that the settings no longer load, and no example inside a record', async () => {
   const owner = '# Owner decisions\n\n```\n<file path=".shift/GLOSSARY.md">\n```\n'
-  const project = await memoryProject({ [`${R}/OWNER.md`]: owner, [`${R}/TASKS.md`]: 'none', [`${ROOT}/extra.md`]: 'x' }, ROOT)
+  const project = await memoryProject({ [`${R}/OWNER.md`]: owner, [`${ROOT}/extra.md`]: 'x' }, ROOT)
   const loaded = [
     '<shift note="loaded">',
     `<file path=".shift/OWNER.md">\n${owner.trim()}\n</file>`,
-    '<file path=".shift/TASKS.md">\nnone\n</file>',
     '<file path="extra.md">\nx\n</file>',
     '</shift>',
   ].join('\n\n')

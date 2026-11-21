@@ -7,7 +7,6 @@ import {
   HISTORY_TOOL,
   LETTER,
   MENTIONS_TOOL,
-  MIGRATE_TOOL,
   OUTLINE_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
@@ -20,9 +19,9 @@ export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, 
 export const GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`
 
 export const SETUP_DESCRIPTION =
-  "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
+  "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
 
-export const TASKS_DESCRIPTION = 'Show how to read project tasks; existing task files are listed before migration'
+export const TASKS_DESCRIPTION = 'Show the project-local Beads command for listing tasks'
 
 export const SHIFT_NOW_DESCRIPTION = 'Ask the agent to shift now; words typed after it go to the agent with the ask'
 
@@ -111,23 +110,6 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
     schema: GUIDE_SCHEMA,
   },
   [TOOL]: { label: 'Shift', description: TOOL_DESCRIPTION, brief: 'make a shift.', schema: TOOL_SCHEMA },
-  [MIGRATE_TOOL]: {
-    label: 'Migrate local records',
-    description:
-      'Manually transfer current tasks. Start verifies a backup, confirm acknowledges one transferred task, cleanup takes the ID and receipt delivered with the restored letter. Status is read-only.',
-    brief: 'transfer current work and verify the legacy backup.',
-    schema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['status', 'start', 'confirm', 'cleanup'] },
-        task: { type: 'string' },
-        target: { type: 'string' },
-        receipt: { type: 'string' },
-        id: { type: 'string' },
-      },
-      required: ['action'],
-    },
-  },
   [HISTORY_TOOL]: {
     label: 'Shift history',
     description: HISTORY_DESCRIPTION,

@@ -37,22 +37,22 @@ Keep it yourself, as part of the work, not on request: a change to how the mod w
 ```
 core/                      shared logic, pure TypeScript, no harness imports — docs/architecture.md
   src/project.ts           loadProject: the store, the root and the parsed settings, once per hook or tool call
-  src/store.ts             the storage port (files, their stamps, a move, git); reading the records and writing a snapshot
-  src/layout.ts            names and paths (NAMES once), sections, statuses, limits, atPlaces
+  src/store.ts             the storage port, current records and retained shifts
+  src/layout.ts            record names and paths, sections, limits and atPlaces
   src/tools.ts             the tool table and what a session starts with
   src/loop.ts              the shift loop over a port: hold, let go, continue or wait, the owner's message
   src/hint.ts              when to hint, the gauge over a port, shift_status
   src/delivery.ts          every note to the agent: the two slots, a tool's result and the next prompt, and the owner's rows
   src/flows.ts             accepting a shift, archiving, history, resume, settling, the session's files, the records changed around a tool
-  src/saved.ts migration.ts    history operations and legacy transfer over the bundled runtime
+  src/saved.ts             history operations over the bundled runtime
   src/about.ts             about.md: written and read back by one module
   src/markdown.ts          the one markdown reader: headings outside fences, sections, items, checks
   src/paths.ts             paths: dirname, basename, join, normalize, from and to the root, inside the project
-  src/records.ts tasks.ts glossary.ts archive.ts   the checks of the records
+  src/records.ts glossary.ts  checks of current project records
   src/settings.ts          settings.toml: a row per key
   src/docs.ts              the project's documents: the map, tocs, remarks, outline, mentions
   src/input.ts             tool arguments
-  src/history.ts           shift folders, the stretch's segment, shift_history
+  src/history.ts           shift_history entries and the saved digest
   src/types.ts             data shapes
   src/texts/               every word the model or the owner reads: doctrine and guide, tools, prompts, rows
   src/index.ts             re-exports everything

@@ -75,16 +75,6 @@ export const nodeStore: Store = {
       () => true,
       () => false,
     ),
-  move: async (from, to) => {
-    try {
-      await mkdir(dirname(to), { recursive: true })
-      await rename(from, to)
-
-      return null
-    } catch (error) {
-      return String(error)
-    }
-  },
   git: (root, args) =>
     new Promise(done => {
       execFile('git', ['-C', root, ...args], (error, stdout) => {

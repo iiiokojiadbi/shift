@@ -1,6 +1,4 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import type { Item } from './types'
-
 // Every record and document is read by these: a heading is a `#` line outside code fences, so a `## ` inside a
 // fenced command or example — in the letter's Hold, a runbook entry, a document — never cuts what it is in.
 
@@ -214,42 +212,6 @@ function isDay(found: RegExpMatchArray, at: { year: number; month: number; day: 
 
 // Every `- ` line of a text as an item; a line without a `[status]` has an empty one, a track item without `#<id>`
 // a null id.
-export function itemsOf(text: string): Item[] {
-  return text.split('\n').flatMap((raw, index) => {
-    if (!raw.startsWith('- ')) return []
-    const stamp = / <!-- shift-times (\d+|-) (\d+|-) -->$/.exec(raw.trim())
-    const line = stamp ? raw.trim().slice(0, stamp.index) : raw.trim()
-    const match = /^- \[([^\]]+)\] *(.*)$/.exec(line)
-    const rest = match?.[2] ?? line.slice(2).trim()
-    const id = /^#(\d+) +/.exec(rest)
-    const named = id === null ? rest : rest.slice(id[0].length)
-    const cut = named.indexOf(' — ')
-
-    return [
-      {
-        created: stamp && stamp[1] !== '-' ? Number(stamp[1]) : null,
-        closed: stamp && stamp[2] !== '-' ? Number(stamp[2]) : null,
-        status: match?.[1] ?? '',
-        // An id past the safe integers cannot be counted on: the item is numbered anew.
-        id: id === null || !Number.isSafeInteger(Number(id[1])) ? null : Number(id[1]),
-        name: cut === -1 ? named : named.slice(0, cut),
-        note: cut === -1 ? null : named.slice(cut + 3),
-        rest,
-        line,
-        index,
-      },
-    ]
-  })
-}
-
-export function trackTimes(created: number | null, closed: number | null): string {
-  return created === null && closed === null ? '' : ` <!-- shift-times ${created ?? '-'} ${closed ?? '-'} -->`
-}
-
-export function formatItem(status: string, id: number, name: string, note: string | null): string {
-  return `- [${status}] #${id} ${name}${note === null ? '' : ` — ${note}`}`
-}
-
 export function formatK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n)
 }

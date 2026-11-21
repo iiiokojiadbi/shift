@@ -1,27 +1,14 @@
 import { expect, test } from 'bun:test'
-import {
-  acceptShift,
-  archiveTask,
-  changedRecords,
-  resumeShift,
-  settleShift,
-  shiftBase,
-  shiftHistory,
-  shiftNotMade,
-  stuckTasks,
-} from '../src/flows'
+import { acceptShift, changedRecords, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
-import { renderStuck } from '../src/texts/prompts'
+import { readSaved } from '../src/saved'
 import type { PendingShift, ShiftInput } from '../src/types'
-import { BOARD, LETTER, R, ROOT, taskMd } from './fixtures'
+import { BOARD, LETTER, R, ROOT } from './fixtures'
 import { memoryProject } from './memory'
 
 const AT = Date.UTC(2026, 0, 2, 3, 4, 5)
-const DIR = `${R}/shifts/20260102-030405`
+const DIR = 's-0000000000000001'
 
-const TASK_LIST = '# Tasks\n\n- [in progress] [tests](tasks/tests/) — red'
-const TASK = taskMd('Green tests')
-const TRACK = '- [done] fix the parser\n- [open] cover the archive'
 const TRAPS = [
   '---',
   'kind: traps',
@@ -44,9 +31,6 @@ function project(extra: Record<string, string> = {}, ignored = true) {
       [`${R}/letter.md`]: LETTER,
       [`${R}/board.md`]: BOARD,
       [`${R}/OWNER.md`]: '# Owner decisions\n\n## Work\n\n- «green first»',
-      [`${R}/TASKS.md`]: TASK_LIST,
-      [`${R}/tasks/tests/task.md`]: TASK,
-      [`${R}/tasks/tests/track.md`]: TRACK,
       ...extra,
     },
     ROOT,
@@ -54,8 +38,8 @@ function project(extra: Record<string, string> = {}, ignored = true) {
   )
 }
 
-async function accepted(store: Awaited<ReturnType<typeof project>>): Promise<PendingShift> {
-  const result = await acceptShift(store, { input: INPUT, at: AT, sessionId: 's1' })
+async function accepted(store: Awaited<ReturnType<typeof project>>, at = AT): Promise<PendingShift> {
+  const result = await acceptShift(store, { input: INPUT, at, sessionId: 's1' })
   if ('deny' in result) throw new Error(result.deny)
 
   return result.shift
@@ -123,68 +107,44 @@ test('the history description comes from the opening paragraph while the letter 
 })
 
 test('an accepted shift snapshots the records and leaves a pending about.md', async () => {
-  const store = await project({ [`${R}/knowledge/traps.md`]: TRAPS, [`${R}/archive/index.md`]: '- [done] [Old](old/) — gone' })
+  const store = await project({ [`${R}/knowledge/traps.md`]: TRAPS })
   const shift = await accepted(store)
 
   expect(shift.dir).toBe(DIR)
   expect(shift.hold).toBe('HOLD-THIS')
-  // The shift numbered the track written without ids.
-  expect(shift.segment.done).toEqual(['tests: #1 fix the parser'])
-  expect(shift.focus).toEqual(['tests'])
-  for (const name of [
-    'letter.md',
-    'board.md',
-    'OWNER.md',
-    'TASKS.md',
-    'index.md',
-    'tasks/tests/task.md',
-    'tasks/tests/track.md',
-    'knowledge/traps.md',
-  ]) {
-    expect(store.files.has(`${DIR}/${name}`)).toBe(true)
-  }
-  const about = frontmatter(store.files.get(`${DIR}/about.md`) ?? '')
+  const saved = await readSaved(store, DIR)
+  expect(saved.files['letter.md']).toBe(LETTER)
+  expect(saved.files['board.md']).toBe(BOARD)
+  expect(saved.files['OWNER.md']).toBe(store.files.get(`${R}/OWNER.md`))
+  expect(saved.files['knowledge/traps.md']).toBe(TRAPS)
+  const about = frontmatter(saved.about)
   expect(about.get('result')).toBe('pending')
   expect(about.get('description')).toBe('the parser fixed')
 })
 
-test('archiving moves the folder and adds the index line; a second time is refused', async () => {
-  const store = await project({ [`${R}/tasks/tests/track.md`]: '- [done] fix the parser' })
-  const input = { name: 'tests', outcome: 'done' as const, about: 'green' }
-  const result = await archiveTask(store, input)
-
-  expect(result).toEqual({ result: expect.stringContaining('Archived to .shift/archive/tests/') })
-  expect(store.files.has(`${R}/archive/tests/task.md`)).toBe(true)
-  expect(store.files.has(`${R}/tasks/tests/task.md`)).toBe(false)
-  expect(store.files.get(`${R}/archive/index.md`)).toContain('[Green tests](tests/) — green')
-  store.files.set(`${R}/tasks/tests/task.md`, TASK)
-  store.files.set(`${R}/tasks/tests/track.md`, '- [done] again')
-  expect(await archiveTask(store, input)).toHaveProperty('deny')
-})
-
 test('the history reads the last shifts, oldest first', async () => {
   const store = await project()
-  for (const name of ['20260101-000000', '20260101-000001', '20260101-000002']) {
-    store.files.set(`${R}/shifts/${name}/about.md`, `---\ndescription: did ${name}\nafter: wait\nresult: shifted\n---\n`)
+  for (const [index, name] of ['one', 'two', 'three'].entries()) {
+    store.files.set(`${R}/board.md`, BOARD.replace('the mod', name))
+    const result = await acceptShift(store, { input: { ...INPUT, about: name }, sessionId: 's1', at: AT + index })
+    if ('deny' in result) throw Error(result.deny)
+    await settleShift(store, { shift: result.shift, before: 100, after: 10, messages: [] })
   }
   const text = await shiftHistory(store, 2)
-
   expect(text).toContain('2 of 3')
-  expect(text).not.toContain('did 20260101-000000')
-  expect(text.indexOf('did 20260101-000001')).toBeLessThan(text.indexOf('did 20260101-000002'))
+  expect(text).not.toContain('s-0000000000000001')
+  expect(text.indexOf('two')).toBeLessThan(text.indexOf('three'))
 })
 
-test('resume says why there is nothing, else hands the letter last', async () => {
-  expect((await resumeShift(await project())).text).toContain('No shifts in this project')
-  const store = await project({ [`${R}/shifts/20260101-000000/about.md`]: 'x' })
-  expect((await resumeShift(store)).text).toContain('No letter.md')
-
-  store.files.set(`${R}/shifts/20260101-000000/letter.md`, LETTER)
+test('resume restores the saved letter last', async () => {
+  const store = await project()
+  expect((await resumeShift(store)).text).toContain('No shifts')
+  const shift = await accepted(store)
+  await settleShift(store, { shift, before: 100, after: 10, messages: [] })
   const resumed = await resumeShift(store)
-  expect(resumed.text).toBe('Picking up shift 20260101-000000.')
-  expect(resumed.prompt).toContain('</file>\n\n---\n\n**Task · tests**\n\n<file path=".shift/tasks/tests/task.md">')
-  expect(resumed.prompt).toContain('</file>\n\n---\n\n**Tracker · tests**\n\n<file path=".shift/tasks/tests/track.md">')
-  expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter path=') ?? 0)
+  expect(resumed.text).toContain(shift.dir)
+  expect(resumed.prompt).toContain(LETTER)
+  expect(resumed.prompt?.indexOf('<file path=".shift/board.md">')).toBeLessThan(resumed.prompt?.indexOf('<letter shift=') ?? 0)
 })
 
 test('after the let-go: continue goes on from the letter, however many came before; a wait leaves the note', async () => {
@@ -195,15 +155,16 @@ test('after the let-go: continue goes on from the letter, however many came befo
   const going = await settleShift(store, letGo)
   expect(going).toMatchObject({
     after: 'continue',
-    row: `shift 20260102-030405 done (300K → 20K), continuing from the letter — ${DIR}/letter.md`,
+    row: `shift s-0000000000000001 done (300K → 20K), continuing from the letter — shift_history ${DIR}`,
   })
-  expect(store.files.get(`${DIR}/summary.md`)).toContain('DIGEST')
-  expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('shifted (300K → 20K), continuing')
+  expect((await readSaved(store, DIR)).files['summary.md']).toContain('DIGEST')
+  expect(frontmatter((await readSaved(store, DIR)).about).get('result')).toBe('shifted (300K → 20K), continuing')
 
   // No count of shifts without the owner: the agent works on through as many as the work takes.
   for (let n = 0; n < 5; n++) expect((await settleShift(store, letGo)).after).toBe('continue')
 
-  const waiting = await settleShift(store, { ...letGo, shift: { ...shift, after: 'wait' } })
+  const other = await project()
+  const waiting = await settleShift(other, { ...letGo, shift: { ...(await accepted(other)), after: 'wait' } })
   if (waiting.after !== 'wait') throw new Error('expected a wait')
   expect(waiting.note.dir).toBe(DIR)
   expect(waiting.note.files).toContain('board.md')
@@ -213,41 +174,19 @@ test('after the let-go: continue goes on from the letter, however many came befo
 test('a let-go that failed is written down; the base comes back only from this session', async () => {
   const store = await project()
   const shift = await accepted(store)
-  expect(await shiftNotMade(store, shift, 'busy', 100_000)).toBe('shift 20260102-030405 not made — busy')
-  expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
+  expect(await shiftNotMade(store, shift, 'busy', 100_000)).toBe('shift s-0000000000000001 not made — busy')
+  expect(frontmatter((await readSaved(store, DIR)).about).get('result')).toBe('not shifted: busy')
   expect(await shiftBase(store, 's1')).toBeNull()
-  // Not shifted, so the same records may shift again, the same second, in a folder of their own.
-  const retry = await accepted(store)
-  expect(retry.dir).toBe(`${DIR}-2`)
-  expect(frontmatter(store.files.get(`${DIR}/about.md`) ?? '').get('result')).toBe('not shifted: busy')
+  // Not shifted, so the same records may shift again, with a new request key.
+  const retried = await acceptShift(store, { input: INPUT, at: AT + 1, sessionId: 's1' })
+  if ('deny' in retried) throw new Error(retried.deny)
+  const retry = retried.shift
+  expect(retry.dir).toBe('s-0000000000000002')
+  expect(frontmatter((await readSaved(store, DIR)).about).get('result')).toBe('not shifted: busy')
 
   await settleShift(store, { shift: retry, messages: [], before: 300_000, after: 20_000 })
   expect(await shiftBase(store, 's1')).toBe(20_000)
   expect(await shiftBase(store, 's2')).toBeNull()
-})
-
-test('a note beside a task: checked, snapshotted, listed after a shift with its description', async () => {
-  const NOTE = '---\ndescription: what the parser does with fences\n---\n\nfree text, any shape'
-  const linked = `${TRACK}\n- [open] fences — see [fences](notes/fences.md)`
-  const deny = async (extra: Record<string, string>) => {
-    const result = await acceptShift(await project(extra), { input: INPUT, at: AT, sessionId: 's1' })
-    return 'deny' in result ? result.deny : null
-  }
-  expect(await deny({ [`${R}/tasks/tests/notes/fences.md`]: 'no frontmatter', [`${R}/tasks/tests/track.md`]: linked })).toContain(
-    'needs a frontmatter "description"',
-  )
-  expect(await deny({ [`${R}/tasks/tests/notes/fences.md`]: NOTE })).toContain('is linked from nowhere')
-  expect(await deny({ [`${R}/tasks/tests/track.md`]: linked })).toContain('links to notes that are not there: "notes/fences.md"')
-
-  const store = await project({ [`${R}/tasks/tests/notes/fences.md`]: NOTE, [`${R}/tasks/tests/track.md`]: linked })
-  const shift = await accepted(store)
-  expect(store.files.get(`${DIR}/tasks/tests/notes/fences.md`)).toBe(NOTE)
-  const settled = await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
-  const prompt = settled.after === 'continue' ? settled.prompt : ''
-  expect(prompt).toContain(
-    '<notes path=".shift/tasks/tests/notes/" note="read a note when its item comes up">\n- .shift/tasks/tests/notes/fences.md — what the parser does with fences\n</notes>',
-  )
-  expect(prompt).not.toContain('free text, any shape')
 })
 
 test("records changed by the agent's tools are told only when broken, by someone else always", async () => {
@@ -255,19 +194,17 @@ test("records changed by the agent's tools are told only when broken, by someone
   const put = (path: string, text: string) => p.store.write(`${R}/${path}`, text)
   const first = await changedRecords(p, null, 'agent')
   expect(first.body).toBeNull()
-  expect(Object.keys(first.seen)).toContain('.shift/tasks/tests/track.md')
+  expect(Object.keys(first.seen)).toContain('.shift/board.md')
   expect((await changedRecords(p, first.seen, 'agent')).body).toBeNull()
 
-  await put('tasks/tests/track.md', '- [done] fix the parser\n- [done] cover the archive')
+  await put('board.md', BOARD.replace('the mod', 'Green tests'))
   const whole = await changedRecords(p, first.seen, 'agent')
   expect(whole.body).toBeNull()
 
   await put('board.md', '## Goal\nthe mod')
-  await put('tasks/tests/track.md', '- [half] fix the parser')
   await put('letter.md', '## Where I am\nhere')
   const broken = await changedRecords(p, whole.seen, 'agent')
   expect(broken.body).toContain('`.shift/board.md`: The board lacks sections: "## Decisions"')
-  expect(broken.body).toContain('`.shift/tasks/tests/track.md`: Track items without a status')
   expect(broken.body).toContain('`.shift/letter.md`: The letter')
   expect(broken.body).toContain('if you are still writing them, go on')
   // Told once: unchanged since, the same broken board says nothing more; another record is not this look's.
@@ -291,45 +228,48 @@ test('an OWNER.md the settings put in the root is looked at as one in .shift/', 
   expect((await changedRecords(p, first.seen, 'other')).body).toContain('`OWNER.md` changed outside your tools')
 })
 
-test('a task unchanged through many shifts is named after a shift, with its status and how many', async () => {
-  const p = await project({ [`${R}/tasks/tests/track.md`]: TRACK })
-  const snap = (name: string, track: string) => {
-    p.files.set(`${R}/shifts/${name}/tasks/tests/task.md`, TASK)
-    p.files.set(`${R}/shifts/${name}/tasks/tests/track.md`, track)
-  }
-  snap('20260101-000000', '- [open] earlier')
-  for (const n of [1, 2, 3, 4]) snap(`2026010${n}-000000`, TRACK)
-  expect(await stuckTasks(p)).toEqual([])
-  snap('20260105-000000', TRACK)
-  expect(await stuckTasks(p)).toEqual([{ name: 'tests', status: 'in progress', shifts: 5 }])
-  expect(renderStuck(await stuckTasks(p))).toContain('- tests (in progress) — 5 shifts')
-})
-
-test('a stretch that wrote no knowledge is asked once, at the accepted shift, while its history is whole', async () => {
-  const p = await project({ [`${R}/knowledge/traps.md`]: TRAPS })
-  const result = async (at: number) => {
-    const done = await acceptShift(p, { input: INPUT, at, sessionId: 's1' })
-    if ('deny' in done) throw new Error(done.deny)
-    return done.result
-  }
-  expect(await result(AT)).not.toContain('Nothing went into')
-  p.files.set(`${R}/tasks/tests/track.md`, '- [done] fix the parser\n- [in progress] cover the archive')
-  expect(await result(AT + 1000)).toContain('Nothing went into .shift/knowledge/ this stretch')
-  p.files.set(`${R}/knowledge/traps.md`, `${TRAPS}\n\n### Another\n\n**Cause.** c.\n\n**Do.** d.`)
-  expect(await result(AT + 2000)).toContain('Shift accepted, the letter and the snapshots: /p/.shift/shifts/20260102-030407/. End the turn')
-})
-
-test('the base passes over a shift not made after one that let go; resume passes over a folder with no letter', async () => {
+test('a later failure preserves the base of the completed shift', async () => {
   const store = await project()
   const shift = await accepted(store)
-  await settleShift(store, { shift, messages: [], before: 300_000, after: 20_000 })
-  store.files.set(`${R}/tasks/tests/track.md`, '- [done] #1 fix the parser\n- [done] #2 cover the archive')
-  const retry = await accepted(store)
-  await shiftNotMade(store, retry, 'busy', 100_000)
-  expect(await shiftBase(store, 's1')).toBe(20_000)
+  await settleShift(store, { shift, before: 300000, after: 20000, messages: [] })
+  store.files.set(`${R}/board.md`, BOARD.replace('the mod', 'a new goal'))
+  await shiftNotMade(store, await accepted(store, AT + 1), 'busy', 100000)
+  expect(await shiftBase(store, 's1')).toBe(20000)
+})
 
-  store.files.set(`${R}/shifts/20260102-030406/about.md`, 'x')
-  const resumed = await resumeShift(store)
-  expect(resumed.text).toBe('Picking up shift 20260102-030405-2 (not shifted: busy).')
-  expect(resumed.prompt).toContain('That shift did not finish — "not shifted: busy"')
+test('an unchanged shift is refused against the last complete archive entry of this session', async () => {
+  const store = await project()
+  const shift = await accepted(store)
+  await settleShift(store, { shift, before: 100, after: 10, messages: [] })
+  const input = { input: INPUT, sessionId: 's1', at: AT + 1 }
+  expect(await acceptShift(store, input)).toMatchObject({ deny: expect.stringContaining('Nothing changed') })
+  store.files.set(`${R}/OWNER.md`, 'none')
+  expect(await acceptShift(store, input)).toHaveProperty('shift')
+})
+
+test('a folder with a letter cannot restore or appear in history without a native archive', async () => {
+  const path = `${R}/shifts/20250101-000000/letter.md`
+  const store = await project({ [path]: 'foreign letter' })
+  expect(await resumeShift(store)).not.toHaveProperty('prompt')
+  expect(await shiftHistory(store, 10)).toContain('No shifts')
+  expect(() => readSaved(store, path)).toThrow('saved shift ID')
+  const shift = await accepted(store)
+  expect(shift.dir).toBe(DIR)
+  expect(store.files.get(path)).toBe('foreign letter')
+})
+
+test('a retained record checkpoint reports only deleted files still watched by this version', async () => {
+  const knowledge = '.shift/knowledge/traps.md'
+  const store = await project({ [`${ROOT}/${knowledge}`]: TRAPS })
+  const first = await changedRecords(store, null, 'other')
+  const seen = { ...first.seen, '.shift/TASKS.md': '1#1' }
+  store.files.delete(`${ROOT}/${knowledge}`)
+  store.files.delete(`${R}/letter.md`)
+  const changed = await changedRecords(store, seen, 'other')
+  expect(changed.body?.split('\n').sort()).toEqual([
+    '`.shift/knowledge/traps.md` was removed outside your tools.',
+    '`.shift/letter.md` was removed outside your tools.',
+  ])
+  expect(changed.seen).not.toHaveProperty('.shift/TASKS.md')
+  expect((await changedRecords(store, changed.seen, 'other')).body).toBeNull()
 })

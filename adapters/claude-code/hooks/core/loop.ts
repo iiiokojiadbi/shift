@@ -75,6 +75,26 @@ export type LetGoHarness = {
 
 export const FRESH_LOOP: LoopState = { pending: null, note: null }
 
+// A host may reopen with an unusable pending receipt. Release the owner's
+// already held input to the next prompt without starting a let-go.
+export function restoredLoop(state: LoopState): LoopState {
+  if (!state.pending || isSaved(state.pending.dir)) return state
+  const held = state.letting?.held ?? []
+  const note = state.note
+  return {
+    pending: null,
+    letting: null,
+    note: held.length
+      ? {
+          dir: note?.dir ?? '',
+          files: note?.files ?? [],
+          context: withHeld(note?.context ?? '', held),
+          held: [...(note?.held ?? []), ...held],
+        }
+      : note,
+  }
+}
+
 // An accepted shift waits for its turn to end.
 export async function holdShift(loop: Loop, shift: PendingShift): Promise<void> {
   await loop.update(state => ({ ...state, pending: shift }))
@@ -99,7 +119,10 @@ export async function loopOffer(loop: Loop, gauge: GaugeKeeper): Promise<{ text:
 export async function afterTurn(project: Project, loop: Loop, harness: LetGoHarness, aborted: boolean): Promise<void> {
   // The let-go is marked before the shift is claimed, so an owner's message never falls between the two: a harness may
   // keep them apart. Claimed in the change that clears it: two ends of a turn never let go twice.
-  await loop.update(current => (current.pending === null ? current : { ...current, letting: lettingOf(current) }))
+  await loop.update(state => {
+    const current = restoredLoop(state)
+    return current.pending === null ? current : { ...current, letting: lettingOf(current) }
+  })
   const claim: { shift?: PendingShift | null } = {}
   await loop.update(current => {
     claim.shift = current.pending
@@ -199,7 +222,7 @@ async function leave(loop: Loop, harness: LetGoHarness, note: WaitNote, project?
   })
   if (heard.now) {
     const id = project && isSaved(note.dir) ? note.dir : undefined
-    // The settled note already contains the letter. A transient task read must preserve it and the held input.
+    // The settled note already contains the letter. A transient archive read must preserve it and the held input.
     const fresh = project && id ? { ...note, context: await archivedWait(project, id).catch(() => note.context) } : note
     await finish(loop, harness, fresh.context, fresh, project && id ? () => acknowledgeWait(project, id) : undefined)
   }
@@ -251,7 +274,8 @@ function attachmentsOf(held: readonly HeldMessage[]): readonly unknown[] | undef
 // back: held, to go after the letter, and true; false when no shift is under way and the message goes as it is.
 export async function holdOwner(loop: Loop, message: HeldMessage): Promise<boolean> {
   const held = { now: false }
-  await loop.update(current => {
+  await loop.update(state => {
+    const current = restoredLoop(state)
     held.now = current.pending !== null || current.letting != null
     return held.now
       ? { ...current, letting: { ...lettingOf(current), heard: true, held: [...(current.letting?.held ?? []), message] } }
@@ -290,12 +314,7 @@ const WAIT_STEP = 250
 // The note waiting for the owner's message, if any, and what clears it once it went with that message: a failed
 // delivery keeps it for the next one.
 export async function archivedWait(project: Project, id: string) {
-  const entry = isSaved(id)
-    ? await readSaved(project, id, NAMES.letter)
-    : {
-        about: (await project.store.read(`${id}/${NAMES.about}`)) ?? '',
-        files: { [NAMES.letter]: await project.store.read(`${id}/${NAMES.letter}`) },
-      }
+  const entry = await readSaved(project, id, NAMES.letter)
   const letter = entry.files[NAMES.letter]
   if (!letter) throw new Error(`Missing letter in saved shift ${id}.`)
   const render = readAbout(entry.about).after === 'continue' ? continuePrompt : waitContext
@@ -318,7 +337,12 @@ export async function waitingNote(
   loop: Loop,
   project?: Project,
 ): Promise<{ dir: string; context: string; attachments?: readonly unknown[] | undefined; delivered: () => Promise<void> } | null> {
-  const { note, pending, letting } = await loop.read()
+  let state = await loop.read()
+  if (state.pending && !isSaved(state.pending.dir)) {
+    await loop.update(restoredLoop)
+    state = await loop.read()
+  }
+  const { note: stored, pending, letting } = state
   // The owner spoke while a shift waits to let the history go or lets it go: what it leaves for them follows their
   // message, whether an older letter goes with this one or not.
   if (pending !== null || letting != null)
@@ -326,11 +350,10 @@ export async function waitingNote(
       current.pending === null && current.letting == null ? current : { ...current, letting: { ...current.letting, heard: true } },
     )
   const id = await waitingId(project)
+  const archived = project && id && (!stored || stored.dir === id || !isSaved(stored.dir)) ? await archivedWait(project, id) : undefined
+  const note = stored && !isSaved(stored.dir) ? await recoverOwnerInput(loop, id, archived) : stored
   if (note === null && !id) return null
-  let context = note?.context ?? ''
-  if (project && id && (!note || note.dir === id)) {
-    context = withHeld(await archivedWait(project, id), note?.held ?? [])
-  }
+  const context = archived !== undefined && (!note || note.dir === id) ? withHeld(archived, note?.held ?? []) : (note?.context ?? '')
   return {
     dir: note?.dir ?? id,
     context,
@@ -339,9 +362,26 @@ export async function waitingNote(
       // Only this note: one parked since is newer, and waits for the next message.
       if (project && id && (!note || note.dir === id)) await acknowledgeWait(project, id)
       if (note) await loop.update(state => (sameNote(state.note, note) ? { ...state, note: null } : state))
-      loop.tell(DELIVERED(note?.files ?? [NAMES.letter], note?.dir ?? id), 'info')
+      if (note?.dir || id) loop.tell(DELIVERED(note?.files.length ? note.files : [NAMES.letter], note?.dir ?? id), 'info')
     },
   }
+}
+
+// Only held owner input can outlive an invalid host receipt. Bind it to the
+// current archive wait so a host that confirms message admission clears both.
+async function recoverOwnerInput(loop: Loop, id: string, archived = ''): Promise<WaitNote | null> {
+  let recovered: WaitNote | null = null
+  await loop.update(state => {
+    const current = state.note
+    if (!current || isSaved(current.dir)) {
+      recovered = current
+      return state
+    }
+    const held = current.held ?? []
+    recovered = held.length ? { dir: id, context: withHeld(archived, held), held, files: [] } : null
+    return { ...state, note: recovered }
+  })
+  return recovered
 }
 
 // A waiting letter delivered another way — by /unshift, or by a newer shift's — is not delivered again.

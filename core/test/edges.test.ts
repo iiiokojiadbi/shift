@@ -1,15 +1,9 @@
 import { expect, test } from 'bun:test'
 import { readAbout, renderAbout } from '../src/about'
 import { checkGlossary } from '../src/glossary'
-import { segment } from '../src/history'
-import { findDate, frontmatter, itemsOf } from '../src/markdown'
-import { checkKnowledge, checkTask } from '../src/records'
+import { findDate, frontmatter } from '../src/markdown'
+import { checkKnowledge } from '../src/records'
 import { parseSettings } from '../src/settings'
-import { recentShifts, shiftNames } from '../src/store'
-import { archiveInList, checkTaskList } from '../src/tasks'
-import { numberItems } from '../src/track'
-import { R, ROOT, taskMd, WORK } from './fixtures'
-import { memoryProject } from './memory'
 
 // Cases the review of the records' checks found: each was a false refusal or a check that let a broken record pass.
 
@@ -25,17 +19,7 @@ test('a frontmatter with CRLF line ends is read', () => {
   expect(frontmatter('---\r\nkind: traps\r\nabout: x\r\n---\r\n').get('kind')).toBe('traps')
 })
 
-test('an id past the safe integers is numbered anew, never shared', () => {
-  expect(itemsOf('- [open] #9007199254740993 big')[0]?.id).toBeNull()
-  expect(numberItems('- [open] #9007199254740993 big\n- [open] #2 small')).toBe('- [open] #3 big\n- [open] #2 small')
-})
-
-test('a fenced example in a task, a fragment link to a note, a tilde-fenced runbook command', () => {
-  const task = taskMd('T', ['', '```yaml', 'continues: no', '```'])
-  expect(checkTask({ name: 't', task, track: '- [open] #1 x', notes: [] })).toBeNull()
-  expect(checkTask({ name: 't', task: taskMd('T'), track: '- [open] #1 x — [proof](notes/missing.md#evidence)', notes: [] })).toContain(
-    'notes/missing.md',
-  )
+test('a tilde-fenced runbook command', () => {
   const runbook = [
     '---',
     'kind: runbook',
@@ -60,79 +44,18 @@ test('a glossary article may spell its own term in another case', () => {
   expect(checkGlossary('# Glossary\n\n## OAuth\nMeans: a.\n\n## Login\nVariants: oauth\nMeans: b.\n', 'GLOSSARY.md')).toContain('in both')
 })
 
-test('TASKS.md: a task listed twice is refused; archiving keeps blank-separated links out and splits a shared needs', () => {
-  const twice =
-    '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n  - needs: [b](tasks/b/)\n- [in progress] [b](tasks/b/) — b\n  - needs: [a](tasks/a/)\n- [in progress] [a](tasks/a/) — again\n'
-  expect(checkTaskList(twice, ['a', 'b'], [])).toContain('lists a task twice')
-
-  const blank = '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n\n  - needs: [b](tasks/b/)\n- [in progress] [b](tasks/b/) — b\n'
-  expect(archiveInList(blank, 'a')).not.toContain('needs: [b]')
-
-  const shared =
-    '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n  - needs: [b](tasks/b/), [c](tasks/c/) — both feed it\n- [in progress] [b](tasks/b/) — b\n- [in progress] [c](tasks/c/) — c\n'
-  const left = archiveInList(shared, 'b')
-  expect(left).toContain('  - needs: [c](tasks/c/) — both feed it\n  - after: [b](archive/b/)')
-  expect(checkTaskList(left, ['a', 'c'], ['b'])).toBeNull()
-})
-
-test('shift folders sort by time, a second taken twice by its number', async () => {
-  const project = await memoryProject(
-    Object.fromEntries(
-      ['20260102-030405', '20260102-030405-10', '20260102-030405-9', '20260102-030406'].map(name => [`${R}/shifts/${name}/about.md`, 'x']),
-    ),
-    ROOT,
-  )
-  expect(await shiftNames(project)).toEqual(['20260102-030405', '20260102-030405-9', '20260102-030405-10', '20260102-030406'])
-  const prior = await recentShifts(project, '20260102-030405-10')
-  expect(prior.entries.map(entry => entry.name)).toEqual(['20260102-030405', '20260102-030405-9'])
-})
-
 test('about.md keeps a known fill without the one before, and a reason over lines', () => {
-  const seg = { done: [], dropped: [], archived: [], open: [] }
   const about = renderAbout({
     about: 'x',
     sessionId: 's',
     at: 0,
     after: 'wait',
-    segment: seg,
     result: 'not shifted: failed\n  denied',
     tokensAfter: 20_000,
   })
   expect(readAbout(about)).toMatchObject({ tokensAfter: 20_000, result: 'not shifted: failed denied' })
 })
 
-test('the history knows an item by its id and an archived task by its folder', () => {
-  const work = (track: string) => ({ ...WORK, tasks: [{ name: 't', task: taskMd('T'), track, notes: [] }] })
-  const before = { work: work('- [done] #1 first name'), index: '# Archive\n\n- [done] [Old](old/) — said badly\n' }
-  const now = { work: work('- [done] #1 better name'), index: '# Archive\n\n- [done] [Old](old/) — said well\n' }
-  expect(segment(now, before)).toMatchObject({ done: [], archived: [] })
-})
-
-test("a continues: in a task's frontmatter is still to move", () => {
-  const task = `---\ncontinues: old\n---\n${taskMd('T')}`
-  expect(checkTask({ name: 't', task, track: '- [open] #1 x', notes: [] })).toContain('continues:')
-})
-
-test('after names an archived task only; a note may have # in its name; a table is opened once', () => {
-  const list = '# Tasks\n\n- [in progress] [a](tasks/a/) — a\n  - after: [b](tasks/b/)\n- [in progress] [b](tasks/b/) — b\n'
-  expect(checkTaskList(list, ['a', 'b'], [])).toContain('write "needs:"')
-  const note = { name: 'proof#1.md', text: '---\ndescription: proof\n---\nx' }
-  expect(checkTask({ name: 't', task: taskMd('T'), track: '- [open] #1 x — [it](notes/proof%231.md)', notes: [note] })).toBeNull()
+test('a settings table is opened once', () => {
   expect(parseSettings('[docs]\ntoc = true\n[docs]\nmax_lines = 9')).toContain('opened twice')
-})
-
-test('a note is linked only by a link to it, not by a longer name that starts with it', () => {
-  const note = (name: string) => ({ name, text: '---\ndescription: d\n---\nx' })
-  const track = '- [open] #1 x — [more](notes/a.md.more.md)'
-  expect(checkTask({ name: 't', task: taskMd('T'), track, notes: [note('a.md'), note('a.md.more.md')] })).toContain(
-    'notes/a.md is linked from nowhere',
-  )
-})
-
-test('a note is linked by any Markdown link outside code fences', () => {
-  const note = { name: 'a.md', text: '---\ndescription: d\n---\nx' }
-  const check = (task: string) => checkTask({ name: 't', task: `${taskMd('T')}\n${task}`, track: '- [open] #1 x', notes: [note] })
-  expect(check('See [it][n].\n\n[n]: notes/a.md')).toBeNull()
-  expect(check('See [it](notes/a.md "the proof").')).toBeNull()
-  expect(check('```\n[it](notes/a.md)\n```')).toContain('notes/a.md is linked from nowhere')
 })

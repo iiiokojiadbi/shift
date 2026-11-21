@@ -8,7 +8,7 @@ test('a path with no folder is in `.`, and `.` joins to the name alone', () => {
   expect(join(dirname('OWNER.md'), 'OWNER.md')).toBe('OWNER.md')
   expect(join('/p', '.')).toBe('/p')
   expect(join('.shift', 'board.md')).toBe('.shift/board.md')
-  expect(basename('.shift/shifts/20260102-030405')).toBe('20260102-030405')
+  expect(basename('.shift/knowledge/traps.md')).toBe('traps.md')
   expect(basename('docs/')).toBe('docs')
   expect(basename('')).toBe('')
 })

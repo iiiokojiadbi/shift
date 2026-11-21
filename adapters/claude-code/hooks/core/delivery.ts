@@ -3,15 +3,12 @@ import { readAbout } from './about'
 import { docStamps, followWrite, refreshDocs, settleDocs } from './docs'
 import { type ChangedBy, type ConfirmedEdit, changedRecords, handBack, type Seen } from './flows'
 import type { GaugeKeeper } from './hint'
-import { DIR, MOD, NAMES } from './layout'
+import { MOD, NAMES } from './layout'
 import { type Loop, loopHint, loopOffer, waitingNote } from './loop'
 import { currentMap, type MapPrints } from './map'
-import { migrationNote } from './migration'
 import { fromRoot } from './paths'
 import type { Project } from './project'
-import { noteLinks } from './records'
 import { archiveCall, hasArchive, readSaved } from './saved'
-import { readTask } from './store'
 import { continuePrompt, NOTE_KINDS, type NoteKind } from './texts/prompts'
 import { TOLD } from './texts/rows'
 
@@ -25,11 +22,9 @@ import { TOLD } from './texts/rows'
 // `docs`: the documents' stamps as the last prompt saw them, so one a script changed is settled like one written.
 export type Looks = {
   seen: Seen | null
-  migrationChecked?: boolean
   running: number
   map?: MapPrints
   mapNotes?: string[]
-  pendingLinks?: readonly string[]
   written?: readonly string[]
   docs?: Record<string, string>
 }
@@ -174,12 +169,8 @@ export async function promptRecords(
 ) {
   if (runStarts) await courier.updateLooks(current => ({ ...current, running: 0 }))
   const notes: Note[] = []
-  const { seen, running, migrationChecked } = await courier.looks()
+  const { seen, running } = await courier.looks()
   const project = await courier.project()
-  const needsCheck = !migrationChecked
-  const migration = needsCheck ? await migrationNote(project) : null
-  if (migration) notes.push({ kind: 'records', body: migration })
-  else if (needsCheck) await courier.updateLooks(current => ({ ...current, migrationChecked: true }))
   const session = project.actor
   const durableWait =
     running === 0 && parkedWait && session && project.store.beads && (await hasArchive(project))
@@ -199,14 +190,6 @@ export async function promptRecords(
   const outside = running === 0 ? await look(courier, 'other') : null
   if (outside?.body === null) await remember(courier, outside.seen)
   if (outside?.body != null) notes.push({ kind: 'records', body: outside.body })
-  const pending = running === 0 ? ((await courier.looks()).pendingLinks ?? []) : []
-  if (pending.length) {
-    const project = await courier.project()
-    const problems = await Promise.all(pending.map(async name => noteLinks(await readTask(project.store, `${project.root}/${DIR}`, name))))
-    const body = problems.filter(Boolean).join('\n')
-    if (body) notes.push({ kind: 'records', body })
-    else await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
-  }
   if (running === 0) await checkMap(courier)
   const mapNotes = running === 0 ? ((await courier.looks()).mapNotes ?? []) : []
   notes.push(...mapNotes.map(body => ({ kind: 'map' as const, body })))
@@ -218,10 +201,7 @@ export async function promptRecords(
     waiting,
     recovery,
     delivered: async () => {
-      if (migration) await courier.updateLooks(current => ({ ...current, migrationChecked: true }))
       if (mapNotes.length) await takeMapNotes(courier, mapNotes)
-      if (pending.length)
-        await courier.updateLooks(now => ({ ...now, pendingLinks: now.pendingLinks?.filter(name => !pending.includes(name)) }))
       // Kept unless a look since has kept newer records: putting back the older ones would tell their change again.
       if (outside?.body != null)
         await courier.updateLooks(current => (same(current.seen, seen) ? { ...current, seen: outside.seen } : current))
@@ -281,12 +261,7 @@ async function takeMapNotes(courier: RecordCourier, delivered: readonly string[]
 // tell. A look that fails says nothing: it must never stand between the agent and its tool.
 async function look(courier: RecordCourier, by: ChangedBy): Promise<{ body: string | null; seen: Seen } | null> {
   try {
-    const tasks = new Set<string>()
-    const result = await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit, name =>
-      tasks.add(name),
-    )
-    if (tasks.size) await courier.updateLooks(now => ({ ...now, pendingLinks: [...new Set([...(now.pendingLinks ?? []), ...tasks])] }))
-    return result
+    return await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit)
   } catch {
     return null
   }

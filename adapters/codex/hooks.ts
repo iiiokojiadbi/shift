@@ -189,9 +189,6 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     if (!(await staleLayout(project))) await refreshDocs(project, { tocs: false })
   }
   state.docsSettings = docsSettings
-  if (event === 'SessionStart') {
-    state.looks.migrationChecked = false
-  }
   const legacyStamps = state.looks.docs
   const records = await promptRecords(
     courier,

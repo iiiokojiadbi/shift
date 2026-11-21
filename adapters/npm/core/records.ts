@@ -13,21 +13,14 @@ import {
   KNOWLEDGE_MAX_LINES,
   LETTER_SECTIONS,
   NAMES,
-  OLD_OWNER,
-  OLD_TASKS_SECTION,
   OWNER,
   OWNER_MAX_LINES,
   OWNER_SECTION,
   SETTINGS,
-  STATUSES,
-  TASK_LIST,
-  TASK_SECTIONS,
-  TASKS,
 } from './layout'
-import { blocks, dated, frontmatter, itemsOf, linkTargets, missingSections, overLimit, quote, sections, title, unfenced } from './markdown'
+import { blocks, dated, frontmatter, missingSections, overLimit, quote, sections } from './markdown'
 import type { Project } from './project'
-import { checkTaskList, type ListedTask, parseTaskList } from './tasks'
-import type { Kind, KnowledgeFile, TaskFiles, Work } from './types'
+import type { Kind, KnowledgeFile, Work } from './types'
 
 export function checkLetter(text: string): string | null {
   const missing = missingSections(text, LETTER_SECTIONS, 'The letter')
@@ -39,58 +32,21 @@ export function checkLetter(text: string): string | null {
   return null
 }
 
-// The open tasks as TASKS.md lists them; none when it is missing or does not parse.
-export function listedTasks(work: Work): ListedTask[] {
-  const listed = work.taskList === null ? [] : parseTaskList(work.taskList)
-
-  return typeof listed === 'string' ? [] : listed
-}
-
-// The whole state of the work as one text, to tell whether anything moved since the last shift.
-export function workText(work: Work): string {
-  const tasks = [...work.tasks].sort((a, b) => a.name.localeCompare(b.name))
-
-  return [
-    work.board.trim(),
-    (work.owner ?? '').trim(),
-    (work.taskList ?? '').trim(),
-    (work.glossary ?? '').trim(),
-    (work.shift ?? '').trim(),
-    ...tasks.map(
-      t => `${t.name}\n${(t.task ?? '').trim()}\n${(t.track ?? '').trim()}\n${t.notes.map(n => `${n.name}\n${n.text.trim()}`).join('\n')}`,
-    ),
-    ...work.knowledge.map(k => `${k.name}\n${k.text.trim()}`),
-  ].join('\n\n')
-}
-
 // The records against the previous shift's snapshot; a refusal names the files at the places the settings give.
-export function checkWork(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
-  const problem = checkRecords(work, previous, project)
+export function checkWork(work: Work, project: Pick<Project, 'settings' | 'problem'>): string | null {
+  const problem = checkRecords(work, project)
 
   return problem === null ? null : atPlaces(problem, project.settings.files)
 }
 
-function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 'settings' | 'problem'>): string | null {
+function checkRecords(work: Work, project: Pick<Project, 'settings' | 'problem'>): string | null {
   const settingsProblem = checkSettings(project)
   if (settingsProblem !== null) return settingsProblem
-  if (work.oldOwner) return `${OLD_OWNER} is the old name: owner decisions live in ${OWNER} now. Rename it and call again.`
   const boardProblem = checkBoard(work.board)
   if (boardProblem !== null) return boardProblem
 
-  const listProblem = checkTaskList(
-    work.taskList,
-    work.tasks.map(t => t.name),
-    work.archived,
-  )
-  if (listProblem !== null) return listProblem
-
   const ownerProblem = checkOwner(work.owner)
   if (ownerProblem !== null) return ownerProblem
-
-  for (const task of work.tasks) {
-    const problem = checkTask(task)
-    if (problem !== null) return problem
-  }
 
   for (const file of work.knowledge) {
     const problem = checkKnowledge(file)
@@ -100,39 +56,21 @@ function checkRecords(work: Work, previous: Work | null, project: Pick<Project, 
   const glossaryProblem = checkGlossary(work.glossary, GLOSSARY)
   if (glossaryProblem !== null) return glossaryProblem
 
-  if (previous !== null && workText(previous) === workText(work)) {
-    return 'Nothing changed in the records since the last shift. Update the tracks, statuses and decisions, then shift.'
-  }
-
   return null
 }
 
 // After the agent wrote one record: only the checks of that file, so a broken record is seen as it is written, not
 // hundreds of K later at the shift. `path` is from the project's root; null for a file that is not a record.
-export function checkWritten(
-  path: string,
-  work: Work,
-  project: Pick<Project, 'settings' | 'problem'>,
-  deferLinks?: (name: string) => void,
-): string | null {
+export function checkWritten(path: string, work: Work, project: Pick<Project, 'settings' | 'problem'>): string | null {
   const { files } = project.settings
   const [dir, name = '', rest] = path.split('/').slice(1)
   const inShift = path.startsWith(`${DIR}/`)
   let problem: string | null = null
   if (path === SETTINGS) problem = checkSettings(project)
   else if (path === BOARD) problem = checkBoard(work.board)
-  else if (path === TASK_LIST)
-    problem = checkTaskList(
-      work.taskList,
-      work.tasks.map(t => t.name),
-      work.archived,
-    )
   else if (path === files.owner) problem = checkOwner(work.owner)
   else if (path === files.glossary) problem = checkGlossary(work.glossary, GLOSSARY)
-  else if (inShift && dir === NAMES.tasks && rest !== undefined) {
-    const task = work.tasks.find(each => each.name === name)
-    problem = task === undefined ? null : checkTask(task, deferLinks)
-  } else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith('.md')) {
+  else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith('.md')) {
     const file = work.knowledge.find(each => each.name === name)
     problem = file === undefined ? null : checkKnowledge(file)
   }
@@ -148,9 +86,6 @@ function checkBoard(board: string): string | null {
   if (sections(board).has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }
-  if (sections(board).has(OLD_TASKS_SECTION)) {
-    return `The board has a "## ${OLD_TASKS_SECTION}" section: keep the project focus in Goal. Preserve any task details in the project tracker before removing this section. See ${GUIDE_TOOL}.`
-  }
   const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing
 
@@ -164,38 +99,6 @@ function checkBoard(board: string): string | null {
     dated('the board', board, "The board has no dates — each shift's time is recorded by itself.") ??
     badRejected(board, 'The board')
   )
-}
-
-export function checkTask({ name, task, track, notes: notes_ }: TaskFiles, deferLinks?: (name: string) => void): string | null {
-  const where = `${TASKS}/${name}/`
-  if (task === null) return `${where} has no task.md.`
-  if (track === null) return `${where} has no track.md.`
-  if (title(task) === null) return `${where}task.md has no "# <title>" line.`
-  const missing = missingSections(task, TASK_SECTIONS, `${where}task.md`)
-  if (missing !== null) return missing
-  const date = dated(where, task, 'Tasks have no dates.') ?? dated(where, track, 'Tasks have no dates.')
-  if (date !== null) return date
-  if (/^continues:/m.test(unfenced(task)) || frontmatter(task).has('continues'))
-    return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now. Remove it, and under the task's line there write it as "  - continues: [<name>](archive/<name>/)".`
-  const rejected = badRejected(task, `${where}task.md`)
-  if (rejected !== null) return rejected
-  for (const note of notes_)
-    if ((frontmatter(note.text).get('description') ?? '') === '') {
-      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`
-    }
-  const notes = noteLinks({ name, task, track, notes: notes_ })
-  if (notes !== null) {
-    if (!deferLinks) return notes
-    deferLinks(name)
-  }
-  const bad = itemsOf(track).filter(item => !(STATUSES as readonly string[]).includes(item.status))
-  if (bad.length > 0)
-    return `Track items without a status (${STATUSES.join(', ')}) in ${where}track.md: ${quote(
-      bad.map(i => i.line),
-      '; ',
-    )}.`
-
-  return null
 }
 
 // A decision may name what it turned down: "rejected: <option> — <why>".
@@ -216,29 +119,6 @@ function checkOwner(owner: string | null): string | null {
       'it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.',
     ) ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.")
   )
-}
-
-// A task's notes: each with its description, each linked from track.md or task.md, every link reaching a note. Beside
-// the description a note is free: research, a decision worked out, evidence.
-export function noteLinks({ name, task, track, notes }: TaskFiles): string | null {
-  const where = `${TASKS}/${name}/`
-  // The notes the links reach, as Markdown reads a link outside code fences: its `#fragment` and `?query` are not the
-  // file's, and `%23` is a `#` in its name.
-  const linked = linkTargets(`${task}\n${track}`).flatMap(({ file }) => {
-    const path = file?.replace(/^\.\//, '') ?? ''
-    return path.startsWith(`${NAMES.notes}/`) ? [path.slice(NAMES.notes.length + 1)] : []
-  })
-  for (const note of notes) {
-    if (!linked.includes(note.name)) {
-      return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in ${NAMES.track}, or from ${NAMES.task}, as [what it holds](${NAMES.notes}/${encodeURIComponent(note.name)}).`
-    }
-  }
-  const names = new Set(notes.map(note => note.name))
-  const missing = linked.filter(name => !names.has(name))
-
-  return missing.length === 0
-    ? null
-    : `${where} links to notes that are not there: ${quote(missing.map(name => `${NAMES.notes}/${name}`))}.`
 }
 
 export const isKind = (kind: string): kind is Kind => Object.hasOwn(KINDS, kind)

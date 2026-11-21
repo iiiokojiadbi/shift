@@ -7,7 +7,7 @@ import { initialMap } from '../src/map'
 import { historyAction } from '../src/saved'
 import { sizeReport } from '../src/sizes'
 import type { Gauge, Reading } from '../src/types'
-import { BOARD, LETTER, LIST, OWNER, R, ROOT, TRACK, taskMd } from './fixtures'
+import { BOARD, LETTER, OWNER, R, ROOT } from './fixtures'
 import { memoryProject } from './memory'
 
 const TOOL = { own: false, readOnly: false }
@@ -17,9 +17,6 @@ async function setUp(reading: Reading = { tokens: 20_000, window: 1_000_000, thr
     {
       [`${R}/board.md`]: BOARD,
       [`${R}/OWNER.md`]: OWNER,
-      [`${R}/TASKS.md`]: LIST,
-      [`${R}/tasks/tests/task.md`]: taskMd('Green tests'),
-      [`${R}/tasks/tests/track.md`]: TRACK,
       [`${R}/settings.toml`]: '[docs]\ntoc = true',
       [`${ROOT}/docs/a.md`]: '---\ndescription: what A holds\n---\n\n# A\n\n## One\n',
     },
@@ -87,7 +84,7 @@ test("a change between tools is someone else's, one while a tool runs is the too
   expect(rows[0]).not.toContain('\n')
 
   await put('board.md', `${BOARD}\n`)
-  await put('tasks/tests/track.md', '- [half] broken by the mod?')
+  await put('OWNER.md', ' ')
   await beforeTool(courier)
   expect(await afterTool(courier, [], { ...TOOL, own: true })).toEqual([])
   // Remembered: the next look does not tell it again.
@@ -170,7 +167,7 @@ test('a hint goes last in a tool result, in its own tag, and is told to the owne
 test("with the prompt: someone else's change and a hint, the waiting letter last for the owner, told once it went", async () => {
   const { courier, kept, rows, put } = await setUp()
   await atPrompt(courier, { runStarts: true, owner: false })
-  kept.loop = { ...kept.loop, note: { context: '<letter/>', dir: `${R}/shifts/x`, files: ['board.md'] } }
+  kept.loop = { ...kept.loop, note: { context: '<letter/>', dir: 's-0000000000000001', files: ['board.md'] } }
   await put('OWNER.md', `${OWNER}\n- «a new rule»`)
   kept.looks = { ...kept.looks, running: 2 }
 

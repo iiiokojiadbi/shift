@@ -1,17 +1,16 @@
 ---
-description: The records the agent keeps in .shift/ and why each is shaped so: the board, tasks and the archive, OWNER.md, GLOSSARY.md, SHIFT.md, knowledge, settings, shift history and migration, and what the mod refuses. The rules as the model reads them are in shift_guide.
+description: The records the agent keeps in .shift/ and why each is shaped so: editable project records, saved letters, the separate Beads workspace, and what Shift checks. The rules as the model reads them are in shift_guide.
 ---
 
 # shift: records
 
 <!-- toc -->
 - Layout
-- Board, tasks, archive
+- Board and project tasks
 - OWNER.md, GLOSSARY.md, SHIFT.md
 - Knowledge and where it goes
 - Settings
 - Saved shifts
-- Migrating an existing project
 - What the mod refuses
 <!-- /toc -->
 
@@ -39,11 +38,9 @@ Current project records remain editable in their configured locations. Both data
 
 The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a snapshot and the setup's tree go by that one list. The settings may move OWNER.md, GLOSSARY.md and SHIFT.md; every text that names them passes through `atPlaces`.
 
-## Board, tasks, archive
+## Board and project tasks
 
 Run `./.shift/bin/sbd prime` from the project root for the bundled Beads workflow. Use the same executable in place of `bd` in its examples. `sbd ready` finds available work, `sbd show <id>` reads an issue and `sbd comments <id>` reads its discussion. Tasks, claims, dependencies, labels and comments belong to Beads. Put the issue ID and the next concrete step in the working letter when a chat needs to resume a particular issue.
-
-Issues created with Shift's earlier task tools keep their IDs, descriptions, acceptance criteria, notes, links and comments. Use `sbd show <id> --json` to see the old numbered items and their evidence under `metadata.items`. To update one, read the current array, edit that item, and pass a JSON object containing the entire updated `items` array to `sbd update <id> --metadata=@items.json`. This merges the top-level key and preserves other metadata. `--set-metadata items=...` stores the array as a string. Two edits to the same array can overwrite each other. For independent progress and evidence, append a comment referencing the item number. Use native issues and child issues for new work.
 
 The board returns in full. Keep the goal to the current project outcome. A decision records a choice other tasks must follow and its reason. A dead end records what was tried, the observed failure and the condition under which it matters. Review affected lines when scope changes or a task closes. Keep decisions specific to one task on its card.
 
@@ -63,7 +60,7 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 ## Knowledge and where it goes
 
-`knowledge/<kind>[-<topic>].md` holds what the agent learned that stays true for months and is neither a decision, a dead end nor a task: kinds `traps`, `lessons`, `runbook`, `facts`, each entry with its kind's fields. Only its map comes back after a shift; files are read on demand. It was rarely written — one trap in a long session — so a shift accepted after a stretch that changed nothing in `knowledge/` asks once, in its answer, while the stretch's history is still whole; it never refuses for it.
+`knowledge/<kind>[-<topic>].md` holds what the agent learned that stays true for months and is neither a decision, a dead end nor a task: kinds `traps`, `lessons`, `runbook`, `facts`, each entry with its kind's fields. Only its map comes back after a shift; files are read on demand.
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
@@ -85,14 +82,8 @@ Acceptance saves the letter and records before the harness lets go. A single tra
 
 To transfer a project, stop writers and copy the whole `.shift/` directory along with any project files selected by settings. The next session restores the saved letter. Use the project launcher to open issues in the transferred task database. Diverged copies have independent histories.
 
-## Migrating an existing project
-
-Until cleanup finishes, the first prompt on session start and after a shift identifies legacy records. Use `shift_migrate(action="start")` to create and verify a local backup. Recreate each current task, including deferred and waiting work, using the project launcher. Check its status, items, links and evidence with `sbd show <id> --json`, then call `shift_migrate(action="confirm", task="<legacy name>", target="<full Beads ID>")`. Existing Beads issues are already in the native format and can be confirmed directly. Old shifts and closed tasks stay in the backup. Projects with no open tasks can proceed straight to the new shift.
-
-Make one new shift and restore its letter. Pass its ID and restoration receipt to `shift_migrate(action="cleanup")`. Cleanup checks the backup, destinations, settings, resolved paths of current records and mapped documents, and the durable shift before moving the old task list and directories out of use. It keeps the verified copy separate from the moved originals because an older process may still write through an open file handle. If a source changed, rerun start, verify the new generation and confirm the tasks again. After an interrupted cleanup, start restores missing roots and identifies any overlapping originals to reconcile. Repeating completed cleanup is safe. If an older client recreates legacy records after cleanup, the next migration notice identifies them. Starting again creates a separate backup for those records.
-
 ## What the mod refuses
 
-The editable records are checked before a shift. The following task-folder checks apply while using the legacy layout. A shift is refused on: no letter or a letter section missing or empty; a missing section or a line limit passed in any record; a date (a real day of a real month, never a version) in the board, TASKS.md, a task, OWNER.md, the glossary or knowledge — the letter and SHIFT.md are not checked; an unknown status; TASKS.md and the task folders out of step, a link to nothing, tasks needing each other in a circle; a knowledge file of no kind or without its entry fields; a broken `settings.toml`; `.shift/` not kept out of git when it should be; nothing changed since the last shift that was not refused at its let-go (one `not shifted` left the history whole, so the same records may shift again). A refusal names what to fix; the full list is in `shift_guide`. `shift_setup` runs the same checks, all but "nothing changed", on the records as they are, so a rule added in a newer version or a record broken before the mod looked shows before the shift.
+Before saving a letter, Shift checks its four sections, the board, owner rules, glossary, knowledge files, settings and git exclusion. A refusal identifies the affected record. The archive compares the snapshot with the same chat's last completed shift to detect unchanged work. A failed attempt can be retried. `shift_setup` checks the current project records on demand.
 
 The mod also looks at the records around every tool the agent runs, by each file's time and size from one listing per folder — no file is read unless its stamp moved, and then its text's fingerprint decides, so a file rewritten with the same text, or edited and put back, is no change. A change made while the agent's tool ran is the agent's own: it is checked by the checks of that file alone and told once in that tool's result only when broken. A change made between its tools — the owner's hand, another session — is named in the next result, broken or not, so the agent reads it before writing over it. While another tool runs, a change is not attributed: it may be that tool's. The mod's own tools are only remembered. A record written by hand used to break silently and surface only at the shift, hundreds of K later. Checks across files stay the shift's alone — another record broken, nothing changed — so a record half written in two steps is told once, not refused.

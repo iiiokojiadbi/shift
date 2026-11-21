@@ -1,10 +1,11 @@
 import type { TestBody } from 'claude-code/testing'
 import { expect, mock, test } from 'claude-code/testing'
 import { doctrine, growthOf, SHIFT_NOW, shiftFill } from '../hooks/core/index'
-import { BOARD, LETTER, LIST, OWNER, TESTS, TRACK, TRAPS } from './data'
+import { archiveFixture, emptyArchive } from './archive-fixture'
+import { BOARD, LETTER, OWNER, TRAPS } from './data'
 
 const AT = Date.UTC(2026, 9, 23, 14, 5, 9)
-const DIR = '/proj/.shift/shifts/20261023-140509'
+const ID = 's-0000000000000001'
 
 type On = Parameters<TestBody>[1]
 
@@ -18,6 +19,7 @@ function stubSession(
   session = () => 'sess',
   window = 200_000,
 ) {
+  on('env.get', () => ({ value: undefined }))
   on('session.root', () => ({ value: '/proj' }))
   on('session.messages', () => ({ value: history as never }))
   on('session.id', () => ({ value: session() }))
@@ -46,8 +48,16 @@ function stubSession(
       }),
     }
   })
+  const archive = emptyArchive()
+  on('process.spawn', async function* (_$, request) {
+    if (!request.argv.includes('shift-history')) throw new Error('Unexpected native process.')
+    const text = archiveFixture(archive, request.input ?? '')
+    if (archive.entries.length) files.set('/proj/.shift/history.db', '')
+    yield { stream: 'stdout', text }
+    return { value: { code: 0, signal: null } }
+  })
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
-    const [command, from, to] = e.argv
+    const [command] = e.argv
     if (command === 'uname' || e.argv.includes('shift-install-sbd')) {
       return {
         value: {
@@ -65,13 +75,6 @@ function stubSession(
     if (command === 'git') {
       return { value: { exitCode: ignored, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (command === 'mv' && from !== undefined && to !== undefined) {
-      for (const [path, text] of [...files]) {
-        if (!path.startsWith(`${from}/`)) continue
-        files.delete(path)
-        files.set(to + path.slice(from.length), text)
-      }
-    }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.log', (_$: unknown, e: { text: string }) => {
@@ -82,6 +85,7 @@ function stubSession(
     logs.push(`status: ${e.text ?? ''}`)
     return { value: undefined }
   })
+  return archive
 }
 
 function project(): Map<string, string> {
@@ -89,16 +93,13 @@ function project(): Map<string, string> {
     ['/proj/.shift/letter.md', LETTER],
     ['/proj/.shift/board.md', BOARD],
     ['/proj/.shift/OWNER.md', OWNER],
-    ['/proj/.shift/TASKS.md', LIST],
     ['/proj/.shift/knowledge/traps.md', TRAPS],
-    ['/proj/.shift/tasks/tests/task.md', TESTS.task ?? ''],
-    ['/proj/.shift/tasks/tests/track.md', TRACK],
   ])
 }
 
-test('the shift tool snapshots the letter, the board and the tasks, and accepts once', async ($, on) => {
+test('the shift tool snapshots the letter and the project records, and accepts once', async ($, on) => {
   const files = project()
-  stubSession(on, files)
+  const archive = stubSession(on, files)
   mock.clock(on, { now: AT })
 
   const answer = await $.tool.call({
@@ -109,13 +110,12 @@ test('the shift tool snapshots the letter, the board and the tasks, and accepts 
   })
   expect(answer.deny).toBeUndefined()
   expect(String(answer.result)).toContain('Shift accepted')
-  expect(files.get(`${DIR}/letter.md`)).toBe(LETTER)
-  expect(files.get(`${DIR}/board.md`)).toBe(BOARD)
-  // The shift gave the items ids.
-  expect(files.get(`${DIR}/tasks/tests/track.md`)).toBe('- [in progress] #1 fix the parser\n- [open] #2 cover the archive')
-  expect(files.get(`${DIR}/OWNER.md`)).toBe(OWNER)
-  expect(files.get(`${DIR}/knowledge/traps.md`)).toBe(TRAPS)
-  expect(files.get(`${DIR}/about.md`)).toContain('result: pending')
+  expect(archive.entries[0]?.files['letter.md']).toBe(LETTER)
+  expect(archive.entries[0]?.files['board.md']).toBe(BOARD)
+  expect(Object.keys(archive.entries[0]?.files ?? {})).not.toContain('tasks/tests/track.md')
+  expect(archive.entries[0]?.files['OWNER.md']).toBe(OWNER)
+  expect(archive.entries[0]?.files['knowledge/traps.md']).toBe(TRAPS)
+  expect(archive.entries[0]?.about).toContain('result: pending')
 
   const again = await $.tool.call({
     tool: 'mcp__shift__shift',
@@ -162,7 +162,7 @@ test('continue: after the turn the history is let go with the hold, and the lett
   const files = project()
   const compacted: string[] = []
   const submitted: string[] = []
-  stubSession(on, files)
+  const archive = stubSession(on, files)
   const clock = mock.clock(on, { now: AT })
   on('session.compact', (_$: unknown, e: { instructions?: string }) => {
     compacted.push(e.instructions ?? '')
@@ -184,20 +184,19 @@ test('continue: after the turn the history is let go with the hold, and the lett
   expect(submitted.length).toBe(1)
   expect(submitted[0]).toContain('Shift done')
   expect(submitted[0]).toContain('fixing tests')
-  expect(submitted[0]).toContain('.shift/tasks/tests/track.md')
-  expect(submitted[0]).toContain('cover the archive')
+  expect(submitted[0]).not.toContain('.shift/tasks/')
   expect(submitted[0]).not.toContain('«тесты зеленые перед коммитом»')
   expect(submitted[0]).toContain('knowledge/traps.md — traps of edits and tests')
   expect(submitted[0]).not.toContain('third replacement')
-  expect(files.get(`${DIR}/summary.md`)).toContain('SUMMARY')
-  expect(files.get(`${DIR}/about.md`)).toContain('continuing')
-  expect(files.get(`${DIR}/about.md`)).toContain('tokens: 120K → 50K')
+  expect(archive.entries[0]?.files['summary.md']).toContain('SUMMARY')
+  expect(archive.entries[0]?.about).toContain('continuing')
+  expect(archive.entries[0]?.about).toContain('tokens: 120K → 50K')
 })
 
 test('continue: the message rides in the compaction history, and one line starts the turn', async ($, on) => {
   const files = project()
   const submitted: string[] = []
-  stubSession(on, files)
+  const archive = stubSession(on, files)
   const clock = mock.clock(on, { now: AT })
   // The /compact the let-go runs waits here: the compaction itself is raised from the test, as the engine's command
   // raises it, while the let-go stands with the message ready to be appended.
@@ -232,26 +231,26 @@ test('continue: the message rides in the compaction history, and one line starts
     instructions: commands[0]?.args,
     messages: [{ role: 'user', text: 'OLD', toolUses: [] }],
   })
-  expect(replaced.messages?.at(-1)).toMatchObject({ text: expect.stringContaining('<letter path=') })
+  expect(replaced.messages?.at(-1)).toMatchObject({ text: expect.stringContaining('<letter shift=') })
   release?.()
   for (let waited = 0; waited < 20 && submitted.length === 0; waited++) await clock.advance(5)
 
-  // The letter, the board and the tasks went into the replacement history: the turn starts from one line, never the
+  // The letter and the board went into the replacement history: the turn starts from one line, never the
   // whole message told twice.
   expect(submitted).toHaveLength(1)
-  expect(submitted[0]).not.toContain('<letter path=')
+  expect(submitted[0]).not.toContain('<letter shift=')
   expect(submitted[0]).toContain('Continue from "Next"')
   // What settled the shift is the engine's own compaction, not the message appended to it.
-  expect(files.get(`${DIR}/summary.md`)).toContain('SUMMARY')
-  expect(files.get(`${DIR}/summary.md`)).not.toContain('<letter path=')
-  expect(files.get(`${DIR}/about.md`)).toContain('continuing')
-  expect(files.get(`${DIR}/about.md`)).toContain('tokens: 120K → 50K')
+  expect(archive.entries[0]?.files['summary.md']).toContain('SUMMARY')
+  expect(archive.entries[0]?.files['summary.md']).not.toContain('<letter shift=')
+  expect(archive.entries[0]?.about).toContain('continuing')
+  expect(archive.entries[0]?.about).toContain('tokens: 120K → 50K')
 })
 
 test('continue: an unrelated compaction neither takes the message nor settles the shift', async ($, on) => {
   const files = project()
   const submitted: string[] = []
-  stubSession(on, files)
+  const archive = stubSession(on, files)
   const clock = mock.clock(on, { now: AT })
   let release: (() => void) | undefined
   on(
@@ -283,15 +282,15 @@ test('continue: an unrelated compaction neither takes the message nor settles th
 
   // Nothing stood for the shift's own compaction: the history is let go the plain way and the letter goes as the prompt.
   expect(submitted).toHaveLength(1)
-  expect(submitted[0]).toContain('<letter path=')
-  expect(files.get(`${DIR}/summary.md`)).toContain('T-undefined')
-  expect(files.get(`${DIR}/summary.md`)).not.toContain('T-auto')
+  expect(submitted[0]).toContain('<letter shift=')
+  expect(archive.entries[0]?.files['summary.md']).toContain('T-undefined')
+  expect(archive.entries[0]?.files['summary.md']).not.toContain('T-auto')
 })
 
 test('continue: a /compact that does not compact lets the history go the plain way, the letter as the prompt', async ($, on) => {
   const files = project()
   const submitted: string[] = []
-  stubSession(on, files)
+  const archive = stubSession(on, files)
   const clock = mock.clock(on, { now: AT })
   on('command.run', () => ({ text: undefined }))
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'SUMMARY', toolUses: [], toolResults: [] }] }))
@@ -307,8 +306,8 @@ test('continue: a /compact that does not compact lets the history go the plain w
 
   expect(submitted).toHaveLength(1)
   expect(submitted[0]).toContain('Shift done')
-  expect(submitted[0]).toContain('<letter path=')
-  expect(files.get(`${DIR}/about.md`)).toContain('continuing')
+  expect(submitted[0]).toContain('<letter shift=')
+  expect(archive.entries[0]?.about).toContain('continuing')
 })
 
 test("the owner's message while a shift is under way is held and goes after the letter", async ($, on) => {
@@ -343,7 +342,7 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   const files = project()
   const contexts: (readonly string[] | undefined)[] = []
   const logs: string[] = []
-  stubSession(on, files, logs)
+  const archive = stubSession(on, files, logs)
   const clock = mock.clock(on, { now: AT })
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [], toolResults: [] }] }))
   on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => {
@@ -360,41 +359,39 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
   await $.prompt.submit({ text: 'owner speaks', origin: { kind: 'composer' }, wait: false })
   await $.prompt.submit({ text: 'owner again', origin: { kind: 'composer' }, wait: false })
 
-  expect(contexts[0]).toEqual([expect.stringContaining('Legacy records need migration')])
+  expect(contexts[0] ?? []).toEqual([])
   expect(String(contexts[0])).not.toContain('<letter')
-  expect(String(contexts[1])).not.toContain('Legacy records need migration')
   expect(String(contexts[1])).toContain('fixing tests')
-  expect(String(contexts[1])).toMatch(/^<shift folder="[^"]+\/">/)
-  expect(String(contexts[1])).toContain('<letter path=')
+  expect(String(contexts[1])).toContain(`<shift id="${ID}">`)
+  expect(String(contexts[1])).toContain('<letter shift=')
   expect(String(contexts[1])).toContain('<file path=".shift/board.md">')
   expect(String(contexts[1]).trimEnd().endsWith('</shift>')).toBe(true)
   expect(doctrine(['shift']).startsWith('<shift note=')).toBe(true)
-  expect(String(contexts[1])).toContain('fix the parser')
+  expect(String(contexts[1])).not.toContain('tasks/tests')
   const handed = String(contexts[1])
   expect(handed).toContain('No earlier shifts.')
-  expect(handed.indexOf('<file path=".shift/board.md">')).toBeLessThan(handed.indexOf('<letter path='))
+  expect(handed.indexOf('<file path=".shift/board.md">')).toBeLessThan(handed.indexOf('<letter shift='))
   expect(handed).not.toContain(' · ABOUT')
   expect(contexts[2] ?? []).toEqual([])
   // Rows in the transcript only: the status line under the input was noise.
   expect(logs).toEqual([
     expect.stringContaining('waiting for you, the letter goes with your next message'),
     'entered: a notification',
-    expect.stringContaining('Legacy records need migration'),
     'entered: owner speaks',
-    expect.stringContaining('went with your message: letter.md, board.md, tasks/tests/, knowledge/ (the map) — '),
+    expect.stringContaining('went with your message: letter.md, board.md, knowledge/ (the map) — '),
     'entered: owner again',
   ])
   expect(logs.some(line => line.startsWith('status:'))).toBe(false)
-  expect(files.get(`${DIR}/about.md`)).toContain('waiting for the owner')
+  expect(archive.entries[0]?.about).toContain('waiting for the owner')
 })
 
-test('the guide directs agents to the project CLI and leaves old tasks readable', async ($, on) => {
+test('the guide directs agents to the project CLI without exposing task tools', async ($, on) => {
   const files = project()
   stubSession(on, files)
   const guide = await $.tool.call({ tool: 'mcp__shift__shift_guide', section: 'flow' })
   expect(String(guide.result)).toContain('shift_setup(section="sbd")')
   expect(String(guide.result)).not.toContain('task_open')
-  expect(files.get('/proj/.shift/tasks/tests/track.md')).toBe(TRACK)
+  expect(String(guide.result)).not.toContain('shift_migrate')
 })
 
 test('a hint goes with a tool result and with a prompt, and a let-go starts a new stretch', async ($, on) => {
@@ -444,13 +441,15 @@ test('a fresh process takes the count back from the last shift and the history',
   const files = project()
   const about = (session: string) =>
     `---\ndescription: d\nresult: shifted (95K → 6K), waiting for the owner\ntokens: 95K → 6K\nsession: ${session}\n---\n`
-  files.set('/proj/.shift/shifts/20260101-000000/about.md', about('sess'))
+
   const history = [
     { role: 'user', content: 'summary of the stretch' },
     { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a' } }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x'.repeat(5000) }] },
   ]
-  stubSession(on, files, [], () => 150_000, 0, history)
+  const archive = stubSession(on, files, [], () => 150_000, 0, history)
+  archive.entries.push({ id: ID, about: about('sess'), state: 'complete', files: {} })
+  files.set('/proj/.shift/history.db', '')
 
   const status = String((await $.tool.call({ tool: 'mcp__shift__shift_status' })).result)
   expect(status).toContain('Since the last shift: +144K.')
@@ -483,7 +482,7 @@ test('the history and guide tools answer', async ($, on) => {
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
   await clock.advance(500)
   const history = await $.tool.call({ tool: 'mcp__shift__shift_history' })
-  expect(String(history.result)).toContain('20261023-140509')
+  expect(String(history.result)).toContain('s-0000000000000001')
   expect(String(history.result)).toContain('ABOUT')
 })
 
@@ -539,7 +538,7 @@ test('a Write the engine held for review wrote nothing, so no document follows i
   const held = await $.tool.call({ tool: 'Write', file_path: '/proj/docs/a.md', content: '# A\n\n## One\n' } as never)
   expect(held.context).toBeUndefined()
   await $.prompt.submit({ text: 'owner', origin: { kind: 'composer' }, wait: false })
-  expect(contexts[0]).toEqual([expect.stringContaining('Legacy records need migration')])
+  expect(contexts[0] ?? []).toEqual([])
   expect(String(contexts[0])).not.toContain('docs/a.md')
   await $.prompt.submit({ text: 'again', origin: { kind: 'composer' }, wait: false })
   expect(contexts[1] ?? []).toEqual([])
@@ -557,7 +556,7 @@ test("records are looked at around every tool: the agent's own change told only 
   const bash = () => $.tool.call({ tool: 'Bash', command: 'x' } as never)
 
   await bash()
-  edit = () => files.set('/proj/.shift/tasks/tests/track.md', '- [done] fix the parser\n- [done] cover the archive')
+  edit = () => files.set('/proj/.shift/OWNER.md', `${OWNER}\n- confirmed`)
   expect((await bash()).context).toBeUndefined()
   edit = () => files.set('/proj/.shift/board.md', '## Goal\nthe mod')
   expect(String((await bash()).context)).toContain('`.shift/board.md`: The board lacks sections')
@@ -569,11 +568,17 @@ test("records are looked at around every tool: the agent's own change told only 
   expect((await bash()).context).toBeUndefined()
 })
 
-test('/unshift hands the last letter, the board and the tasks in progress to a fresh session', async ($, on) => {
+test('/unshift hands the last saved letter and current board to a fresh session', async ($, on) => {
   const files = project()
-  files.set(`${DIR}/letter.md`, LETTER)
+  files.set('/proj/.shift/history.db', '')
   const submitted: string[] = []
-  stubSession(on, files)
+  const archive = stubSession(on, files)
+  archive.entries.push({
+    id: ID,
+    state: 'complete',
+    about: '---\ndescription: Old shift\n---',
+    files: { 'letter.md': LETTER, 'board.md': BOARD },
+  })
   const clock = mock.clock(on, { now: AT })
   on('prompt.submit', (_$: unknown, e: { text: string }) => {
     submitted.push(e.text)
@@ -584,10 +589,10 @@ test('/unshift hands the last letter, the board and the tasks in progress to a f
     $.command.run({ command: 'unshift', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
 
   const run = await unshift('')
-  expect(run.text).toContain('20261023-140509')
+  expect(run.text).toContain('s-0000000000000001')
   expect(run.context?.[0]).toContain('fixing tests')
   expect(run.context?.[0]).toContain('## Goal')
-  expect(run.context?.[0]).toContain('# Green tests')
+  expect(run.context?.[0]).not.toContain('.shift/tasks/')
   await clock.advance(200)
   expect(submitted).toEqual([expect.stringContaining('Pick up from the shift above')])
 
@@ -642,7 +647,7 @@ test('settings turn the mod off in a project: no tools, no doctrine; without doc
   expect((await compose()).sections.map(section => section.id)).toContain('shift:doctrine')
   const loaded = (await compose()).sections.find(section => section.id === 'shift:files')?.text
   expect(loaded).toContain('<file path=".shift/OWNER.md">')
-  expect(loaded).toContain('<file path=".shift/TASKS.md">')
+  expect(loaded).not.toContain('TASKS.md')
 
   expect(registered).toContain('doc_outline')
 

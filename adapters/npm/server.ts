@@ -40,6 +40,7 @@ import {
   RESUME_DESCRIPTION,
   refreshDocs,
   renderSessionFiles,
+  restoredLoop,
   resumeShift,
   runEnded,
   SESSION_FILES_VERSION,
@@ -144,7 +145,7 @@ const plugin: Definition = {
         command: begun.command,
         enabled: begun.enabled,
         rows: [...startRows.splice(0), ...begun.rows],
-        loop: { ...FRESH_LOOP, note, pending },
+        loop: restoredLoop({ ...FRESH_LOOP, note, pending }),
         updating: Promise.resolve(),
         prompting: Promise.resolve(),
         gauge: FRESH_GAUGE,
@@ -382,6 +383,8 @@ const plugin: Definition = {
         const text = told.notes.join('\n\n')
         // After a shift the owner's words follow its message, marked as held for it, as in the other harnesses.
         event.prompt.text = held ? `${text}\n\n${HELD_NOTE([event.prompt.text])}` : `${event.prompt.text}\n\n${text}`
+        const files = told.attachments as typeof event.prompt.files
+        if (files?.length) event.prompt.files = [...files, ...(event.prompt.files ?? [])]
         await countGrowth(courier.gauge, SOURCES.attachments, text.length)
         await told.delivered()
       })
@@ -523,7 +526,7 @@ const plugin: Definition = {
           session.gauge = letGoGauge(data.reason === 'auto')
           session.fill = undefined
           session.block = undefined
-          session.looks = { ...session.looks, map: undefined, mapNotes: [], migrationChecked: false }
+          session.looks = { ...session.looks, map: undefined, mapNotes: [] }
           await saveContext(data.sessionID, session)
           if (data.reason !== 'auto') session.letGo?.({ text: data.text ?? '' })
           return

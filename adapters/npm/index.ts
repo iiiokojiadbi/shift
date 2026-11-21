@@ -274,7 +274,7 @@ export default function shift(pi: ExtensionAPI): void {
     const loaded = await sessionFiles(loadedProject, { refresh: false })
     const others = loaded.filter(file => file.path !== loadedProject.settings.files.shift)
     loadedBlock = renderSessionFiles(mapFile ? [mapFile, ...others] : others)
-    const ours = new Set(['beads:claimed', ...loaded.map(file => file.path)])
+    const ours = new Set(loaded.map(file => file.path))
     event.systemPromptOptions.contextFiles = [
       ...event.systemPromptOptions.contextFiles.filter(file => !ours.has(file.path)),
       ...others.map(file => ({ path: file.path, content: file.text })),
@@ -359,7 +359,7 @@ export default function shift(pi: ExtensionAPI): void {
   pi.on('session_compact', event => {
     gauge = letGoGauge(event.reason !== 'manual')
     mapFile = undefined
-    looks = { ...looks, map: undefined, mapNotes: [], migrationChecked: false }
+    looks = { ...looks, map: undefined, mapNotes: [] }
   })
 
   // The notes to the agent over the extension's runtime: the looks at the records, the loop and the gauge.

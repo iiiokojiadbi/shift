@@ -5,7 +5,6 @@ import {
   BOARD,
   BOARD_MAX_LINES,
   BOARD_SECTIONS,
-  DIR,
   GLOSSARY,
   GUIDE_TOOL,
   KINDS,
@@ -14,17 +13,11 @@ import {
   LETTER,
   MENTIONS_TOOL,
   MOD,
-  NAMES,
-  OLD_DIR,
-  OLD_OWNER,
-  OLD_TASKS_SECTION,
   OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
-  SETTINGS,
   SHIFT_FILE,
   STATUS_TOOL,
-  TASK_LIST,
   TOOL,
 } from '../layout'
 import { TOOL_TEXTS } from './tools'
@@ -140,7 +133,7 @@ export const GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation
 export const GUIDE_RECORDS = [
   '## What goes where',
   GRAPH_LAYOUT,
-  'Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads. For an issue created by an earlier Shift version, show its JSON to read its original metadata, including numbered items and evidence.',
+  'Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads.',
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -159,70 +152,6 @@ Check the board and current project records. At the final hint, write the letter
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
-
-On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
 
 export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`
-
-// The tree's rows: the prefix, the name, padded to its level's column, and what it is.
-const row = (prefix: string, name: string, width: number, what: string) => `${prefix}${name.padEnd(width)}${what}`
-
-const LAYOUT_TREE = [
-  `${DIR}/`,
-  row('├── ', NAMES.board, 18, 'the board — the goal, project-wide decisions and dead ends'),
-  row('├── ', NAMES.taskList, 18, 'the open tasks, what you do now, their links — every session'),
-  row('├── ', NAMES.owner, 18, "the owner's decisions in force for the whole project — every session"),
-  row('├── ', NAMES.glossary, 18, "the project's own words — every session"),
-  row('├── ', NAMES.shift, 18, 'how the project keeps its knowledge, and the map of its docs — every session'),
-  row('├── ', NAMES.settings, 18, "the owner's settings, optional — above"),
-  row('├── ', NAMES.letter, 18, 'the letter to yourself — written anew before every shift'),
-  row('├── ', `${NAMES.knowledge}/`, 18, 'traps, lessons, commands, facts — read on demand'),
-  '│   └── <kind>[-<topic>].md',
-  `├── ${NAMES.tasks}/`,
-  '│   └── <name>/',
-  row('│       ├── ', NAMES.task, 10, 'what the task is, its decisions and dead ends'),
-  row('│       ├── ', NAMES.track, 10, "the task's tracker"),
-  row('│       └── ', `${NAMES.notes}/`, 10, `notes on its items, each linked from ${NAMES.track} or ${NAMES.task}`),
-  row('├── ', `${NAMES.archive}/`, 18, `legacy archived tasks`),
-  row('│   ├── ', NAMES.index, 14, 'one line per archived task'),
-  row('│   └── ', '<name>/', 14, "the task's folder as it was"),
-  row('└── ', `${NAMES.shifts}/`, 18, 'history, written by the mod; do not edit'),
-  '    └── <YYYYMMDD-hhmmss UTC>/',
-  row('        ├── ', NAMES.about, 14, `the shift in brief — its structure is in ${GUIDE_TOOL}`),
-  row('        ├── ', NAMES.letter, 14, 'a copy of the letter'),
-  row('        ├── ', NAMES.board, 14, 'a snapshot of the board'),
-  row('        ├── ', `${[NAMES.taskList, NAMES.owner, NAMES.glossary, NAMES.shift, NAMES.settings].join(', ')}`, 0, '   snapshots'),
-  row('        ├── ', NAMES.index, 14, 'a snapshot of the archive index'),
-  row('        ├── ', `${NAMES.tasks}/`, 14, 'snapshots of the open tasks'),
-  row('        ├── ', `${NAMES.knowledge}/`, 14, 'a snapshot of the knowledge'),
-  row('        └── ', NAMES.summary, 14, 'what stayed in memory after the shift'),
-].join('\n')
-
-export const SETUP_LAYOUT = `\`\`\`
-${LAYOUT_TREE}
-\`\`\`
-
-\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` above); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`
-
-export const SETUP_MIGRATION = `## Coming from the earlier layout
-
-Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved once, before the next shift; the refusals name each step:
-- \`${OLD_DIR}/\` → \`${DIR}/\`, the folder renamed as it is;
-- \`${OLD_OWNER}\` → \`${OWNER}\`, renamed as it is;
-- the board's "${OLD_TASKS_SECTION}" section → \`${TASK_LIST}\`: each line as \`- [status] [name](tasks/name/) — what matters\`, and the \`continues:\` lines of each \`task.md\` under it as \`- continues: [name](archive/name/)\`;
-- \`${KNOWLEDGE}/glossary*.md\` → \`${GLOSSARY}\`, one article per term;
-- where knowledge goes, if \`${OWNER}\` spells it out by kind of knowledge → \`${SHIFT_FILE}\`, on the owner's word.
-
-## Coming from the shift skill
-
-A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their making: \`sessions/\`, \`AGENTS.md\`, \`SHIFT.md\` (the skill's own text), a \`shift\` script, \`knowledge/\`, sometimes a \`.git\` of its own. The mod uses the same folder, and works on it only once it has a board. Move it in place, once, entry by entry — nothing is dropped:
-- \`knowledge/owner.md\` → \`${OWNER}\`, rules as they are;
-- \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\` stay in \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (Причина → Cause, Делать → Do, Почему → Why, Когда не годится → Not when, Покажет → Shows), drop the date lines and the generated tables of contents;
-- \`knowledge/glossary*.md\` → \`${GLOSSARY}\`, one article per term: the meaning into \`Means\`, other spellings into \`Variants\`; a meaning the files only guessed gets \`Unconfirmed\`;
-- the \`knowledge\` setting of \`AGENTS.md\` (\`project\`, \`local\`, \`split\`) → \`knowledge\` in \`${SETTINGS}\`; its "Что где" rows → \`${SHIFT_FILE}\` on the owner's word;
-- open items of the last snapshot's \`unfinished.md\` and its "С чего начать" → tasks in \`${TASK_LIST}\`; its owner decisions → \`${OWNER}\` or the task's; dead ends → the board or the task;
-- the skill's \`SHIFT.md\`, \`shift\` script and \`AGENTS.md\` go once their content is moved: \`${SHIFT_FILE}\` is the project's own file now. A \`.git\` inside goes only on the owner's word;
-- \`sessions/\` stays as it is: it is history.
-
-The text of records may stay in its language, and the owner is quoted verbatim; section names and entry fields are the ones above.`

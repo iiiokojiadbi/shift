@@ -1,23 +1,11 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { wrap } from './delivery'
 import { mapBounds } from './docs'
 import { handBack, sessionFiles } from './flows'
-import { BOARD, LETTER, NAMES, SHIFTS, TASKS } from './layout'
-import { migrationNote } from './migration'
+import { BOARD, LETTER, NAMES } from './layout'
 import type { Project } from './project'
 import { knowledgeMap } from './records'
-import { NEXT_SAVED, readSaved, savedEntries, usesNewStorage } from './saved'
-import { shiftNames } from './store'
-import {
-  continuePrompt,
-  fileBlock,
-  inProgress,
-  notesList,
-  renderRecent,
-  renderSessionFiles,
-  renderStuck,
-  trackPreview,
-} from './texts/prompts'
+import { NEXT_SAVED, readSaved, savedEntries } from './saved'
+import { continuePrompt, fileBlock, renderRecent, renderSessionFiles } from './texts/prompts'
 import { sessionDoctrine } from './tools'
 
 // Count complete rendered messages for totals: token boundaries need not align at row edges.
@@ -38,37 +26,20 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
       if (end >= 0) sessionRows.push(row('  of which: documentation map', count(parts.slice(start, end + 1).join('\n'))))
     }
   }
-  const migration = await migrationNote(project)
-  const notice = migration ? count(wrap({ kind: 'records', body: migration })) : 0
-  if (migration) sessionRows.push(row('Migration reminder (first prompt)', notice))
-  const session = notice + count([doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n'))
+  const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n'))
   const retained = (await savedEntries(project)).reverse()
-  const modern = await usesNewStorage(project)
-  const folders = retained.length ? [] : (await shiftNames(project)).reverse()
   const saved: { name: string; letter: string }[] = []
   for (const e of retained.slice(0, 3)) {
     const letter = (await readSaved(project, e.id, NAMES.letter)).files[NAMES.letter]
     if (letter !== undefined) saved.push({ name: e.id, letter })
   }
-  for (const name of folders) {
-    const letter = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.letter}`)
-    if (letter !== null) saved.push({ name, letter })
-    if (saved.length === 3) break
-  }
-  const dir = modern ? NEXT_SAVED : `${project.root}/${SHIFTS}/<next-shift>`
+  const dir = NEXT_SAVED
   const back = await handBack(project, dir, project.actor)
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)))
-    for (const task of modern ? [] : inProgress(back.work)) {
-      const folder = `${TASKS}/${task.name}`
-      continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? 'missing')))
-      continueRows.push(row(`${folder}/${NAMES.track}`, count(trackPreview(task.track ?? 'missing'))))
-      if (task.notes.length) continueRows.push(row(`${folder}/notes (descriptions)`, count(notesList(task.name, task.notes))))
-    }
     continueRows.push(row('Knowledge index', count(knowledgeMap(back.work.knowledge))))
   }
   continueRows.push(row('Recent shifts', count(renderRecent(back.recent))))
-  if (back.stuck.length) continueRows.push(row('Unchanged tasks', count(renderStuck(back.stuck))))
   if (back.remarks) continueRows.push(row('Document remarks', count(back.remarks)))
   const draft = await project.store.read(`${project.root}/${LETTER}`)
   const letter = draft ?? saved[0]?.letter ?? ''
@@ -87,10 +58,7 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     'Totals include message framing and the fallback task-command instructions. The next continuation uses estimated identifiers.',
     '',
     ...(saved.length
-      ? [
-          `Saved letters in ${modern ? 'the shift archive' : `${SHIFTS}/`} (outside total)`,
-          ...saved.map(entry => row(entry.name, count(entry.letter))),
-        ]
+      ? ['Saved letters in the shift archive (outside total)', ...saved.map(entry => row(entry.name, count(entry.letter)))]
       : ['No saved letters.']),
   ].join('\n')
 }

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { acceptShift } from '../src/flows'
 import { atPlaces } from '../src/layout'
 import { loadProject } from '../src/project'
+import { readSaved } from '../src/saved'
 import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
 import { renderWork, unassistedInstructions } from '../src/texts/prompts'
 import { startSession, TOOLS } from '../src/tools'
@@ -44,28 +45,24 @@ test('a shift snapshots the settings and is refused while they do not parse', as
     [`${R}/letter.md`]: LETTER,
     [`${R}/board.md`]: BOARD,
     [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
-    [`${R}/TASKS.md`]: 'none',
   }
   const broken = await acceptShift(await loadProject(memoryStore({ ...files, [`${R}/settings.toml`]: 'knowledge = "docs"' }), ROOT), call)
   expect(broken).toEqual({ deny: expect.stringContaining('`knowledge` is one of') })
 
   const store = memoryStore({ ...files, [`${R}/settings.toml`]: 'knowledge = "split"' })
-  const accepted = await acceptShift(await loadProject(store, ROOT), call)
+  const project = await loadProject(store, ROOT)
+  const accepted = await acceptShift(project, call)
   if ('deny' in accepted) throw new Error(accepted.deny)
-  expect(store.files.get(`${accepted.shift.dir}/settings.toml`)).toBe('knowledge = "split"')
+  expect((await readSaved(project, accepted.shift.dir)).files['settings.toml']).toBe('knowledge = "split"')
 })
 
 test('the map of knowledge says where knowledge goes', () => {
   const work = {
     board: BOARD,
     owner: null,
-    tasks: [],
     knowledge: [],
-    taskList: null,
     glossary: null,
     shift: null,
-    archived: [],
-    oldOwner: false,
   }
   expect(renderWork(work, null, '.shift/OWNER.md')).toContain(
     'goes="here until the owner sets knowledge in .shift/settings.toml; ask them once"',
@@ -78,7 +75,6 @@ test('a moved OWNER.md is named where it is: in refusals, the doctrine, the guid
     [`${R}/settings.toml`]: '[files]\nowner = "docs/OWNER.md"',
     [`${R}/letter.md`]: LETTER,
     [`${R}/board.md`]: BOARD,
-    [`${R}/TASKS.md`]: 'none',
   }
   const call = { input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const project = await loadProject(memoryStore(seed), ROOT)

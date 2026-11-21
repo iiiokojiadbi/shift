@@ -12,8 +12,6 @@ export type PendingShift = {
   sessionId: string
   about: string
   at: number
-  segment: { done: string[]; dropped: string[]; archived: string[]; open: string[] }
-  focus?: string[]
 }
 
 export type Part = { name: string; hash: string }
@@ -30,7 +28,6 @@ export type MapPrints = { text: string; map: Record<string, string>; notices: st
 
 export type Looks = {
   seen: Record<string, string> | null
-  migrationChecked?: boolean
   running: number
   map?: MapPrints
   mapNotes?: string[]
@@ -69,30 +66,16 @@ declare module 'claude-code' {
     mcp__shift__shift: { letter: string; after: ShiftAfter; about?: string }
     mcp__shift__shift_guide: { section?: 'flow' | 'records' }
     mcp__shift__shift_sizes: Record<never, never>
-    mcp__shift__shift_history: { count?: number }
+    mcp__shift__shift_history: {
+      action?: 'list' | 'read' | 'compare' | 'export' | 'delete' | 'search'
+      count?: number
+      id?: string
+      other?: string
+      file?: string
+      query?: string
+    }
     mcp__shift__shift_status: Record<never, never>
-    mcp__shift__shift_setup: Record<never, never>
-    mcp__shift__task_open: {
-      name: string
-      title: string
-      goal: string
-      done_when: string
-      status?: string
-      about: string
-      items?: string[]
-      needs?: string[]
-      after?: string[]
-      continues?: string[]
-    }
-    mcp__shift__task_archive: { name: string; outcome: 'done' | 'dropped'; about: string }
-    mcp__shift__task_track: {
-      task: string
-      id?: number
-      item?: string
-      status?: string
-      note?: string
-      items?: { id?: number; item?: string; status: string; note?: string }[]
-    }
+    mcp__shift__shift_setup: { section?: 'runtime' | 'sbd' }
     mcp__shift__doc_outline: { path: string }
     mcp__shift__docs_mentioning: { file: string }
   }
@@ -110,7 +93,7 @@ declare module 'claude-code' {
       enabled: boolean
       // The doctrine for the system prompt with the tools this project shows, set at the session's start.
       doctrine: string | null
-      // SHIFT.md, OWNER.md, GLOSSARY.md and TASKS.md as one block, read at the session's start and after each shift.
+      // SHIFT.md, OWNER.md, GLOSSARY.md as one block, read at the session's start and after each shift.
       files: string | null
       // The session the block was read for: a resume or a /clear in the same process starts no session, so a new id
       // is what tells the block to be read again.

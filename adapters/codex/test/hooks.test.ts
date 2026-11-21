@@ -1,13 +1,18 @@
 import { Database } from 'bun:sqlite'
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { appendFile, mkdir, readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { BOARD, LETTER } from '../../../core/test/data'
+import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
 
 import { prepareHandover } from '../handover'
 
+let archive: Awaited<ReturnType<typeof historyRuntime>>
+beforeAll(async () => {
+  archive = await historyRuntime()
+}, 60000)
 afterAll(cleanup)
 
 async function fixture() {
@@ -25,7 +30,7 @@ async function fixture() {
   await writeFile(doc, '---\ndescription: A fixture\n---\n# Work\n\n## Setup\n')
   async function rawHook(event: string, extra = {}) {
     const input = { session_id: 'scope', cwd: root, transcript_path: transcript, hook_event_name: event, tool_use_id: 'call', ...extra }
-    const child = Bun.spawn(['bun', resolve(import.meta.dir, '../plugin/runtime.js'), 'hook'], {
+    const child = Bun.spawn(['bun', join(archive.plugin, 'runtime.js'), 'hook'], {
       cwd: root,
       env: { ...process.env, CODEX_HOME: home },
       stdin: new Blob([JSON.stringify(input)]),
@@ -112,13 +117,10 @@ test('resume restores a missing delivery and history replaced while detached', a
 
 test('an unrecorded letter survives resume and a display command; its recorded retry is acknowledged once', async () => {
   const { root, home, transcript, hook, rawHook } = await fixture()
-  const dir = join(root, '.shift/shifts/20260101-000000')
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'about.md'), '---\nafter: wait\n---')
-  await writeFile(join(dir, 'letter.md'), LETTER)
+  const id = archive.seed(root, LETTER, BOARD)
   await hook('SessionStart')
   const hash = createHash('sha256').update('scope').digest('hex')
-  prepareHandover(join(home, 'plugins/data/shift-sessions', `session-${hash}.json`), root, dir, 0)
+  prepareHandover(join(home, 'plugins/data/shift-sessions', `session-${hash}.json`), root, id, 0)
   await appendFile(transcript, `${JSON.stringify({ type: 'compacted' })}\n`)
   await hook('SessionStart', { source: 'resume' })
   const first = await hook('UserPromptSubmit', { prompt: 'First turn', turn_id: 'first' })
@@ -134,6 +136,29 @@ test('an unrecorded letter survives resume and a display command; its recorded r
   )
   await hook('SessionStart', { source: 'resume' })
   expect(await hook('UserPromptSubmit', { prompt: 'Next turn', turn_id: 'third' })).not.toContain(LETTER.trim())
+})
+
+test('an obsolete handover receipt cannot block later prompts or open its former folder', async () => {
+  const { root, home, hook, rawHook } = await fixture()
+  await hook('SessionStart')
+  const dir = join(root, '.shift/shifts/20260101-000000')
+  const letter = join(dir, 'letter.md')
+  await mkdir(dir, { recursive: true })
+  await writeFile(letter, 'Obsolete private letter.')
+  for (const path of [dir, letter]) await utimes(path, 1, 2)
+  const hash = createHash('sha256').update('scope').digest('hex')
+  const db = new Database(join(home, 'plugins/data/shift-sessions', `session-${hash}.json.sqlite`))
+  try {
+    db.exec('CREATE TABLE IF NOT EXISTS handover (root TEXT PRIMARY KEY, dir TEXT NOT NULL, offset INTEGER, phase TEXT NOT NULL)')
+    db.query("INSERT OR REPLACE INTO handover VALUES (?, ?, 0, 'ready')").run(root, dir)
+  } finally {
+    db.close()
+  }
+  for (const prompt of ['First prompt.', 'Second prompt.']) {
+    expect(await rawHook('UserPromptSubmit', { prompt })).toEqual({})
+  }
+  expect((await stat(letter)).atimeMs).toBe(1000)
+  expect((await stat(dir)).atimeMs).toBe(1000)
 })
 
 test('parallel installed hooks claim a threshold once', async () => {
@@ -243,33 +268,14 @@ test('a completed patch cannot claim another writer’s change elsewhere in the 
   expect(await hook('UserPromptSubmit')).toBe('')
 })
 
-test('the two sides of an agent note link settle at the next prompt', async () => {
+test('edits in a separate task tracker do not add shift context', async () => {
   const { root, hook } = await fixture()
-  const folder = join(root, '.shift/tasks/example')
-  await mkdir(join(folder, 'notes'), { recursive: true })
-  await writeFile(
-    join(folder, 'task.md'),
-    `# Work\n\n${['Goal', 'Done when', 'Owner decisions', 'Decisions', 'Dead ends'].map(h => `## ${h}\n\nnone\n`).join('\n')}`,
-  )
-  const track = join(folder, 'track.md')
-  await writeFile(track, '- [open] #1 research\n')
   await hook('SessionStart')
-  await hook('PreToolUse')
-  await writeFile(track, '- [open] #1 research — see [details](notes/details.md)\n')
+  const path = join(root, '.shift/tasks/example/notes')
+  await mkdir(path, { recursive: true })
+  await writeFile(join(path, 'old.md'), 'External task data')
+  expect(await hook('PreToolUse')).toBe('')
   expect(await hook('PostToolUse')).toBe('')
-  await hook('PreToolUse')
-  await writeFile(join(folder, 'notes/details.md'), '---\ndescription: Details\n---\n')
-  expect(await hook('PostToolUse')).toBe('')
-  expect(await hook('UserPromptSubmit')).toBe('')
-  await hook('PreToolUse')
-  await appendFile(track, '- [open] #2 another — see [missing](notes/missing.md)\n')
-  expect(await hook('PostToolUse')).toBe('')
-  await appendFile(track, '- [open] #3 added elsewhere\n')
-  const changed = await hook('PreToolUse')
-  expect(changed).toContain('track.md` changed outside')
-  expect(changed).not.toContain('notes/missing.md')
-  expect(await hook('PostToolUse')).toBe('')
-  expect((await hook('UserPromptSubmit')).match(/notes\/missing\.md/g)).toHaveLength(1)
   expect(await hook('UserPromptSubmit')).toBe('')
 })
 

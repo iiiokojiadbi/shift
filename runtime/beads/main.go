@@ -5,11 +5,9 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
-	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 
 	"shift.local/runtime/history"
@@ -177,15 +174,15 @@ func run(args []string) error {
 		}
 		return err
 	}
-	if len(args) == 2 && args[1] == "shift-migrate" {
-		return migrate(filepath.Join(args[0], ".shift"), os.Stdin, os.Stdout)
-	}
 	if len(args) == 2 && args[1] == "shift-history" {
 		directory := filepath.Join(args[0], ".shift")
 		if err := privateDir(directory); err != nil {
 			return err
 		}
 		return history.Run(filepath.Join(directory, "history.db"), os.Stdin, os.Stdout)
+	}
+	if args[1] != "shift-sbd" && !(len(args) == 2 && args[1] == "version") {
+		return errors.New("unknown Shift runtime command")
 	}
 	bd, err := binary()
 	if err != nil {
@@ -202,31 +199,7 @@ func run(args []string) error {
 	if err := prepareWorkspace(workspace); err != nil {
 		return err
 	}
-	if args[1] == "shift-sbd" {
-		return runSBD(bd, workspace, args[2:])
-	}
-	lock, err := workspaceLock(filepath.Join(workspace, "write.lock"))
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	cmd := taskCommand(bd, workspace, args[1:])
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return runChild(cmd)
-}
-
-type relation struct {
-	ID   string `json:"id"`
-	Kind string `json:"dependency_type"`
-}
-
-type revision struct {
-	Labels         []string   `json:"labels"`
-	Dependencies   []relation `json:"dependencies"`
-	DependentCount int        `json:"dependent_count"`
-	CommentCount   int        `json:"comment_count"`
-	ID             string     `json:"id"`
-	Revision       string     `json:"revision"`
+	return runSBD(bd, workspace, args[2:])
 }
 
 func taskCommand(bd, workspace string, commands []string) *exec.Cmd {
@@ -241,52 +214,6 @@ func taskCommand(bd, workspace string, commands []string) *exec.Cmd {
 	}
 	return cmd
 }
-func (r revision) matches(other revision) bool {
-	sortEdges := func(a, b relation) int {
-		if a.ID == b.ID {
-			return cmp.Compare(a.Kind, b.Kind)
-		}
-		return cmp.Compare(a.ID, b.ID)
-	}
-	slices.Sort(r.Labels)
-	slices.Sort(other.Labels)
-	slices.SortFunc(r.Dependencies, sortEdges)
-	slices.SortFunc(other.Dependencies, sortEdges)
-	return r.Revision != "" && r.ID == other.ID && r.Revision == other.Revision &&
-		r.CommentCount == other.CommentCount && r.DependentCount == other.DependentCount &&
-		slices.Equal(r.Labels, other.Labels) && slices.Equal(r.Dependencies, other.Dependencies)
-}
-
-func verifyTasks(cmd *exec.Cmd, expected []revision) error {
-
-	for group := range slices.Chunk(expected, 64) {
-		lookup := []string{"show", "--brief-deps", "--json"}
-		for _, entry := range group {
-			lookup = append(lookup, "--id="+entry.ID)
-		}
-		probe := exec.Command(cmd.Path, lookup...)
-		probe.Dir, probe.Env, probe.Stderr = cmd.Dir, cmd.Env, os.Stderr
-		out, err := probe.Output()
-		if err != nil {
-			return err
-		}
-		var issues []revision
-		if err = json.Unmarshal(out, &issues); err != nil {
-			return err
-		}
-		current := map[string]revision{}
-		for _, entry := range issues {
-			current[entry.ID] = entry
-		}
-		for _, entry := range group {
-			if !entry.matches(current[entry.ID]) {
-				return errors.New("a task changed during this operation; reread it and retry")
-			}
-		}
-	}
-	return nil
-}
-
 func main() {
 	args := os.Args[1:]
 	if runtime.GOOS == "windows" {

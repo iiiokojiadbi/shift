@@ -3,7 +3,7 @@
 import { Database } from 'bun:sqlite'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
-import { WAKE } from '../../core/src'
+import { isSaved, WAKE } from '../../core/src'
 import { shiftContext } from './protocol'
 
 export type Handover = { root: string; dir: string; offset: number | null; phase: 'prepared' | 'ready' | 'offered' | 'delivered' }
@@ -20,7 +20,8 @@ export function withSessionDb<T>(file: string, run: (db: Database) => T): T {
 
 export function readHandover(db: Database, root: string): Handover | null {
   if (!db.query("SELECT 1 FROM sqlite_master WHERE name = 'handover'").get()) return null
-  return db.query<Handover, [string]>('SELECT * FROM handover WHERE root = ?').get(root)
+  const row = db.query<Handover, [string]>('SELECT * FROM handover WHERE root = ?').get(root)
+  return row && isSaved(row.dir) ? row : null
 }
 
 export function prepareHandover(file: string, root: string, dir: string, offset?: number) {

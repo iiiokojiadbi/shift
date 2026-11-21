@@ -77,7 +77,7 @@ The same npm package as pi's; opencode 2.x.
 | `$shift:unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board in the same turn. Omit the request to continue from the letter. |
 | `$shift:shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `continue`. |
 | `$shift:sizes` | Prints estimated token counts by entity and for up to three saved letters. |
-| `$shift:tasks` | Shows the project command for listing tasks, or lists tasks in a legacy project. |
+| `$shift:tasks` | Shows the project command for listing tasks. |
 
 Both reports appear under **Hook stopped**, before any model call. The typed aliases `//unshift`, `//shift`, `//shift_sizes` and `//shift-tasks` also work.
 
@@ -85,7 +85,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 - `/shift [words]` — ask the agent to shift now, hint or not. The words go to it with the ask.
 - `/unshift [words]` — in a fresh session, pick up the last shift: the letter and the board go to the agent. The words become your message after the letter.
-- `/shift-tasks` — show the project command for listing tasks, or list tasks in a legacy project. The agent is not asked.
+- `/shift-tasks` — show the project command for listing tasks. The agent is not asked.
 
 ## Tools the agent gets
 
@@ -96,7 +96,6 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |
 | `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
-| `shift_migrate` | back up legacy records, confirm manually transferred tasks and finish cleanup after a verified restore |
 | `shift_setup` | settings, record checks and session files. Use section `sbd` to prepare the task command and see its path |
 | `doc_outline` / `docs_mentioning` | a document's sections with line numbers; which documents mention a file |
 
@@ -117,7 +116,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 ## Documentation
 
-Shift includes the pinned task runtime for its supported platforms. It uses a private workspace inside `.shift/`. To upgrade an existing project, transfer its open tasks, make one new shift, and verify the restored letter before cleanup. [Records and migration](docs/records.md#migrating-an-existing-project)
+Shift includes the pinned task runtime for its supported platforms. It uses a private workspace inside `.shift/`. Existing Beads issues and saved shift IDs are read directly from their respective databases. [Project records](docs/records.md)
 
 - [docs/concept.md](docs/concept.md): the idea, the loop, how the model sees it.
 - [docs/records.md](docs/records.md): what the agent keeps in `.shift/` and why.

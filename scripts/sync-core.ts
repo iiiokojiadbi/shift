@@ -8,8 +8,7 @@ import { dirname, join } from 'node:path'
 const ROOT = join(import.meta.dirname, '..')
 const SOURCE = 'core/src'
 const TARGETS = ['adapters/claude-code/hooks/core', 'adapters/npm/core']
-const DATA = 'core/test/data.ts'
-const DATA_COPIES = ['adapters/claude-code/tests/data.ts']
+const FIXTURES = ['data.ts', 'archive-fixture.ts']
 const header = (from: string) => `// Generated from ${from} by scripts/sync-core.ts — edit the source, not this copy.\n`
 
 const staged = process.argv.includes('--staged')
@@ -39,10 +38,12 @@ for (const target of TARGETS) {
   }
 }
 
-const fixture = files.read(DATA)
-if (fixture === null) throw new Error(`${DATA} is missing: nothing to copy, and the copies are left as they are`)
-const data = header(DATA) + fixture
-for (const target of DATA_COPIES) {
+for (const name of FIXTURES) {
+  const source = join('core/test', name)
+  const target = join('adapters/claude-code/tests', name)
+  const fixture = files.read(source)
+  if (fixture === null) throw new Error(`${source} is missing`)
+  const data = header(source) + fixture
   if (files.read(target) === data) continue
   stale.push(target)
   if (!check) writeFileSync(join(ROOT, target), data)

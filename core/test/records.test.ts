@@ -1,17 +1,13 @@
 import { expect, test } from 'bun:test'
 import {
   addGrowth,
-  addToIndex,
-  checkArchive,
   checkLetter,
   compactInstructions,
   contentChars,
   FRESH_GAUGE,
   frontmatter,
-  indexLine,
   knowledgeMap,
   OUTCOME,
-  parseArchiveInput,
   parseHistoryCount,
   parseShiftInput,
   readAbout,
@@ -20,12 +16,10 @@ import {
   renderRecent,
   renderStatus,
   sections,
-  segment,
-  shiftDir,
   shiftFill,
   shiftHint,
 } from '../src/index'
-import { BOARD, boardWith, check, LETTER, listWith, OWNER, TESTS, TRAPS, taskMd, WORK } from './fixtures'
+import { BOARD, boardWith, check, LETTER, OWNER, TRAPS, WORK } from './fixtures'
 
 // The checks of the records, about.md and the history, the hint rule and the texts: pure logic over plain values.
 
@@ -38,33 +32,6 @@ test('parseShiftInput refuses an empty letter, an unknown after and a bad about'
   expect(parseShiftInput({ letter: ' l.md ', after: 'continue', about: ' a ' })).toEqual({ letter: 'l.md', after: 'continue', about: 'a' })
 })
 
-test('about.md lists what the tracks closed in this stretch, what was archived and what is open', () => {
-  const previous = {
-    work: { ...WORK, tasks: [{ ...TESTS, track: '- [done] schema — applied\n- [in progress] webhooks' }] },
-    index: null,
-  }
-  const now = {
-    work: {
-      ...WORK,
-      taskList: listWith(['- [in progress] [tests](tasks/tests/) — red', '- [deferred] [refunds](tasks/refunds/) — waits for the API']),
-      tasks: [{ ...TESTS, track: '- [done] schema — applied\n- [done] webhooks — HMAC\n- [dropped] retries — the provider does it' }],
-    },
-    index: '# Archive\n\n- [done] [Old](old/) — finished',
-  }
-  const seg = segment(now, previous)
-  expect(seg).toEqual({
-    done: ['tests: webhooks — HMAC'],
-    dropped: ['tests: retries — the provider does it'],
-    archived: ['[done] [Old](old/) — finished'],
-    open: ['[in progress] [tests](tasks/tests/) — red', '[deferred] [refunds](tasks/refunds/) — waits for the API'],
-  })
-  const about = renderAbout({ about: 'webhooks ready', sessionId: 's', at: 0, after: 'wait', segment: seg, result: 'pending' })
-  expect(about).toContain('description: webhooks ready')
-  expect(about).toContain('## Done\n\n- tests: webhooks — HMAC')
-  expect(about).toContain('## Archived\n\n- [done] [Old](old/) — finished')
-  expect(about).toContain('tokens: unknown')
-})
-
 test('the letter needs every section, none empty', () => {
   expect(checkLetter(LETTER)).toBeNull()
   expect(checkLetter('## Where I am\nhere')).toContain('"## Next"')
@@ -73,28 +40,27 @@ test('the letter needs every section, none empty', () => {
 })
 
 test('the board is a state, not a diary', () => {
-  expect(check(WORK, null)).toBeNull()
-  expect(check({ ...WORK, board: '## Goal\nmod' }, null)).toContain('"## Decisions"')
-  expect(check({ ...WORK, board: boardWith(['- tests go first, 2026-10-23']) }, null)).toContain('date')
-  expect(check({ ...WORK, taskList: listWith(['- [done] [tests](tasks/tests/) — red']) }, null)).toContain('task_archive')
+  expect(check(WORK)).toBeNull()
+  expect(check({ ...WORK, board: '## Goal\nmod' })).toContain('"## Decisions"')
+  expect(check({ ...WORK, board: boardWith(['- tests go first, 2026-10-23']) })).toContain('date')
   const long = boardWith(Array.from({ length: 200 }, (_, i) => `- decision ${i}`))
-  expect(check({ ...WORK, board: long }, null)).toContain('diary')
-  expect(check({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` }, null)).toContain('live in .shift/OWNER.md')
-  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) }, null)).toContain('needs its reason')
-  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) }, null)).toBeNull()
+  expect(check({ ...WORK, board: long })).toContain('diary')
+  expect(check({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` })).toContain('live in .shift/OWNER.md')
+  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) })).toContain('needs its reason')
+  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) })).toBeNull()
 })
 
 test("the owner's decisions are a code of rules beside the board", () => {
-  expect(check({ ...WORK, owner: null }, null)).toContain('No .shift/OWNER.md')
-  expect(check({ ...WORK, owner: ' ' }, null)).toContain('"none"')
-  expect(check({ ...WORK, owner: `${OWNER} (19.10.2026)` }, null)).toContain('rewrites the older line')
+  expect(check({ ...WORK, owner: null })).toContain('No .shift/OWNER.md')
+  expect(check({ ...WORK, owner: ' ' })).toContain('"none"')
+  expect(check({ ...WORK, owner: `${OWNER} (19.10.2026)` })).toContain('rewrites the older line')
   const long = Array.from({ length: 160 }, (_, i) => `- rule ${i}`).join('\n')
-  expect(check({ ...WORK, owner: long }, null)).toContain('a log')
-  expect(check({ ...WORK, owner: 'none' }, null)).toBeNull()
+  expect(check({ ...WORK, owner: long })).toContain('a log')
+  expect(check({ ...WORK, owner: 'none' })).toBeNull()
 })
 
 test('knowledge files have a kind, an about, their entry fields and room', () => {
-  const file = (name: string, text: string) => check({ ...WORK, knowledge: [{ name, text }] }, null)
+  const file = (name: string, text: string) => check({ ...WORK, knowledge: [{ name, text }] })
   expect(file('traps.md', TRAPS)).toBeNull()
   expect(file('traps-tooling.md', TRAPS)).toBeNull()
   expect(file('notes.md', TRAPS.replace('kind: traps', 'kind: notes'))).toContain('one of traps, lessons, runbook, facts')
@@ -113,56 +79,11 @@ test('knowledge files have a kind, an about, their entry fields and room', () =>
   expect(knowledgeMap(WORK.knowledge)).toBe('- .shift/knowledge/traps.md — traps of edits and tests; lessons — lessons.md (1 entries)')
 })
 
-test('TASKS.md and the task folders match, and each task is whole', () => {
-  expect(check({ ...WORK, tasks: [] }, null)).toContain('without a folder')
-  expect(check({ ...WORK, tasks: [TESTS, { ...TESTS, name: 'extra' }] }, null)).toContain('missing from .shift/TASKS.md: extra')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, track: null }] }, null)).toContain('no track.md')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, task: '## Goal\ng' }] }, null)).toContain('title')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, task: '# T\n## Goal\ng' }] }, null)).toContain('"## Done when"')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- fix it' }] }, null)).toContain('Track items without a status')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fixed 23.10.2026' }] }, null)).toContain('date')
-})
-
-test('something must change between shifts, on the board or in a task', () => {
-  expect(check(WORK, WORK)).toContain('Nothing changed')
-  expect(check({ ...WORK, tasks: [{ ...TESTS, track: '- [done] fix the parser' }] }, WORK)).toBeNull()
-  expect(check({ ...WORK, owner: 'none' }, WORK)).toBeNull()
-  expect(check({ ...WORK, knowledge: [] }, WORK)).toBeNull()
-})
-
-test('archiving: done needs every item closed, the index line carries the title and the links', () => {
-  expect(parseArchiveInput({ name: 'Tests!', outcome: 'done', about: 'a' })).toContain('name')
-  expect(parseArchiveInput({ name: 'tests', outcome: 'later', about: 'a' })).toContain('outcome')
-  const input = { name: 'tests', outcome: 'done' as const, about: 'green' }
-  expect(checkArchive(input, TESTS, false)).toContain('Not every item is closed')
-  expect(checkArchive({ ...input, outcome: 'dropped' }, TESTS, false)).toBeNull()
-  expect(checkArchive(input, TESTS, true)).toContain('already exists')
-  expect(checkArchive(input, { ...TESTS, task: null }, false)).toContain('task.md is missing')
-
-  const line = indexLine(input, taskMd('Green tests'), ['old-tests', 'parser'])
-  expect(line).toBe('- [done] [Green tests](tests/) — green; continues old-tests, parser')
-  const index = addToIndex(null, line)
-  expect(index).toContain('# Archive')
-  expect(addToIndex(index, '- [dropped] [X](x/) — no')).toMatch(/green; continues old-tests, parser\n- \[dropped\]/)
-})
-
 test('the summarizer gets the hold and is told not to plan', () => {
   const text = compactInstructions({ hold: 'goal: ship the mod', board: '/b.md', owner: '/OWNER.md', dir: '/d' })
   expect(text).toContain('goal: ship the mod')
   expect(text).toContain('Do not write next steps')
   expect(text).not.toContain('working on now')
-  const focused = compactInstructions({
-    hold: 'h',
-    board: '/b.md',
-    owner: '/OWNER.md',
-    dir: '/d',
-    focus: ['delivery: the core; pi', 'unify'],
-  })
-  expect(focused).toContain('fuller than the rest:\n- delivery: the core; pi\n- unify\n\nWhat the agent asked to hold:')
-})
-
-test('shiftDir names the folder by UTC time', () => {
-  expect(shiftDir('/proj', Date.UTC(2026, 9, 23, 14, 5, 9))).toBe('/proj/.shift/shifts/20261023-140509')
 })
 
 test('the effective limit sets the soft and final milestones, once each per stretch', () => {
@@ -228,11 +149,10 @@ test('a hint and the status name what the history grew from', () => {
   expect(renderStatus(FRESH_GAUGE, { tokens: undefined, window: 1_000_000, threshold: undefined })).toContain('No reading yet')
 })
 
-test('history: count defaults to 10, entries read oldest first, the last one shows what is open', () => {
+test('history: count defaults to 10, entries read oldest first, the last one shows the outcome', () => {
   expect(parseHistoryCount({})).toBe(10)
   expect(parseHistoryCount({ count: 0 })).toContain('count')
-  const seg = { done: ['tests: webhooks'], dropped: [], archived: ['[done] [Old](old/) — finished'], open: ['[in progress] refunds'] }
-  const about = renderAbout({ about: 'webhooks ready', sessionId: 's', at: 0, after: 'wait', segment: seg, result: 'pending' })
+  const about = renderAbout({ about: 'webhooks ready', sessionId: 's', at: 0, after: 'wait', result: 'pending' })
   expect(frontmatter(about).get('description')).toBe('webhooks ready')
   const text = renderHistory(
     [
@@ -243,9 +163,6 @@ test('history: count defaults to 10, entries read oldest first, the last one sho
   )
   expect(text).toContain('2 of 7')
   expect(text).toContain('### b · wait · pending')
-  expect(text).toContain('Done: tests: webhooks')
-  expect(text).toContain('Archived: [done] [Old](old/) — finished')
-  expect(text).toContain('Open: [in progress] refunds')
   expect(renderHistory([], 0)).toContain('No shifts')
 })
 
@@ -256,7 +173,6 @@ test('recent shifts: descriptions oldest first, a pointer to the earlier ones, n
       sessionId: 's',
       at: 0,
       after,
-      segment: { done: [], dropped: [], archived: [], open: [] },
       result: 'pending',
     })
   const text = renderRecent({

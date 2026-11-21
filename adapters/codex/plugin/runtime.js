@@ -10,9 +10,7 @@ import { createInterface as createInterface4 } from "readline";
 var MOD = "shift";
 var TOOL = "shift";
 var GUIDE_TOOL = "shift_guide";
-var MIGRATE_TOOL = "shift_migrate";
 var HISTORY_TOOL = "shift_history";
-var ARCHIVE_TOOL = "task_archive";
 var STATUS_TOOL = "shift_status";
 var SIZES_TOOL = "shift_sizes";
 var SETUP_TOOL = "shift_setup";
@@ -23,31 +21,20 @@ var TASKS_COMMAND = "shift-tasks";
 var SHIFT_COMMAND = "shift";
 var BOARD_MAX_LINES = 150;
 var OWNER_MAX_LINES = 150;
-var TASKS_MAX_LINES = 150;
 var GLOSSARY_MAX_LINES = 400;
 var DOCS_MAP_MAX_CHARS = 1e5;
 var DOCS_PINNED_MAX_CHARS = 4000;
 var DOCS_MAX_DEPTH = 8;
 var KNOWLEDGE_MAX_LINES = 400;
 var DIR = ".shift";
-var OLD_DIR = ".infinity-shift";
 var NAMES = {
   board: "board.md",
   letter: "letter.md",
   owner: "OWNER.md",
-  oldOwner: "owner.md",
   glossary: "GLOSSARY.md",
   shift: "SHIFT.md",
-  taskList: "TASKS.md",
   settings: "settings.toml",
-  tasks: "tasks",
-  task: "task.md",
-  track: "track.md",
-  notes: "notes",
   knowledge: "knowledge",
-  archive: "archive",
-  index: "index.md",
-  shifts: "shifts",
   about: "about.md",
   summary: "summary.md"
 };
@@ -56,7 +43,6 @@ var LETTER = `${DIR}/${NAMES.letter}`;
 var SETTINGS = `${DIR}/${NAMES.settings}`;
 var SHIFT_FILE = `${DIR}/${NAMES.shift}`;
 var GLOSSARY = `${DIR}/${NAMES.glossary}`;
-var TASK_LIST = `${DIR}/${NAMES.taskList}`;
 var OWNER = `${DIR}/${NAMES.owner}`;
 function atPlaces(text, files) {
   const places = { [OWNER]: files.owner, [GLOSSARY]: files.glossary, [SHIFT_FILE]: files.shift };
@@ -65,28 +51,13 @@ function atPlaces(text, files) {
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-var OLD_OWNER = `${DIR}/${NAMES.oldOwner}`;
 var KNOWLEDGE = `${DIR}/${NAMES.knowledge}`;
-var TASKS = `${DIR}/${NAMES.tasks}`;
-var ARCHIVE = `${DIR}/${NAMES.archive}`;
-var INDEX = `${ARCHIVE}/${NAMES.index}`;
-var SHIFTS = `${DIR}/${NAMES.shifts}`;
-function taskFile(base, name, file) {
-  return `${base}/${NAMES.tasks}/${name}/${NAMES[file]}`;
-}
 var BOARD_SECTIONS = ["Goal", "Decisions", "Dead ends"];
 var OWNER_SECTION = "Owner decisions";
-var TASK_SECTIONS = ["Goal", "Done when", "Owner decisions", "Decisions", "Dead ends"];
 var LETTER_SECTIONS = ["Where I am", "Next", "Unverified", "Hold"];
 var NEXT = LETTER_SECTIONS[1];
 var HOLD = LETTER_SECTIONS[3];
-var OLD_TASKS_SECTION = "Tasks";
 var AFTER = ["continue", "wait"];
-var FOCUS = ["in progress", "deferred", "waiting for owner"];
-var OPEN = ["in progress", "open"];
-var CLOSING = ["done", "dropped"];
-var STATUSES = [...OPEN, ...CLOSING];
-var CLOSED = new Set(CLOSING);
 var KINDS = {
   traps: ["**Cause.**", "**Do.**"],
   lessons: ["**Why.**", "**Not when.**"],
@@ -96,12 +67,6 @@ var KINDS = {
 var ABOUT_MAX = 400;
 var HISTORY_DEFAULT = 10;
 var HISTORY_MAX = 50;
-var RECENT_SHIFTS = 10;
-var RECENT_CLOSED_ITEMS = 10;
-var STUCK_SHIFTS = 5;
-var STUCK_LOOKBACK = 30;
-var NAME = /^[a-z0-9][a-z0-9-]*$/;
-var NAME_RULE = "lowercase latin, digits and dashes, starting with a letter or a digit";
 
 // core/src/markdown.ts
 var HEADING = /^ {0,3}(#{1,6}) +(.+?)\s*$/;
@@ -215,9 +180,6 @@ function blocks(text, level) {
 function sections(text) {
   return new Map(blocks(text, 2).map((block) => [block.title, block.body.trim()]));
 }
-function title(text) {
-  return headings(text).find((heading) => heading.level === 1)?.title ?? null;
-}
 function lineCount(text) {
   return text.trimEnd().split(`
 `).length;
@@ -258,39 +220,6 @@ function isDay(found, at) {
   const date = new Date(Date.UTC(year ?? 0, (month ?? 0) - 1, day ?? 0));
   return date.getUTCFullYear() === year && date.getUTCMonth() === (month ?? 0) - 1 && date.getUTCDate() === day;
 }
-function itemsOf(text) {
-  return text.split(`
-`).flatMap((raw, index) => {
-    if (!raw.startsWith("- "))
-      return [];
-    const stamp = / <!-- shift-times (\d+|-) (\d+|-) -->$/.exec(raw.trim());
-    const line = stamp ? raw.trim().slice(0, stamp.index) : raw.trim();
-    const match = /^- \[([^\]]+)\] *(.*)$/.exec(line);
-    const rest = match?.[2] ?? line.slice(2).trim();
-    const id = /^#(\d+) +/.exec(rest);
-    const named = id === null ? rest : rest.slice(id[0].length);
-    const cut = named.indexOf(" \u2014 ");
-    return [
-      {
-        created: stamp && stamp[1] !== "-" ? Number(stamp[1]) : null,
-        closed: stamp && stamp[2] !== "-" ? Number(stamp[2]) : null,
-        status: match?.[1] ?? "",
-        id: id === null || !Number.isSafeInteger(Number(id[1])) ? null : Number(id[1]),
-        name: cut === -1 ? named : named.slice(0, cut),
-        note: cut === -1 ? null : named.slice(cut + 3),
-        rest,
-        line,
-        index
-      }
-    ];
-  });
-}
-function trackTimes(created, closed) {
-  return created === null && closed === null ? "" : ` <!-- shift-times ${created ?? "-"} ${closed ?? "-"} -->`;
-}
-function formatItem(status, id, name, note) {
-  return `- [${status}] #${id} ${name}${note === null ? "" : ` \u2014 ${note}`}`;
-}
 function formatK(n) {
   return n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
 }
@@ -304,10 +233,6 @@ function frontmatter(text) {
   }
   return found;
 }
-function bullets(body) {
-  return (body ?? "").split(`
-`).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
-}
 
 // core/src/about.ts
 var OUTCOME = {
@@ -318,7 +243,6 @@ var OUTCOME = {
   unsettled: (why) => `let go, not settled: ${why}`
 };
 function renderAbout(meta) {
-  const list = (items) => items.length === 0 ? ["none"] : items.map((item) => `- ${item}`);
   const fill = (tokens) => tokens === undefined ? "?" : formatK(tokens);
   const tokens = meta.tokensBefore === undefined && meta.tokensAfter === undefined ? "unknown" : `${fill(meta.tokensBefore)} \u2192 ${fill(meta.tokensAfter)}`;
   return [
@@ -331,29 +255,12 @@ function renderAbout(meta) {
     `summary_chars: ${meta.summaryChars ?? "unknown"}`,
     `session: ${meta.sessionId}`,
     "---",
-    "",
-    "## Done",
-    "",
-    ...list(meta.segment.done),
-    "",
-    "## Dropped",
-    "",
-    ...list(meta.segment.dropped),
-    "",
-    "## Archived",
-    "",
-    ...list(meta.segment.archived),
-    "",
-    "## Open",
-    "",
-    ...list(meta.segment.open),
     ""
   ].join(`
 `);
 }
 function readAbout(text) {
   const meta = frontmatter(text);
-  const found = sections(text);
   const after = meta.get("after") ?? meta.get("then") ?? null;
   const result = meta.get("result") ?? null;
   const fill = /\u2192 (\d+)(K?)$/.exec(meta.get("tokens") ?? "");
@@ -363,11 +270,7 @@ function readAbout(text) {
     result,
     session: meta.get("session") ?? null,
     shifted: result?.startsWith("shifted") ?? false,
-    tokensAfter: fill === null ? null : Number(fill[1]) * (fill[2] === "K" ? 1000 : 1),
-    done: bullets(found.get("Done")),
-    dropped: bullets(found.get("Dropped")),
-    archived: bullets(found.get("Archived")),
-    open: bullets(found.get("Open"))
+    tokensAfter: fill === null ? null : Number(fill[1]) * (fill[2] === "K" ? 1000 : 1)
   };
 }
 function shiftFill(text, sessionId) {
@@ -839,6 +742,34 @@ function readDoc(path, text) {
   };
 }
 
+// core/src/history.ts
+function renderSummary(messages) {
+  return `${messages.map((m) => `## ${m.role}
+
+${m.text}`).join(`
+
+`)}
+`;
+}
+function renderHistory(entries, total) {
+  if (entries.length === 0)
+    return "No shifts in this project yet.";
+  const blocks = entries.map((entry) => {
+    if (entry.about === null)
+      return `### ${entry.name}
+
+No about.md.`;
+    const about = readAbout(entry.about);
+    return `### ${entry.name} \xB7 ${about.after ?? "?"} \xB7 ${about.result ?? "?"}
+
+${about.description ?? ""}`;
+  });
+  const head = `Saved shifts, oldest first: ${entries.length} of ${total}.`;
+  return [head, ...blocks].join(`
+
+`);
+}
+
 // core/src/glossary.ts
 var GLOSSARY_LABELS = ["Variants", "Means", "Avoid", "Where", "Unconfirmed"];
 function parseGlossary(text, where) {
@@ -901,117 +832,6 @@ function words(list) {
   return (list ?? "").split(",").map((word) => word.trim()).filter((word) => word !== "");
 }
 
-// core/src/tasks.ts
-var LINKS = ["needs", "after", "continues"];
-var TASK_LINE = /^- \[([^\]]+)\] \[([^\]]+)\]\(tasks\/([^)/]+)\/?\) \u2014 (.+)$/;
-function taskLine(line) {
-  const [, status = "", label = "", name = "", about = ""] = TASK_LINE.exec(line.trimEnd()) ?? [];
-  return name === "" ? null : { status, label, name, about };
-}
-var LINK_LINE = /^\s+- ([a-z]+): (.+)$/;
-var TARGET = /\[([^\]]+)\]\((tasks|archive)\/([^)/]+)\/?\)/g;
-function parseTaskList(text) {
-  const tasks = [];
-  for (const raw of text.split(`
-`)) {
-    const line = raw.trimEnd();
-    if (line.trim() === "" || line.startsWith("#") || line.trim() === "none")
-      continue;
-    const task = taskLine(line);
-    if (task !== null) {
-      const { status, label, name, about } = task;
-      if (label !== name)
-        return `${TASK_LIST}: the link text and the folder differ in "${line}": write [${name}](tasks/${name}/).`;
-      tasks.push({ status, name, about, line, links: [] });
-      continue;
-    }
-    const link = LINK_LINE.exec(line);
-    const owner = tasks.at(-1);
-    if (link === null || owner === undefined) {
-      return `${TASK_LIST}: "${line.trim()}" is neither a task line \`- [status] [name](tasks/name/) \u2014 what it is\` nor a link under one.`;
-    }
-    const kind = link[1];
-    if (!LINKS.includes(kind))
-      return `${TASK_LIST}: unknown link "${kind}:" in "${line.trim()}"; links are ${LINKS.join(", ")}.`;
-    const targets = [...(link[2] ?? "").split(" \u2014 ")[0]?.matchAll(TARGET) ?? []];
-    if (targets.length === 0)
-      return `${TASK_LIST}: "${line.trim()}" links nothing; write [name](tasks/name/) or [name](archive/name/).`;
-    for (const [, , place = "tasks", name = ""] of targets)
-      owner.links.push({ kind, place, name, line: line.trim() });
-  }
-  return tasks;
-}
-function checkTaskList(text, folders, archived) {
-  if (text === null)
-    return `No ${TASK_LIST}: list every task folder there, one line each, or write "none".`;
-  const size = overLimit(TASK_LIST, text, TASKS_MAX_LINES, "archive finished tasks, keep one short line each.") ?? dated(TASK_LIST, text, "Tasks have no dates.");
-  if (size !== null)
-    return size;
-  const tasks = parseTaskList(text);
-  if (typeof tasks === "string")
-    return tasks;
-  const badStatus = tasks.filter((t) => !FOCUS.includes(t.status));
-  if (badStatus.length > 0) {
-    return `Tasks without a status (${FOCUS.join(", ")}) in ${TASK_LIST}: ${quote(badStatus.map((t) => t.line), "; ")}. A finished task is archived with ${ARCHIVE_TOOL}, not marked.`;
-  }
-  const badName = tasks.filter((t) => !NAME.test(t.name));
-  if (badName.length > 0)
-    return `Task names are ${NAME_RULE}: ${quote(badName.map((t) => t.name))}.`;
-  const twice = tasks.filter((t, at) => tasks.findIndex((other) => other.name === t.name) !== at).map((t) => t.name);
-  if (twice.length > 0)
-    return `${TASK_LIST} lists a task twice: ${quote([...new Set(twice)])}. One line each, its links under it.`;
-  const listed = new Set(tasks.map((t) => t.name));
-  const unlisted = folders.filter((name) => !listed.has(name));
-  if (unlisted.length > 0)
-    return `Task folders missing from ${TASK_LIST}: ${unlisted.join(", ")}. List each with its status, or archive it.`;
-  const homeless = [...listed].filter((name) => !folders.includes(name));
-  if (homeless.length > 0)
-    return `Tasks in ${TASK_LIST} without a folder in ${TASKS}/: ${homeless.join(", ")}. Create the folder, or remove the line.`;
-  for (const task of tasks) {
-    for (const link of task.links) {
-      const exists = link.place === "tasks" ? listed.has(link.name) : archived.includes(link.name);
-      if (!exists)
-        return `${TASK_LIST}: "${link.line}" under ${task.name} points at ${link.place}/${link.name}/, which is not there.`;
-      if (link.kind === "needs" && link.place !== "tasks") {
-        return `${TASK_LIST}: ${task.name} needs ${link.name}, which is archived: what it gave is done \u2014 write "after:".`;
-      }
-      if (link.kind === "after" && link.place !== "archive")
-        return `${TASK_LIST}: ${task.name} is after ${link.name}, which is still open: write "needs:" until it is archived.`;
-      if (link.kind === "continues" && link.place !== "archive")
-        return `${TASK_LIST}: ${task.name} continues ${link.name}, which is not archived: only an archived task is continued.`;
-      if (link.place === "tasks" && link.name === task.name)
-        return `${TASK_LIST}: ${task.name} links itself.`;
-    }
-  }
-  const cycle = needsCycle(tasks);
-  if (cycle !== null)
-    return `${TASK_LIST}: tasks need each other in a circle: ${cycle.join(" \u2192 ")}. One of them does not really need the next.`;
-  return null;
-}
-function needsCycle(tasks) {
-  const needs = new Map(tasks.map((t) => [t.name, t.links.filter((l) => l.kind === "needs").map((l) => l.name)]));
-  const done = new Set;
-  const walk = (name, path) => {
-    if (path.includes(name))
-      return [...path.slice(path.indexOf(name)), name];
-    if (done.has(name))
-      return null;
-    for (const next of needs.get(name) ?? []) {
-      const found = walk(next, [...path, name]);
-      if (found !== null)
-        return found;
-    }
-    done.add(name);
-    return null;
-  };
-  for (const task of tasks) {
-    const found = walk(task.name, []);
-    if (found !== null)
-      return found;
-  }
-  return null;
-}
-
 // core/src/records.ts
 function checkLetter(text) {
   const missing = missingSections(text, LETTER_SECTIONS, "The letter");
@@ -1023,54 +843,20 @@ function checkLetter(text) {
     return `The letter has empty sections: ${quote(empty)}. Nothing to say \u2014 write "none".`;
   return null;
 }
-function listedTasks(work) {
-  const listed = work.taskList === null ? [] : parseTaskList(work.taskList);
-  return typeof listed === "string" ? [] : listed;
-}
-function workText(work) {
-  const tasks = [...work.tasks].sort((a, b) => a.name.localeCompare(b.name));
-  return [
-    work.board.trim(),
-    (work.owner ?? "").trim(),
-    (work.taskList ?? "").trim(),
-    (work.glossary ?? "").trim(),
-    (work.shift ?? "").trim(),
-    ...tasks.map((t) => `${t.name}
-${(t.task ?? "").trim()}
-${(t.track ?? "").trim()}
-${t.notes.map((n) => `${n.name}
-${n.text.trim()}`).join(`
-`)}`),
-    ...work.knowledge.map((k) => `${k.name}
-${k.text.trim()}`)
-  ].join(`
-
-`);
-}
-function checkWork(work, previous, project) {
-  const problem = checkRecords(work, previous, project);
+function checkWork(work, project) {
+  const problem = checkRecords(work, project);
   return problem === null ? null : atPlaces(problem, project.settings.files);
 }
-function checkRecords(work, previous, project) {
+function checkRecords(work, project) {
   const settingsProblem = checkSettings(project);
   if (settingsProblem !== null)
     return settingsProblem;
-  if (work.oldOwner)
-    return `${OLD_OWNER} is the old name: owner decisions live in ${OWNER} now. Rename it and call again.`;
   const boardProblem = checkBoard(work.board);
   if (boardProblem !== null)
     return boardProblem;
-  const listProblem = checkTaskList(work.taskList, work.tasks.map((t) => t.name), work.archived);
-  if (listProblem !== null)
-    return listProblem;
   const ownerProblem = checkOwner(work.owner);
   if (ownerProblem !== null)
     return ownerProblem;
-  for (const task of work.tasks) {
-    const problem = checkTask(task);
-    if (problem !== null)
-      return problem;
-  }
   for (const file of work.knowledge) {
     const problem = checkKnowledge(file);
     if (problem !== null)
@@ -1079,12 +865,9 @@ function checkRecords(work, previous, project) {
   const glossaryProblem = checkGlossary(work.glossary, GLOSSARY);
   if (glossaryProblem !== null)
     return glossaryProblem;
-  if (previous !== null && workText(previous) === workText(work)) {
-    return "Nothing changed in the records since the last shift. Update the tracks, statuses and decisions, then shift.";
-  }
   return null;
 }
-function checkWritten(path, work, project, deferLinks) {
+function checkWritten(path, work, project) {
   const { files } = project.settings;
   const [dir, name = "", rest] = path.split("/").slice(1);
   const inShift = path.startsWith(`${DIR}/`);
@@ -1093,16 +876,11 @@ function checkWritten(path, work, project, deferLinks) {
     problem = checkSettings(project);
   else if (path === BOARD)
     problem = checkBoard(work.board);
-  else if (path === TASK_LIST)
-    problem = checkTaskList(work.taskList, work.tasks.map((t) => t.name), work.archived);
   else if (path === files.owner)
     problem = checkOwner(work.owner);
   else if (path === files.glossary)
     problem = checkGlossary(work.glossary, GLOSSARY);
-  else if (inShift && dir === NAMES.tasks && rest !== undefined) {
-    const task = work.tasks.find((each) => each.name === name);
-    problem = task === undefined ? null : checkTask(task, deferLinks);
-  } else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith(".md")) {
+  else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith(".md")) {
     const file = work.knowledge.find((each) => each.name === name);
     problem = file === undefined ? null : checkKnowledge(file);
   }
@@ -1115,47 +893,10 @@ function checkBoard(board) {
   if (sections(board).has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`;
   }
-  if (sections(board).has(OLD_TASKS_SECTION)) {
-    return `The board has a "## ${OLD_TASKS_SECTION}" section: keep the project focus in Goal. Preserve any task details in the project tracker before removing this section. See ${GUIDE_TOOL}.`;
-  }
   const boardMissing = missingSections(board, BOARD_SECTIONS, "The board");
   if (boardMissing !== null)
     return boardMissing;
   return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Move what belongs to one task into that task, keep only decisions in force.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.") ?? badRejected(board, "The board");
-}
-function checkTask({ name, task, track, notes: notes_ }, deferLinks) {
-  const where = `${TASKS}/${name}/`;
-  if (task === null)
-    return `${where} has no task.md.`;
-  if (track === null)
-    return `${where} has no track.md.`;
-  if (title(task) === null)
-    return `${where}task.md has no "# <title>" line.`;
-  const missing = missingSections(task, TASK_SECTIONS, `${where}task.md`);
-  if (missing !== null)
-    return missing;
-  const date = dated(where, task, "Tasks have no dates.") ?? dated(where, track, "Tasks have no dates.");
-  if (date !== null)
-    return date;
-  if (/^continues:/m.test(unfenced(task)) || frontmatter(task).has("continues"))
-    return `${where}task.md has a "continues:" line: links live in ${TASK_LIST} now. Remove it, and under the task's line there write it as "  - continues: [<name>](archive/<name>/)".`;
-  const rejected = badRejected(task, `${where}task.md`);
-  if (rejected !== null)
-    return rejected;
-  for (const note of notes_)
-    if ((frontmatter(note.text).get("description") ?? "") === "") {
-      return `${where}${NAMES.notes}/${note.name} needs a frontmatter "description": what is in it, as the list after a shift shows it.`;
-    }
-  const notes = noteLinks({ name, task, track, notes: notes_ });
-  if (notes !== null) {
-    if (!deferLinks)
-      return notes;
-    deferLinks(name);
-  }
-  const bad = itemsOf(track).filter((item) => !STATUSES.includes(item.status));
-  if (bad.length > 0)
-    return `Track items without a status (${STATUSES.join(", ")}) in ${where}track.md: ${quote(bad.map((i) => i.line), "; ")}.`;
-  return null;
 }
 function badRejected(text, where) {
   const bad = (sections(text).get("Decisions") ?? "").split(`
@@ -1168,22 +909,6 @@ function checkOwner(owner) {
   if (owner.trim() === "")
     return `${OWNER} is empty. No decisions yet \u2014 write "none".`;
   return overLimit(OWNER, owner, OWNER_MAX_LINES, "it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.") ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.");
-}
-function noteLinks({ name, task, track, notes }) {
-  const where = `${TASKS}/${name}/`;
-  const linked = linkTargets(`${task}
-${track}`).flatMap(({ file }) => {
-    const path = file?.replace(/^\.\//, "") ?? "";
-    return path.startsWith(`${NAMES.notes}/`) ? [path.slice(NAMES.notes.length + 1)] : [];
-  });
-  for (const note of notes) {
-    if (!linked.includes(note.name)) {
-      return `${where}${NAMES.notes}/${note.name} is linked from nowhere: link it from its item in ${NAMES.track}, or from ${NAMES.task}, as [what it holds](${NAMES.notes}/${encodeURIComponent(note.name)}).`;
-    }
-  }
-  const names = new Set(notes.map((note) => note.name));
-  const missing = linked.filter((name) => !names.has(name));
-  return missing.length === 0 ? null : `${where} links to notes that are not there: ${quote(missing.map((name) => `${NAMES.notes}/${name}`))}.`;
 }
 var isKind = (kind) => Object.hasOwn(KINDS, kind);
 var hasCommand = (body) => /^ {0,3}(```|~~~)/m.test(body) || /^ {4}\S/m.test(body);
@@ -1223,72 +948,6 @@ function knowledgeMap(files) {
 `);
 }
 
-// core/src/history.ts
-function stamp(ms) {
-  const d = new Date(ms);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
-}
-function shiftDir(root, ms) {
-  return `${root}/${SHIFTS}/${stamp(ms)}`;
-}
-function segment(now, previous) {
-  const closedBefore = new Map;
-  for (const task of previous?.work.tasks ?? []) {
-    closedBefore.set(task.name, itemsOf(task.track ?? "").filter((i) => CLOSED.has(i.status)));
-  }
-  const fresh = now.work.tasks.flatMap((task) => itemsOf(task.track ?? "").filter((item) => CLOSED.has(item.status) && !(closedBefore.get(task.name) ?? []).some((before) => sameItem(before, item))).map((item) => ({ status: item.status, text: `${task.name}: ${item.rest}` })));
-  const indexed = new Set(itemsOf(previous?.index ?? "").map(archivedKey));
-  return {
-    done: fresh.filter((f) => f.status === "done").map((f) => f.text),
-    dropped: fresh.filter((f) => f.status === "dropped").map((f) => f.text),
-    archived: itemsOf(now.index ?? "").filter((i) => !indexed.has(archivedKey(i))).map((i) => i.line.slice(2)),
-    open: listedTasks(now.work).map((t) => t.line.slice(2))
-  };
-}
-function sameItem(before, now) {
-  return before.id !== null && now.id !== null ? before.id === now.id : before.name === now.name;
-}
-function archivedKey(item) {
-  return /\]\(([^)]+?)\/?\)/.exec(item.line)?.[1] ?? item.line;
-}
-function renderSummary(messages) {
-  return `${messages.map((m) => `## ${m.role}
-
-${m.text}`).join(`
-
-`)}
-`;
-}
-function renderHistory(entries, total) {
-  if (entries.length === 0)
-    return "No shifts in this project yet.";
-  const blocks = entries.map((entry, index) => {
-    if (entry.about === null)
-      return `### ${entry.name}
-
-No about.md.`;
-    const about = readAbout(entry.about);
-    const lines = [`### ${entry.name} \xB7 ${about.after ?? "?"} \xB7 ${about.result ?? "?"}`, "", about.description ?? ""];
-    for (const [heading, listed] of [
-      ["Done", about.done],
-      ["Dropped", about.dropped],
-      ["Archived", about.archived]
-    ]) {
-      if (listed.length > 0)
-        lines.push("", `${heading}: ${listed.join("; ")}`);
-    }
-    if (index === entries.length - 1)
-      lines.push("", `Open: ${about.open.length === 0 ? "none" : about.open.join("; ")}`);
-    return lines.join(`
-`);
-  });
-  const head = entries[0]?.name.startsWith("s-") ? `Saved shifts, oldest first: ${entries.length} of ${total}.` : `Shifts, oldest first: ${entries.length} of ${total}. Folders \u2014 ${SHIFTS}/<name>/.`;
-  return [head, ...blocks].join(`
-
-`);
-}
-
 // core/src/saved.ts
 var ARCHIVE_DB = `${DIR}/history.db`;
 var NEXT_SAVED = "s-0000000000000000";
@@ -1311,15 +970,6 @@ function readSaved(p, id, file) {
   if (!isSaved(id))
     throw new Error("Pass a saved shift ID from shift_history.");
   return archiveCall(p, { action: "read", id, file });
-}
-async function usesNewStorage(p) {
-  if (!p.store.beads)
-    return false;
-  return await hasArchive(p) || await p.store.exists(`${p.root}/${DIR}/migration.json`) || !await legacyExists(p);
-}
-async function legacyExists(p) {
-  const roots = [TASK_LIST, SHIFTS, TASKS, ARCHIVE];
-  return (await Promise.all(roots.map((path) => p.store.exists(`${p.root}/${path}`)))).some(Boolean);
 }
 function savedFiles(work, letter, settings) {
   const files = { [NAMES.board]: work.board, [NAMES.letter]: letter };
@@ -1391,246 +1041,33 @@ async function historyAction(p, raw) {
   throw new Error("Choose list, read, compare, export or delete.");
 }
 
-// core/src/migration.ts
-async function destination(p, requested, allowShortName = false) {
-  const run = p.store.beads;
-  if (!requested || !run)
-    throw new Error("Pass the stable Beads ID of the transferred issue.");
-  const rows = JSON.parse(await run(p.root, ["show", `--id=${requested}`, "--brief-deps", "--json"]));
-  const id = Array.isArray(rows) && rows.length === 1 ? rows[0]?.id : null;
-  if (id !== requested && !(allowShortName && id === `shift-${requested}`))
-    throw new Error(`No exact Beads issue ${requested}.`);
-  const { revision, status, labels, comment_count, dependent_count, dependencies } = rows[0];
-  if (status === "closed" || !revision)
-    throw new Error(`Reopen and check ${id} before cleanup.`);
-  return { id, revision, labels, comment_count, dependent_count, dependencies };
-}
-async function transferState(p) {
-  const path = `${p.root}/${DIR}/migration.json`;
-  const text = await p.store.read(path);
-  if (text === null && !await p.store.exists(path))
-    return null;
-  try {
-    const state = JSON.parse(text ?? "");
-    if (!state || typeof state.backup !== "string" || typeof state.confirmed !== "object" || !state.confirmed || typeof state.done !== "boolean")
-      throw new Error;
-    return state;
-  } catch {
-    throw new Error("Cannot read .shift/migration.json. Recover the migration record before cleanup. Keep the backup and current records.");
-  }
-}
-async function migrationReceipt(p, id) {
-  if (!p.store.beads)
-    return;
-  let state;
-  try {
-    state = await transferState(p);
-  } catch {
-    return;
-  }
-  if (!state || state.done)
-    return;
-  if (id === NEXT_SAVED)
-    return "0".repeat(24);
-  if (id <= state.previous)
-    return;
-  const receipt = JSON.parse(await p.store.beads(p.root, ["shift-migrate"], JSON.stringify({ action: "receipt", previous: id, generation: state.backup })));
-  return typeof receipt === "string" && /^[a-f0-9]{24}$/.test(receipt) ? receipt : undefined;
-}
-async function needsMigrationShift(p, previous) {
-  const state = await transferState(p).catch(() => null);
-  return !!state && !state.done && previous <= state.previous;
-}
-async function status(p) {
-  const state = await transferState(p);
-  const list = await p.store.read(`${p.root}/${TASK_LIST}`);
-  const folders = await p.store.list(`${p.root}/${TASKS}`, "dir");
-  const parsed = parseTaskList(list ?? "none");
-  const legacy = await legacyExists(p);
-  return { state, legacy, parsed, folders };
-}
-async function migrationNote(p) {
-  if (!p.store.beads)
-    return null;
-  const result = await status(p).catch((error) => String(error));
-  if (typeof result === "string")
-    return result;
-  const { state, legacy, parsed, folders } = result;
-  if (state?.done && legacy)
-    return "Legacy records appeared after cleanup. Run shift_migrate with action start to back them up and transfer current work.";
-  if (state?.done || !legacy && !state)
-    return null;
-  const names = new Set([...typeof parsed === "string" ? [] : parsed.map((t) => t.name), ...folders]);
-  return [
-    "Legacy records need migration. Run shift_migrate with action start. Use the project sbd command to transfer each current issue and confirm its full stable ID. Leave earlier shifts and closed tasks in the backup. Make one new shift, restore its letter and run cleanup with its ID and restoration receipt.",
-    ...state?.recovery ? [state.recovery.trim()] : [],
-    ...[...names].map((name) => `- ${name}: ${state?.confirmed[name] ?? "transfer pending"}`),
-    ...typeof parsed === "string" ? [parsed] : []
-  ].join(`
-`);
-}
-async function migrateRecords(p, raw) {
-  const run = p.store.beads;
-  if (!run)
-    throw new Error("No bundled storage runtime.");
-  const { state, legacy, parsed, folders } = await status(p);
-  if (state?.done && !legacy)
-    return `Migration already finished. Backup: ${state.backup}.`;
-  if (!legacy && !state)
-    return "No legacy records.";
-  const action = raw.action;
-  const req = { action };
-  if (action === "status")
-    return await migrationNote(p) ?? "No legacy records.";
-  if (action === "start")
-    req.previous = (await savedEntries(p)).at(-1)?.id ?? "";
-  else {
-    if (state?.done)
-      throw new Error("Legacy records appeared after cleanup. Start their transfer first.");
-    if (typeof parsed === "string")
-      throw new Error(parsed);
-    if (!state)
-      throw new Error("Start the transfer first.");
-    req.generation = state.backup;
-    const names = new Set([...parsed.map((t) => t.name), ...folders, ...Object.keys(state.confirmed)]);
-    if (action === "confirm") {
-      const name = String(raw.task ?? "");
-      if (!names.has(name))
-        throw new Error("Choose a current legacy task.");
-      const target = await destination(p, String(raw.target ?? name), true);
-      if (Object.entries(state.confirmed).some(([n, id]) => n !== name && id === target.id))
-        throw new Error("Each legacy task needs its own stable ID.");
-      Object.assign(req, { task: name, target: target.id });
-    } else if (action === "cleanup") {
-      if (p.problem)
-        throw new Error(`Correct settings.toml before cleanup: ${p.problem}`);
-      req.settings = p.settingsText;
-      const saved = await readSaved(p, String(raw.id ?? ""), "letter.md");
-      if (saved.state !== "complete" || saved.id <= state.previous)
-        throw new Error("Complete and restore a new shift after starting migration.");
-      const expected = [];
-      for (const name of names) {
-        const target = state.confirmed[name];
-        if (!target)
-          throw new Error(`Transfer and confirm ${name} first.`);
-        expected.push(await destination(p, target));
-      }
-      Object.assign(req, { expected, confirmed: state.confirmed, receipt: raw.receipt, previous: saved.id });
-      req.protected = [
-        BOARD,
-        LETTER,
-        SETTINGS,
-        KNOWLEDGE,
-        ...(await p.store.list(`${p.root}/${KNOWLEDGE}`, "file")).map((name) => `${KNOWLEDGE}/${name}`),
-        ...await docPaths(p.store, p.root, p.settings.docs.dirs),
-        p.settings.files.shift,
-        p.settings.files.glossary,
-        p.settings.files.owner,
-        ...p.settings.files.always,
-        ...p.settings.docs.dirs
-      ].map((path) => normalize(path) ?? path);
-    } else
-      throw new Error("Choose status, start, confirm or cleanup.");
-  }
-  return String(JSON.parse(await run(p.root, ["shift-migrate"], JSON.stringify(req))));
-}
-
 // core/src/store.ts
-async function readWork(store, base, places, liveGraph = false) {
+async function readRecords(project) {
+  const {
+    root,
+    store,
+    settings: { files }
+  } = project;
+  const base = `${root}/${DIR}`;
   const board = await store.read(`${base}/${NAMES.board}`);
   if (board === null)
     return null;
-  const at = places ?? { owner: `${base}/${NAMES.owner}`, glossary: `${base}/${NAMES.glossary}`, shift: `${base}/${NAMES.shift}` };
-  const tasks = liveGraph ? [] : await Promise.all((await store.list(`${base}/${NAMES.tasks}`, "dir")).map((name) => readTask(store, base, name)));
   const knowledge = await Promise.all((await store.list(`${base}/${NAMES.knowledge}`, "file")).filter((name) => name.endsWith(".md")).map(async (name) => ({ name, text: await store.read(`${base}/${NAMES.knowledge}/${name}`) ?? "" })));
-  const oldOwner = `${base}/${NAMES.oldOwner}`;
-  const owner = await store.read(at.owner) ?? (places === undefined ? await store.read(oldOwner) : null);
   return {
     board,
-    owner,
-    tasks,
     knowledge,
-    taskList: liveGraph ? "none" : await store.read(`${base}/${NAMES.taskList}`),
-    glossary: await store.read(at.glossary),
-    shift: await store.read(at.shift),
-    archived: liveGraph ? [] : await store.list(`${base}/${NAMES.archive}`, "dir"),
-    oldOwner: places !== undefined && places.owner !== oldOwner && (await store.list(base, "file")).includes(NAMES.oldOwner)
+    owner: await store.read(`${root}/${files.owner}`),
+    glossary: await store.read(`${root}/${files.glossary}`),
+    shift: await store.read(`${root}/${files.shift}`)
   };
-}
-async function readTask(store, base, name) {
-  const notes = `${base}/${NAMES.tasks}/${name}/${NAMES.notes}`;
-  return {
-    name,
-    task: await store.read(taskFile(base, name, "task")),
-    track: await store.read(taskFile(base, name, "track")),
-    notes: await Promise.all((await store.list(notes, "file")).filter((file) => file.endsWith(".md")).map(async (file) => ({ name: file, text: await store.read(`${notes}/${file}`) ?? "" })))
-  };
-}
-async function writeSnapshot(store, dir, snapshot) {
-  const { work } = snapshot;
-  const files = [
-    [NAMES.letter, snapshot.letter],
-    [NAMES.board, work.board],
-    [NAMES.index, snapshot.index],
-    [NAMES.owner, work.owner],
-    [NAMES.taskList, work.taskList],
-    [NAMES.glossary, work.glossary],
-    [NAMES.shift, work.shift],
-    [NAMES.settings, snapshot.settings],
-    ...work.knowledge.map((file) => [`${NAMES.knowledge}/${file.name}`, file.text])
-  ];
-  for (const [name, text] of files)
-    if (text !== null)
-      await store.write(`${dir}/${name}`, text);
-  for (const task of work.tasks) {
-    if (task.task !== null)
-      await store.write(taskFile(dir, task.name, "task"), task.task);
-    if (task.track !== null)
-      await store.write(taskFile(dir, task.name, "track"), task.track);
-    for (const note of task.notes)
-      await store.write(`${dir}/${NAMES.tasks}/${task.name}/${NAMES.notes}/${note.name}`, note.text);
-  }
-}
-async function readRecords(project) {
-  const { root, settings } = project;
-  return readWork(project.store, `${root}/${DIR}`, {
-    owner: `${root}/${settings.files.owner}`,
-    glossary: `${root}/${settings.files.glossary}`,
-    shift: `${root}/${settings.files.shift}`
-  }, await usesNewStorage(project));
-}
-async function readSnapshot(store, base, index) {
-  const work = await readWork(store, base);
-  return work === null ? null : { work, index: await store.read(index) };
-}
-async function shiftNames({ store, root }) {
-  const names = (await store.list(`${root}/${SHIFTS}`, "dir")).filter((name) => /^\d{8}-\d{6}(?:-\d+)?$/.test(name));
-  const order = (name) => {
-    const [, stamp = name, n = "1"] = /^(\d{8}-\d{6})(?:-(\d+))?$/.exec(name) ?? [];
-    return { stamp, n: Number(n) };
-  };
-  return names.toSorted((a, b) => {
-    const x = order(a);
-    const y = order(b);
-    return x.stamp === y.stamp ? x.n - y.n : x.stamp < y.stamp ? -1 : 1;
-  });
 }
 async function lastShifts(project, count, exclude, session, preview = true) {
-  const { store, root } = project;
-  const saved = await savedEntries(project, preview && exclude && isSaved(exclude) ? exclude : undefined, session);
-  if (saved.length || exclude && isSaved(exclude)) {
-    const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
-    return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
-  }
-  const sorted = await shiftNames(project);
-  const index = exclude ? sorted.indexOf(exclude) : -1;
-  const names = index < 0 ? sorted : sorted.slice(0, index);
-  const entries = await Promise.all(names.slice(-count).map(async (name) => ({ name, about: await store.read(`${root}/${SHIFTS}/${name}/${NAMES.about}`) })));
-  return { entries, total: names.length };
+  const saved = await savedEntries(project, preview ? exclude : undefined, session);
+  const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
+  return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
 }
 function recentShifts(project, current, session, preview = true) {
-  const count = current && isSaved(current) ? project.settings.historyLimit : RECENT_SHIFTS;
-  return lastShifts(project, count, current, session, preview);
+  return lastShifts(project, project.settings.historyLimit, current, session, preview);
 }
 
 // core/src/texts/prompts.ts
@@ -1641,40 +1078,24 @@ var NOTE_KINDS = {
   docs: "the mod's check of the files written in the last run"
 };
 function compactInstructions(shift) {
-  const focus = shift.focus ?? [];
   return [
     "The agent is shifting: it continues this same work right after, from its own letter.",
-    isSaved(shift.dir) ? `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.` : `Its work board (${shift.board}), the owner's decisions (${shift.owner ?? OWNER}), its task folders (${TASKS}/), its knowledge (${KNOWLEDGE}/) and its letter (${shift.dir}/${NAMES.letter}) are on disk and will be delivered to it, so do not repeat tasks, statuses, rules, lessons or next steps.`,
+    `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.`,
     "Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.",
     "Do not write next steps or a plan.",
-    ...focus.length === 0 ? [] : [
-      "",
-      "What it is working on now \u2014 keep the reasoning, findings and failed attempts around these fuller than the rest:",
-      ...focus.map((each) => `- ${each}`)
-    ],
     "",
     "What the agent asked to hold:",
     shift.hold
   ].join(`
 `);
 }
-function renderWork(work, knowledge, owner, legacyTasks = true) {
+function renderWork(work, knowledge, owner) {
   if (work === null)
     return `There is no board at ${BOARD}.`;
-  const tasks = inProgress(work).flatMap((t) => [
-    `**Task \xB7 ${t.name}**
-
-${fileBlock(`${TASKS}/${t.name}/${NAMES.task}`, t.task ?? "missing")}`,
-    `**Tracker \xB7 ${t.name}**
-
-${fileBlock(`${TASKS}/${t.name}/${NAMES.track}`, trackPreview(t.track ?? "missing"))}`,
-    ...t.notes.length === 0 ? [] : [notesList(t.name, t.notes)]
-  ]);
   return [
     `**Board**
 
 ${fileBlock(BOARD, work.board)}`,
-    ...legacyTasks ? tasks.length === 0 ? ["No task is in progress."] : tasks : [],
     `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">
 ${knowledgeMap(work.knowledge)}
 </knowledge>`
@@ -1683,31 +1104,6 @@ ${knowledgeMap(work.knowledge)}
 ---
 
 `);
-}
-function trackPreview(text) {
-  const items = itemsOf(text);
-  const closed = items.filter((item) => CLOSED.has(item.status)).sort((a, b) => (b.closed ?? -1) - (a.closed ?? -1) || b.index - a.index);
-  const omitted = new Set(closed.slice(RECENT_CLOSED_ITEMS).map((item) => item.index));
-  const lines = text.split(`
-`);
-  for (const item of items)
-    lines[item.index] = item.line;
-  const preview = lines.filter((_, i) => !omitted.has(i)).join(`
-`);
-  if (!closed.length)
-    return preview;
-  const detail = omitted.size ? `; latest ${RECENT_CLOSED_ITEMS} shown. Read the track file for all items.` : ".";
-  return `${preview.trimEnd()}
-
-${closed.length} closed${detail}`;
-}
-function notesList(task, notes) {
-  const folder = `${TASKS}/${task}/${NAMES.notes}`;
-  const rows = notes.map((note) => `- ${folder}/${note.name} \u2014 ${frontmatter(note.text).get("description") ?? "no description"}`);
-  return `<notes path="${folder}/" note="read a note when its item comes up">
-${rows.join(`
-`)}
-</notes>`;
 }
 function placement(knowledge, owner) {
   if (knowledge === "local")
@@ -1734,16 +1130,11 @@ function fileBlock(path, text) {
 ${text.trim()}
 </file>`;
 }
-function inProgress(work) {
-  const doing = new Set(listedTasks(work).filter((t) => t.status === "in progress").map((t) => t.name));
-  return work.tasks.filter((t) => doing.has(t.name));
-}
 function deliveredFiles(work) {
   if (work === null)
     return [NAMES.letter];
-  const tasks = inProgress(work).map((t) => `${NAMES.tasks}/${t.name}/`);
   const knowledge = work.knowledge.length === 0 ? [] : [`${NAMES.knowledge}/ (the map)`];
-  return [NAMES.letter, NAMES.board, ...tasks, ...knowledge];
+  return [NAMES.letter, NAMES.board, ...knowledge];
 }
 function renderRecent(recent) {
   if (recent.entries.length === 0)
@@ -1762,38 +1153,26 @@ function renderRecent(recent) {
   ].join(`
 `);
 }
-function renderStuck(stuck) {
-  return [
-    `Tasks unchanged through the last shifts \u2014 still right? Ask the owner, change the status, or transfer the current work through shift_migrate:`,
-    ...stuck.map((task) => `- ${task.name} (${task.status}) \u2014 ${task.shifts} shifts`)
-  ].join(`
-`);
-}
 function shiftMessage(opening, letter, back, closing = []) {
   const { work, recent, dir, remarks } = back;
-  const saved = isSaved(dir);
   return [
-    saved ? `<${MOD} id="${dir}">` : `<${MOD} folder="${dir}/">`,
+    `<${MOD} id="${dir}">`,
     opening,
     "",
-    saved ? "Your current board and knowledge map follow. The session files were read again after this shift." : "The board, the tasks in progress and the map of knowledge, as they are now; the files of your session block were read again after this shift:",
+    "Your current board and knowledge map follow. The session files were read again after this shift.",
     "",
-    renderWork(work, back.knowledge, back.owner, !saved),
+    renderWork(work, back.knowledge, back.owner),
     "",
     renderRecent(recent),
     "",
-    ...back.stuck.length === 0 ? [] : [renderStuck(back.stuck), ""],
     ...remarks === null ? [] : ["Documents with remarks from the mod \u2014 fix them as the work passes by them:", "", remarks, ""],
     "Your letter to yourself, written right before the shift:",
     "",
-    saved ? `<letter shift="${dir}">` : `<letter path="${dir}/${NAMES.letter}">`,
+    `<letter shift="${dir}">`,
     letter.trim(),
     "</letter>",
     "",
-    saved ? `Read saved records with shift_history using ID ${dir}.` : `The letter and the snapshots of this shift: ${dir}/.`,
-    ...back.migrationReceipt ? [
-      `After checking this letter, finish the transfer with shift_migrate(action="cleanup", id="${dir}", receipt="${back.migrationReceipt}").`
-    ] : [],
+    `Read saved records with shift_history using ID ${dir}.`,
     ...closing,
     `</${MOD}>`
   ].join(`
@@ -1809,7 +1188,7 @@ function waitContext(letter, back) {
 }
 function resumePrompt(letter, back, outcome = null) {
   return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
-    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 ${isSaved(back.dir) ? "the project Beads command in your session instructions" : INDEX}; how a shift works \u2014 ${GUIDE_TOOL}.`,
+    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 the project Beads command in your session instructions; how a shift works \u2014 ${GUIDE_TOOL}.`,
     `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
   ]);
 }
@@ -1819,7 +1198,7 @@ var TURN_END = {
   continue: "End the turn with one line and do nothing more",
   wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
 };
-var ACCEPTED = (dir, learned, after) => `Shift accepted, the letter and the snapshots: ${isSaved(dir) ? `shift_history ID ${dir}` : `${dir}/`}. ${learned ? "" : `Nothing went into ${KNOWLEDGE}/ this stretch: if you learned something that stays true for months \u2014 a trap, a lesson, a command, a fact \u2014 write it where knowledge goes here first, while the stretch is still whole. `}${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
+var ACCEPTED = (dir, after) => `Shift accepted, read its records with shift_history ID ${dir}. ${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
 var NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
 var EXCLUDED = (file) => `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`;
 var SHIFT_TOO_EARLY = (why) => `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown \u2014 after the first hint.`;
@@ -1831,7 +1210,7 @@ var NOT_MADE_NOTE = (name, why) => `<${MOD} note="from the mod: the shift was no
 Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; its saved records remain in history. Go on from where you stopped, and shift again later.
 </${MOD}>`;
 var UNSETTLED_NOTE = (name, why, dir) => `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, ${isSaved(dir) ? `shift_history(action="read", id="${dir}")` : `${dir}/${NAMES.letter}`} \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD}${isSaved(dir) ? "" : ` and ${TASK_LIST}`}, and continue from "${NEXT}".
+Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, shift_history(action="read", id="${dir}") \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD}, and continue from "${NEXT}".
 </${MOD}>`;
 var HELD_NOTE = (texts) => `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? "this message" : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? "it" : "them"} back to reach you after your letter. ${texts.length === 1 ? "It goes" : "They go"} first, before "${NEXT}".</${MOD}>
 
@@ -1841,62 +1220,14 @@ ${texts.join(`
 var FAILURE_NOTE = "the note that the shift failed";
 
 // core/src/texts/rows.ts
-var letterAt = (dir) => isSaved(dir) ? `shift_history ${dir}` : `${dir}/${NAMES.letter}`;
 var TOLD = (body) => `to the agent \u2014 ${body.split(`
 `).join(" ")}`;
 var NOT_MADE = (name, why) => `shift ${name} not made \u2014 ${why}`;
-var CONTINUING = (name, shrank, dir) => `shift ${name} done (${shrank}), continuing from the letter \u2014 ${letterAt(dir)}`;
+var CONTINUING = (name, shrank, dir) => `shift ${name} done (${shrank}), continuing from the letter \u2014 shift_history ${dir}`;
 var WAITING = (name, shrank) => `shift ${name} done (${shrank}) \u2014 waiting for you, the letter goes with your next message`;
 var UNSETTLED = (name, why) => `shift ${name}: the history was let go, but the message after it failed \u2014 ${why}; the accepted letter is in shift history`;
-var DELIVERED = (files, dir) => `went with your message: ${files.join(", ")} \u2014 ${letterAt(dir)}`;
+var DELIVERED = (files, dir) => `went with your message: ${files.join(", ")} \u2014 shift_history ${dir}`;
 var NOT_CONTINUED = (why, carried = "the letter") => `the next turn did not start after the shift \u2014 ${why}; send any message to go on, ${carried} goes with it`;
-function renderTasks(tasks) {
-  if (tasks.length === 0)
-    return `no open tasks in ${TASK_LIST}`;
-  const blocks = tasks.map((task) => {
-    const count = task.total === 0 ? "no items" : `${task.closed} of ${task.total} items closed`;
-    const items = (task.items ?? []).map((item) => `    [${item.status}] ${item.name}`);
-    return [`[${task.status}] ${task.name} \u2014 ${count}`, `    ${task.about}`, ...items].join(`
-`);
-  });
-  return [`open tasks in ${TASK_LIST}`, "", blocks.join(`
-
-`)].join(`
-`);
-}
-
-// core/src/track.ts
-function numberItems(text) {
-  const items = itemsOf(text).filter((item) => item.status !== "");
-  let next = nextId(items);
-  const lines = text.split(`
-`);
-  const seen = new Set;
-  for (const item of items) {
-    if (item.id !== null && !seen.has(item.id)) {
-      seen.add(item.id);
-      continue;
-    }
-    lines[item.index] = formatItem(item.status, next++, item.name, item.note) + trackTimes(item.created, item.closed);
-  }
-  return lines.join(`
-`);
-}
-async function numberTracks(project) {
-  const { store, root } = project;
-  for (const task of await store.list(`${root}/${TASKS}`, "dir")) {
-    const path = taskFile(`${root}/${DIR}`, task, "track");
-    const text = await store.read(path);
-    if (text === null)
-      continue;
-    const numbered = numberItems(text);
-    if (numbered !== text)
-      await store.write(path, numbered);
-  }
-}
-function nextId(items) {
-  return Math.max(0, ...items.map((item) => item.id ?? 0)) + 1;
-}
 
 // core/src/flows.ts
 function recordFingerprint(project, path, text) {
@@ -1907,13 +1238,14 @@ function recordFingerprint(project, path, text) {
     observed = withToc(text) ?? text;
   return String(textFingerprint(observed));
 }
-async function changedRecords(project, seen, by, confirmed, deferLinks) {
+async function changedRecords(project, seen, by, confirmed) {
   if (!project.settings.enabled)
     return { seen: seen ?? {}, body: null };
   const now = Object.create(null);
   const changed = [];
   const external = new Set;
-  for (const [path, stamp] of Object.entries(await recordStamps(project))) {
+  const records = watchedFiles(project);
+  for (const [path, stamp] of Object.entries(await recordStamps(project, records))) {
     const was = seen && Object.hasOwn(seen, path) ? seen[path] ?? "" : "";
     const at = was.lastIndexOf("#");
     if (at !== -1 && was.slice(0, at) === stamp) {
@@ -1935,7 +1267,7 @@ async function changedRecords(project, seen, by, confirmed, deferLinks) {
   const lines = [];
   if (by === "other" && seen) {
     for (const path of Object.keys(seen))
-      if (!(path in now) && !await project.store.exists(`${project.root}/${path}`) && !confirmed?.(path, null, seen[path]?.split("#").pop()))
+      if (!(path in now) && (records.has(path) || dirname(path) === KNOWLEDGE && path.endsWith(".md")) && !await project.store.exists(`${project.root}/${path}`) && !confirmed?.(path, null, seen[path]?.split("#").pop()))
         lines.push(`\`${path}\` was removed outside your tools.`);
   }
   if (changed.length === 0)
@@ -1944,7 +1276,7 @@ async function changedRecords(project, seen, by, confirmed, deferLinks) {
   const work = await readRecords(project);
   let broken = false;
   for (const path of changed) {
-    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project, deferLinks);
+    const problem = path === LETTER ? await letterProblem(project) : work === null ? null : checkWritten(path, work, project);
     broken ||= problem !== null;
     if (external.has(path))
       lines.push(`\`${path}\` changed outside your tools \u2014 by the owner or another session: read it before you write it.`);
@@ -1956,27 +1288,14 @@ async function changedRecords(project, seen, by, confirmed, deferLinks) {
   return { seen: now, body: lines.length === 0 ? null : lines.join(`
 `) };
 }
-async function recordStamps(project) {
-  const { store, root, settings } = project;
-  const legacy = !await usesNewStorage(project);
+function watchedFiles({ settings }) {
+  return new Set([BOARD, LETTER, SETTINGS, settings.files.owner, settings.files.glossary, settings.files.shift, ...settings.files.always]);
+}
+async function recordStamps(project, own) {
+  const { store, root } = project;
   const stamped = async (dir, only) => Object.fromEntries(Object.entries(await store.stamps(join(root, dir))).filter(([name]) => only ? only(name) : name.endsWith(".md")).map(([name, stamp]) => [join(dir, name), stamp]));
-  const own = new Set([
-    BOARD,
-    ...legacy ? [TASK_LIST] : [],
-    LETTER,
-    SETTINGS,
-    settings.files.owner,
-    settings.files.glossary,
-    settings.files.shift,
-    ...settings.files.always
-  ]);
-  const tasks = legacy ? await store.list(`${root}/${TASKS}`, "dir") : [];
   const parts = await Promise.all([
     ...[...new Set([...own].map(dirname))].map((dir) => stamped(dir, (name) => own.has(join(dir, name)))),
-    ...tasks.flatMap((name) => [
-      stamped(`${TASKS}/${name}`, (file) => file === NAMES.task || file === NAMES.track),
-      stamped(`${TASKS}/${name}/${NAMES.notes}`)
-    ]),
     stamped(KNOWLEDGE)
   ]);
   return Object.assign({}, ...parts);
@@ -2012,100 +1331,52 @@ async function acceptShift(project, call) {
     return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` };
   if (settings.enabled)
     await refreshDocs(project);
-  const modern = await usesNewStorage(project);
-  if (!modern)
-    await numberTracks(project);
   const work = await readRecords(project);
   if (work === null)
     return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` };
-  const previousDir = modern ? null : await lastMadeShift(project);
-  const previous = previousDir === null ? null : await readSnapshot(store, previousDir, `${previousDir}/${NAMES.index}`);
-  const workProblem = checkWork(work, previous?.work ?? null, project);
+  const workProblem = checkWork(work, project);
   if (workProblem !== null)
     return { deny: workProblem };
   const kept = await keepRecordsOut(project);
   if ("deny" in kept)
     return kept;
-  const index = modern ? null : await store.read(`${root}/${INDEX}`);
-  const dir = modern ? "" : await freeShiftDir(project, shiftDir(root, call.at));
   const shift = {
     after: input.after,
     letter,
     hold: parts.get(HOLD) ?? "",
-    dir,
+    dir: "",
     board: `${root}/${BOARD}`,
     owner: `${root}/${settings.files.owner}`,
     sessionId: call.sessionId,
     about: description,
-    at: call.at,
-    segment: modern ? { done: [], dropped: [], archived: [], open: [] } : segment({ work, index }, previous),
-    focus: modern ? [] : focusOf(work)
+    at: call.at
   };
   const about = renderAbout({ ...shift, result: OUTCOME.pending });
-  if (modern) {
-    const files = savedFiles(work, letter, project.settingsText);
-    const entries = await savedEntries(project);
-    const previous = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === call.sessionId);
-    const compare = previous && !await needsMigrationShift(project, previous.id) ? previous.id : undefined;
-    shift.dir = await archiveCall(project, {
-      action: "begin",
-      key: JSON.stringify([call.sessionId, call.at]),
-      files,
-      about,
-      compare
-    });
-    if (!shift.dir)
-      return { deny: "Nothing changed in the records since the last shift. Record progress before shifting." };
-    const earlier = entries.find((e) => e.id === shift.dir);
-    if (earlier)
-      shift.at = Date.parse(frontmatter(earlier.about).get("at") ?? "");
-  } else {
-    await store.write(`${dir}/${NAMES.about}`, about);
-    await writeSnapshot(store, dir, { work, letter, index, settings: project.settingsText });
-  }
-  const learned = previous === null || knowledgeText(work) !== knowledgeText(previous.work);
-  const accepted = ACCEPTED(shift.dir, learned, input.after);
+  const files = savedFiles(work, letter, project.settingsText);
+  const entries = await savedEntries(project);
+  const previous = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === call.sessionId);
+  shift.dir = await archiveCall(project, {
+    action: "begin",
+    key: JSON.stringify([call.sessionId, call.at]),
+    files,
+    about,
+    compare: previous?.id
+  });
+  if (!shift.dir)
+    return { deny: "Nothing changed in the records since the last shift. Record progress before shifting." };
+  const earlier = entries.find((e) => e.id === shift.dir);
+  if (earlier)
+    shift.at = Date.parse(frontmatter(earlier.about).get("at") ?? "");
+  const accepted = ACCEPTED(shift.dir, input.after);
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}
 
 ${accepted}` };
-}
-async function lastMadeShift(project) {
-  const names = await shiftNames(project);
-  for (const name of names.toReversed()) {
-    const dir = `${project.root}/${SHIFTS}/${name}`;
-    const about = await project.store.read(`${dir}/${NAMES.about}`);
-    if (!(readAbout(about ?? "").result ?? "").startsWith(OUTCOME.notShifted("")))
-      return dir;
-  }
-  return null;
-}
-async function freeShiftDir(project, dir) {
-  const taken = new Set(await shiftNames(project));
-  const name = basename(dir);
-  let free = name;
-  for (let n = 2;taken.has(free); n++)
-    free = `${name}-${n}`;
-  return `${dirname(dir)}/${free}`;
-}
-function focusOf(work) {
-  return listedTasks(work).filter((listed) => listed.status === "in progress").map((listed) => {
-    const track = work.tasks.find((task) => task.name === listed.name)?.track ?? "";
-    const doing = itemsOf(track).filter((item) => item.status === "in progress").map((item) => item.name);
-    return doing.length === 0 ? listed.name : `${listed.name}: ${doing.join("; ")}`;
-  });
-}
-function knowledgeText(work) {
-  return work.knowledge.map((file) => `${file.name}
-${file.text}`).join(`
-`);
 }
 async function shiftHistory(project, count) {
   const { entries, total } = await lastShifts(project, count);
   return renderHistory(entries, total);
 }
 async function resumeShift(project, actor = project.actor) {
-  const { store, root } = project;
-  const names = await shiftNames(project);
   const entries = await savedEntries(project);
   const newest = entries.at(-1);
   if (newest) {
@@ -2121,57 +1392,17 @@ async function resumeShift(project, actor = project.actor) {
       prompt: resumePrompt(letter, await handBack(project, saved.id, actor, !!waiting), about.shifted ? null : about.result)
     };
   }
-  if (names.length === 0)
-    return { text: "No shifts in this project yet." };
-  for (const name of names.toReversed()) {
-    const dir = `${root}/${SHIFTS}/${name}`;
-    const letter = await store.read(`${dir}/${NAMES.letter}`);
-    if (letter === null)
-      continue;
-    const about = readAbout(await store.read(`${dir}/${NAMES.about}`) ?? "");
-    const outcome = about.shifted || about.result === null ? null : about.result;
-    return {
-      text: `Picking up shift ${name}${outcome === null ? "" : ` (${outcome})`}.`,
-      prompt: resumePrompt(letter, await handBack(project, dir), outcome)
-    };
-  }
-  return { text: `No letter.md in any folder of ${SHIFTS}/ \u2014 nothing to pick up.` };
+  return { text: "No shifts in this project yet." };
 }
 async function handBack(project, dir, actor, preview = true) {
   return {
     work: await readRecords(project),
     knowledge: project.settings.knowledge,
     owner: project.settings.files.owner,
-    recent: await recentShifts(project, basename(dir), project.deliveryKey ?? actor, preview),
+    recent: await recentShifts(project, dir, project.deliveryKey ?? actor, preview),
     dir,
-    remarks: await docsReport(project),
-    stuck: isSaved(dir) ? [] : await stuckTasks(project),
-    ...isSaved(dir) ? { migrationReceipt: await migrationReceipt(project, dir) } : {}
+    remarks: await docsReport(project)
   };
-}
-async function stuckTasks(project) {
-  const { store, root } = project;
-  const work = await readRecords(project);
-  if (work === null)
-    return [];
-  const shifts = (await shiftNames(project)).slice(-STUCK_LOOKBACK).reverse();
-  const stuck = [];
-  for (const listed of listedTasks(work)) {
-    const now = work.tasks.find((task) => task.name === listed.name);
-    if (now === undefined)
-      continue;
-    let count = 0;
-    for (const name of shifts) {
-      const base = `${root}/${SHIFTS}/${name}`;
-      const same = await store.read(taskFile(base, listed.name, "task")) === now.task && await store.read(taskFile(base, listed.name, "track")) === now.track;
-      if (!same)
-        break;
-      count++;
-    }
-    if (count >= STUCK_SHIFTS)
-      stuck.push({ name: listed.name, status: listed.status, shifts: count });
-  }
-  return stuck;
 }
 async function shiftNotMade(project, shift, why, tokensBefore) {
   const row = NOT_MADE(basename(shift.dir), why);
@@ -2183,31 +1414,25 @@ async function shiftUnsettled(project, shift, why, tokensBefore) {
 }
 async function recordFailure(project, shift, about, row) {
   try {
-    if (isSaved(shift.dir))
-      await archiveCall(project, {
-        action: "finish",
-        id: shift.dir,
-        state: readAbout(about).result?.startsWith("not shifted") ? "failed" : "unsettled",
-        about,
-        limit: project.settings.historyLimit
-      });
-    else
-      await project.store.write(`${shift.dir}/${NAMES.about}`, about);
+    await archiveCall(project, {
+      action: "finish",
+      id: shift.dir,
+      state: readAbout(about).result?.startsWith("not shifted") ? "failed" : "unsettled",
+      about,
+      limit: project.settings.historyLimit
+    });
     return row;
   } catch (error) {
     return `${row} (and ${NAMES.about} was not written: ${String(error)})`;
   }
 }
 async function settleShift(project, letGo, back) {
-  const { store } = project;
   const { shift, before, after } = letGo;
   const summary = renderSummary(letGo.messages);
-  if (!isSaved(shift.dir))
-    await store.write(`${shift.dir}/${NAMES.summary}`, summary);
   const shrank = `${before === undefined ? "?" : formatK(before)} \u2192 ${after === undefined ? "?" : formatK(after)}`;
   const outcome = (result) => {
     const about = renderAbout({ ...shift, tokensBefore: before, tokensAfter: after, summaryChars: summary.length, result });
-    return isSaved(shift.dir) ? archiveCall(project, {
+    return archiveCall(project, {
       action: "finish",
       id: shift.dir,
       state: "complete",
@@ -2216,7 +1441,7 @@ async function settleShift(project, letGo, back) {
       about,
       files: { [NAMES.summary]: summary },
       limit: project.settings.historyLimit
-    }) : store.write(`${shift.dir}/${NAMES.about}`, about);
+    });
   };
   const handed = back ?? await handBack(project, shift.dir, shift.sessionId);
   const name = basename(shift.dir);
@@ -2233,20 +1458,8 @@ async function settleShift(project, letGo, back) {
 }
 async function shiftBase(project, sessionId) {
   const entries = await savedEntries(project);
-  if (entries.length) {
-    const last = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === sessionId);
-    return last ? shiftFill(last.about, sessionId) : null;
-  }
-  for (const name of (await shiftNames(project)).toReversed()) {
-    const about = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.about}`);
-    if (about === null)
-      continue;
-    const { result } = readAbout(about);
-    if (result === OUTCOME.pending || (result ?? "").startsWith(OUTCOME.notShifted("")))
-      continue;
-    return shiftFill(about, sessionId);
-  }
-  return null;
+  const last = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === sessionId);
+  return last ? shiftFill(last.about, sessionId) : null;
 }
 async function keepRecordsOut(project) {
   const { store, root } = project;
@@ -2273,56 +1486,23 @@ async function sessionFiles(project, { refresh = true } = {}) {
     return [];
   if (refresh)
     await refreshDocs(project);
-  const modern = await usesNewStorage(project);
-  const paths = [
-    ...new Set([
-      settings.files.shift,
-      settings.files.owner,
-      settings.files.glossary,
-      ...modern ? [] : [TASK_LIST],
-      ...settings.files.always
-    ])
-  ];
+  const paths = [...new Set([settings.files.shift, settings.files.owner, settings.files.glossary, ...settings.files.always])];
   const loaded = await Promise.all(paths.map(async (path) => ({ path, text: await store.read(`${root}/${path}`) })));
   return loaded.filter((file) => file.text !== null);
 }
 async function staleLayout({ store, root }) {
-  if (await store.exists(`${root}/${OLD_DIR}`)) {
-    return await store.exists(`${root}/${DIR}`) ? `Both ${OLD_DIR}/ and ${DIR}/ are here: the records live in ${DIR}/ now. Merge what ${OLD_DIR}/ holds into ${DIR}/ by ${GUIDE_TOOL}, then remove ${OLD_DIR}/.` : `The records are in ${OLD_DIR}/, the mod's old name: rename the folder to ${DIR}/ as it is, and call again.`;
-  }
   if (await store.exists(`${root}/${DIR}/sessions`) && !await store.exists(`${root}/${BOARD}`)) {
-    return `${DIR}/ here is the shift skill's: it has sessions/ and no board. Move it in place by "Coming from the shift skill" in ${GUIDE_TOOL}, then call again.`;
+    return `${DIR}/ here is the shift skill's: it has sessions/ and no board. Check the project root before using Shift here.`;
   }
   return null;
 }
 async function tasksView(project) {
-  if (await usesNewStorage(project)) {
-    try {
-      return `Run ${await installSbd(project)} list from the project root to see tasks.`;
-    } catch (error) {
-      return `${taskInstructions()}
+  try {
+    return `Run ${await installSbd(project)} list from the project root to see tasks.`;
+  } catch (error) {
+    return `${taskInstructions()}
 ${String(error)}`;
-    }
   }
-  const { store, root } = project;
-  const parsed = parseTaskList(await store.read(`${root}/${TASK_LIST}`) ?? "");
-  if (typeof parsed === "string")
-    return `${TASK_LIST}: ${parsed}`;
-  const views = [];
-  for (const task of parsed) {
-    const track = await store.read(taskFile(`${root}/${DIR}`, task.name, "track")) ?? "";
-    const items = itemsOf(track).filter((item) => item.status !== "");
-    const open = items.filter((item) => !CLOSED.has(item.status));
-    views.push({
-      status: task.status,
-      name: task.name,
-      about: task.about,
-      items: task.status === "in progress" ? open.map((item) => ({ status: item.status, name: item.id === null ? item.name : `#${item.id} ${item.name}` })) : null,
-      closed: items.length - open.length,
-      total: items.length
-    });
-  }
-  return renderTasks(views);
 }
 
 // core/src/hint.ts
@@ -2416,7 +1596,7 @@ function renderStatus(current, { tokens, window, threshold, hintTargets: overrid
   return lines.join(`
 `);
 }
-var UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`, \`${TASK_LIST}\` and the tasks in progress in \`${TASKS}/\`, and check where you stand against them.`;
+var UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`. Check any current issue with the project Beads command.`;
 function letGoGauge(unassisted) {
   return { ...FRESH_GAUGE, unassisted, whole: true };
 }
@@ -2506,6 +1686,22 @@ function lastStep(base, { tokens, window, threshold, hintTargets: overrides }) {
 
 // core/src/loop.ts
 var FRESH_LOOP = { pending: null, note: null };
+function restoredLoop(state) {
+  if (!state.pending || isSaved(state.pending.dir))
+    return state;
+  const held = state.letting?.held ?? [];
+  const note = state.note;
+  return {
+    pending: null,
+    letting: null,
+    note: held.length ? {
+      dir: note?.dir ?? "",
+      files: note?.files ?? [],
+      context: withHeld(note?.context ?? "", held),
+      held: [...note?.held ?? [], ...held]
+    } : note
+  };
+}
 async function holdShift(loop, shift) {
   await loop.update((state) => ({ ...state, pending: shift }));
 }
@@ -2520,7 +1716,10 @@ async function loopOffer(loop, gauge) {
   return offerHint(gauge);
 }
 async function afterTurn(project, loop, harness, aborted) {
-  await loop.update((current) => current.pending === null ? current : { ...current, letting: lettingOf(current) });
+  await loop.update((state) => {
+    const current = restoredLoop(state);
+    return current.pending === null ? current : { ...current, letting: lettingOf(current) };
+  });
   const claim = {};
   await loop.update((current) => {
     claim.shift = current.pending;
@@ -2648,10 +1847,7 @@ function attachmentsOf(held) {
   return all.length === 0 ? undefined : all;
 }
 async function archivedWait(project, id) {
-  const entry = isSaved(id) ? await readSaved(project, id, NAMES.letter) : {
-    about: await project.store.read(`${id}/${NAMES.about}`) ?? "",
-    files: { [NAMES.letter]: await project.store.read(`${id}/${NAMES.letter}`) }
-  };
+  const entry = await readSaved(project, id, NAMES.letter);
   const letter = entry.files[NAMES.letter];
   if (!letter)
     throw new Error(`Missing letter in saved shift ${id}.`);
@@ -2670,16 +1866,20 @@ async function acknowledgeWait(project, id) {
   });
 }
 async function waitingNote(loop, project) {
-  const { note, pending, letting } = await loop.read();
+  let state = await loop.read();
+  if (state.pending && !isSaved(state.pending.dir)) {
+    await loop.update(restoredLoop);
+    state = await loop.read();
+  }
+  const { note: stored, pending, letting } = state;
   if (pending !== null || letting != null)
     await loop.update((current) => current.pending === null && current.letting == null ? current : { ...current, letting: { ...current.letting, heard: true } });
   const id = await waitingId(project);
+  const archived = project && id && (!stored || stored.dir === id || !isSaved(stored.dir)) ? await archivedWait(project, id) : undefined;
+  const note = stored && !isSaved(stored.dir) ? await recoverOwnerInput(loop, id, archived) : stored;
   if (note === null && !id)
     return null;
-  let context = note?.context ?? "";
-  if (project && id && (!note || note.dir === id)) {
-    context = withHeld(await archivedWait(project, id), note?.held ?? []);
-  }
+  const context = archived !== undefined && (!note || note.dir === id) ? withHeld(archived, note?.held ?? []) : note?.context ?? "";
   return {
     dir: note?.dir ?? id,
     context,
@@ -2689,9 +1889,24 @@ async function waitingNote(loop, project) {
         await acknowledgeWait(project, id);
       if (note)
         await loop.update((state) => sameNote(state.note, note) ? { ...state, note: null } : state);
-      loop.tell(DELIVERED(note?.files ?? [NAMES.letter], note?.dir ?? id), "info");
+      if (note?.dir || id)
+        loop.tell(DELIVERED(note?.files.length ? note.files : [NAMES.letter], note?.dir ?? id), "info");
     }
   };
+}
+async function recoverOwnerInput(loop, id, archived = "") {
+  let recovered = null;
+  await loop.update((state) => {
+    const current = state.note;
+    if (!current || isSaved(current.dir)) {
+      recovered = current;
+      return state;
+    }
+    const held = current.held ?? [];
+    recovered = held.length ? { dir: id, context: withHeld(archived, held), held, files: [] } : null;
+    return { ...state, note: recovered };
+  });
+  return recovered;
 }
 async function dropWaiting(loop, project, expected) {
   if (project && expected)
@@ -2951,14 +2166,8 @@ async function promptRecords(courier, runStarts, parkedWait = false, submitted =
   if (runStarts)
     await courier.updateLooks((current) => ({ ...current, running: 0 }));
   const notes = [];
-  const { seen, running, migrationChecked } = await courier.looks();
+  const { seen, running } = await courier.looks();
   const project = await courier.project();
-  const needsCheck = !migrationChecked;
-  const migration = needsCheck ? await migrationNote(project) : null;
-  if (migration)
-    notes.push({ kind: "records", body: migration });
-  else if (needsCheck)
-    await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
   const session = project.actor;
   const durableWait = running === 0 && parkedWait && session && project.store.beads && await hasArchive(project) ? await archiveCall(project, { action: "waiting", session: project.deliveryKey ?? session }) : "";
   let waiting = parkedWait && durableWait !== alreadyDelivered ? durableWait : "";
@@ -2979,17 +2188,6 @@ Shift done.`) && submitted.includes(letter.trim()))
     await remember(courier, outside.seen);
   if (outside?.body != null)
     notes.push({ kind: "records", body: outside.body });
-  const pending = running === 0 ? (await courier.looks()).pendingLinks ?? [] : [];
-  if (pending.length) {
-    const project = await courier.project();
-    const problems = await Promise.all(pending.map(async (name) => noteLinks(await readTask(project.store, `${project.root}/${DIR}`, name))));
-    const body = problems.filter(Boolean).join(`
-`);
-    if (body)
-      notes.push({ kind: "records", body });
-    else
-      await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
-  }
   if (running === 0)
     await checkMap(courier);
   const mapNotes = running === 0 ? (await courier.looks()).mapNotes ?? [] : [];
@@ -3004,12 +2202,8 @@ Shift done.`) && submitted.includes(letter.trim()))
     waiting,
     recovery,
     delivered: async () => {
-      if (migration)
-        await courier.updateLooks((current) => ({ ...current, migrationChecked: true }));
       if (mapNotes.length)
         await takeMapNotes(courier, mapNotes);
-      if (pending.length)
-        await courier.updateLooks((now) => ({ ...now, pendingLinks: now.pendingLinks?.filter((name) => !pending.includes(name)) }));
       if (outside?.body != null)
         await courier.updateLooks((current) => same(current.seen, seen) ? { ...current, seen: outside.seen } : current);
       if (docs !== null) {
@@ -3060,11 +2254,7 @@ async function takeMapNotes(courier, delivered) {
 }
 async function look(courier, by) {
   try {
-    const tasks = new Set;
-    const result = await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit, (name) => tasks.add(name));
-    if (tasks.size)
-      await courier.updateLooks((now) => ({ ...now, pendingLinks: [...new Set([...now.pendingLinks ?? [], ...tasks])] }));
-    return result;
+    return await changedRecords(await courier.project(), (await courier.looks()).seen, by, courier.confirmedEdit);
   } catch {
     return null;
   }
@@ -3153,18 +2343,6 @@ function text(raw, key) {
 function optional(raw, key) {
   return text(raw, key) === "" ? null : text(raw, key);
 }
-function lineProblem(key, value, rules) {
-  if (value.includes(`
-`))
-    return `${key} is one line, without line breaks.`;
-  if (rules.max !== undefined && value.length > rules.max)
-    return `${key} is ${value.length} characters, the limit is ${rules.max}. Shorten it.`;
-  return rules.noDates ? dated(key, value, "Records have no dates.") : null;
-}
-function about(raw, what) {
-  const value = text(raw, "about");
-  return value === "" ? `about is empty: one line \u2014 ${what}.` : lineProblem("about", value, { max: ABOUT_MAX });
-}
 function parseShiftInput(raw) {
   const letter = text(raw, "letter");
   const after = raw.after;
@@ -3174,7 +2352,15 @@ function parseShiftInput(raw) {
     return `after must be ${quote(AFTER, " or ")}.`;
   if (raw.about === undefined)
     return { letter, after };
-  return about(raw, "what the stretch did and where you stand") ?? { letter, after, about: text(raw, "about") };
+  const about = text(raw, "about");
+  if (!about)
+    return "about is empty: describe what the stretch did and where you stand.";
+  if (about.includes(`
+`))
+    return "about is one line, without line breaks.";
+  if (about.length > ABOUT_MAX)
+    return `about is ${about.length} characters, the limit is ${ABOUT_MAX}. Shorten it.`;
+  return { letter, after, about };
 }
 function parseHistoryCount(raw) {
   const count = raw.count ?? HISTORY_DEFAULT;
@@ -3419,8 +2605,8 @@ async function loadProject(store, root, actor) {
 // core/src/texts/tools.ts
 var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
 var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`;
-var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/ and moving from earlier layouts. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
-var TASKS_DESCRIPTION = "Show how to read project tasks; existing task files are listed before migration";
+var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
+var TASKS_DESCRIPTION = "Show the project-local Beads command for listing tasks";
 var SETUP_SCHEMA = { type: "object", properties: {} };
 var HISTORY_DESCRIPTION = `Past shifts in brief, oldest first: their IDs, outcomes and descriptions. count \u2014 how many of the latest (default ${HISTORY_DEFAULT}).`;
 var STATUS_DESCRIPTION = "How full the history is: used of the window, where the harness lets it go by itself, the growth since the last shift, when the next shift hints come, and what the history grew from most. Read-only.";
@@ -3486,22 +2672,6 @@ var TOOL_TEXTS = {
     schema: GUIDE_SCHEMA
   },
   [TOOL]: { label: "Shift", description: TOOL_DESCRIPTION, brief: "make a shift.", schema: TOOL_SCHEMA },
-  [MIGRATE_TOOL]: {
-    label: "Migrate local records",
-    description: "Manually transfer current tasks. Start verifies a backup, confirm acknowledges one transferred task, cleanup takes the ID and receipt delivered with the restored letter. Status is read-only.",
-    brief: "transfer current work and verify the legacy backup.",
-    schema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["status", "start", "confirm", "cleanup"] },
-        task: { type: "string" },
-        target: { type: "string" },
-        receipt: { type: "string" },
-        id: { type: "string" }
-      },
-      required: ["action"]
-    }
-  },
   [HISTORY_TOOL]: {
     label: "Shift history",
     description: HISTORY_DESCRIPTION,
@@ -3636,7 +2806,7 @@ var GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, kno
 var GUIDE_RECORDS = [
   "## What goes where",
   GRAPH_LAYOUT,
-  "Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads. For an issue created by an earlier Shift version, show its JSON to read its original metadata, including numbered items and evidence.",
+  "Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads.",
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -3656,70 +2826,10 @@ Check the board and current project records. At the final hint, write the letter
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.
-
-On a migration reminder use shift_migrate(action="start"). Manually transfer every open legacy task, including deferred work and tasks waiting for the owner. Verify its items, links, status and evidence and confirm the mapping. Historical shifts and closed tasks remain in the verified backup. Make one new shift and receive its letter. Run cleanup with the supplied ID and restoration receipt. If source records changed, rerun start and verify the new backup generation.`;
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
-var row = (prefix, name, width, what) => `${prefix}${name.padEnd(width)}${what}`;
-var LAYOUT_TREE = [
-  `${DIR}/`,
-  row("\u251C\u2500\u2500 ", NAMES.board, 18, "the board \u2014 the goal, project-wide decisions and dead ends"),
-  row("\u251C\u2500\u2500 ", NAMES.taskList, 18, "the open tasks, what you do now, their links \u2014 every session"),
-  row("\u251C\u2500\u2500 ", NAMES.owner, 18, "the owner's decisions in force for the whole project \u2014 every session"),
-  row("\u251C\u2500\u2500 ", NAMES.glossary, 18, "the project's own words \u2014 every session"),
-  row("\u251C\u2500\u2500 ", NAMES.shift, 18, "how the project keeps its knowledge, and the map of its docs \u2014 every session"),
-  row("\u251C\u2500\u2500 ", NAMES.settings, 18, "the owner's settings, optional \u2014 above"),
-  row("\u251C\u2500\u2500 ", NAMES.letter, 18, "the letter to yourself \u2014 written anew before every shift"),
-  row("\u251C\u2500\u2500 ", `${NAMES.knowledge}/`, 18, "traps, lessons, commands, facts \u2014 read on demand"),
-  "\u2502   \u2514\u2500\u2500 <kind>[-<topic>].md",
-  `\u251C\u2500\u2500 ${NAMES.tasks}/`,
-  "\u2502   \u2514\u2500\u2500 <name>/",
-  row("\u2502       \u251C\u2500\u2500 ", NAMES.task, 10, "what the task is, its decisions and dead ends"),
-  row("\u2502       \u251C\u2500\u2500 ", NAMES.track, 10, "the task's tracker"),
-  row("\u2502       \u2514\u2500\u2500 ", `${NAMES.notes}/`, 10, `notes on its items, each linked from ${NAMES.track} or ${NAMES.task}`),
-  row("\u251C\u2500\u2500 ", `${NAMES.archive}/`, 18, `legacy archived tasks`),
-  row("\u2502   \u251C\u2500\u2500 ", NAMES.index, 14, "one line per archived task"),
-  row("\u2502   \u2514\u2500\u2500 ", "<name>/", 14, "the task's folder as it was"),
-  row("\u2514\u2500\u2500 ", `${NAMES.shifts}/`, 18, "history, written by the mod; do not edit"),
-  "    \u2514\u2500\u2500 <YYYYMMDD-hhmmss UTC>/",
-  row("        \u251C\u2500\u2500 ", NAMES.about, 14, `the shift in brief \u2014 its structure is in ${GUIDE_TOOL}`),
-  row("        \u251C\u2500\u2500 ", NAMES.letter, 14, "a copy of the letter"),
-  row("        \u251C\u2500\u2500 ", NAMES.board, 14, "a snapshot of the board"),
-  row("        \u251C\u2500\u2500 ", `${[NAMES.taskList, NAMES.owner, NAMES.glossary, NAMES.shift, NAMES.settings].join(", ")}`, 0, "   snapshots"),
-  row("        \u251C\u2500\u2500 ", NAMES.index, 14, "a snapshot of the archive index"),
-  row("        \u251C\u2500\u2500 ", `${NAMES.tasks}/`, 14, "snapshots of the open tasks"),
-  row("        \u251C\u2500\u2500 ", `${NAMES.knowledge}/`, 14, "a snapshot of the knowledge"),
-  row("        \u2514\u2500\u2500 ", NAMES.summary, 14, "what stayed in memory after the shift")
-].join(`
-`);
-var SETUP_LAYOUT = `\`\`\`
-${LAYOUT_TREE}
-\`\`\`
-
-\`${DIR}/\` is yours. Whether the project's git takes it in is the owner's choice (\`commit\` above); by default it stays out: when the project's git does not ignore it, the mod adds it to the repository's local exclude file, which is never committed, and says so. It needs no git of its own: every shift snapshots the board, the owner's decisions, the tasks and the knowledge, so removing a line is safe.`;
-var SETUP_MIGRATION = `## Coming from the earlier layout
-
-Records kept before \`${TASK_LIST}\`, \`${OWNER}\` and \`${GLOSSARY}\` are moved once, before the next shift; the refusals name each step:
-- \`${OLD_DIR}/\` \u2192 \`${DIR}/\`, the folder renamed as it is;
-- \`${OLD_OWNER}\` \u2192 \`${OWNER}\`, renamed as it is;
-- the board's "${OLD_TASKS_SECTION}" section \u2192 \`${TASK_LIST}\`: each line as \`- [status] [name](tasks/name/) \u2014 what matters\`, and the \`continues:\` lines of each \`task.md\` under it as \`- continues: [name](archive/name/)\`;
-- \`${KNOWLEDGE}/glossary*.md\` \u2192 \`${GLOSSARY}\`, one article per term;
-- where knowledge goes, if \`${OWNER}\` spells it out by kind of knowledge \u2192 \`${SHIFT_FILE}\`, on the owner's word.
-
-## Coming from the shift skill
-
-A project kept with the \`shift\`/\`unshift\` skills has a \`${DIR}/\` of their making: \`sessions/\`, \`AGENTS.md\`, \`SHIFT.md\` (the skill's own text), a \`shift\` script, \`knowledge/\`, sometimes a \`.git\` of its own. The mod uses the same folder, and works on it only once it has a board. Move it in place, once, entry by entry \u2014 nothing is dropped:
-- \`knowledge/owner.md\` \u2192 \`${OWNER}\`, rules as they are;
-- \`knowledge/traps*.md\`, \`lessons*.md\`, \`runbook*.md\` stay in \`${KNOWLEDGE}/\` under the same names: keep \`kind\` and \`about\`, rename the entry fields (\u041F\u0440\u0438\u0447\u0438\u043D\u0430 \u2192 Cause, \u0414\u0435\u043B\u0430\u0442\u044C \u2192 Do, \u041F\u043E\u0447\u0435\u043C\u0443 \u2192 Why, \u041A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0433\u043E\u0434\u0438\u0442\u0441\u044F \u2192 Not when, \u041F\u043E\u043A\u0430\u0436\u0435\u0442 \u2192 Shows), drop the date lines and the generated tables of contents;
-- \`knowledge/glossary*.md\` \u2192 \`${GLOSSARY}\`, one article per term: the meaning into \`Means\`, other spellings into \`Variants\`; a meaning the files only guessed gets \`Unconfirmed\`;
-- the \`knowledge\` setting of \`AGENTS.md\` (\`project\`, \`local\`, \`split\`) \u2192 \`knowledge\` in \`${SETTINGS}\`; its "\u0427\u0442\u043E \u0433\u0434\u0435" rows \u2192 \`${SHIFT_FILE}\` on the owner's word;
-- open items of the last snapshot's \`unfinished.md\` and its "\u0421 \u0447\u0435\u0433\u043E \u043D\u0430\u0447\u0430\u0442\u044C" \u2192 tasks in \`${TASK_LIST}\`; its owner decisions \u2192 \`${OWNER}\` or the task's; dead ends \u2192 the board or the task;
-- the skill's \`SHIFT.md\`, \`shift\` script and \`AGENTS.md\` go once their content is moved: \`${SHIFT_FILE}\` is the project's own file now. A \`.git\` inside goes only on the owner's word;
-- \`sessions/\` stays as it is: it is history.
-
-The text of records may stay in its language, and the owner is quoted verbatim; section names and entry fields are the ones above.`;
 
 // core/src/sizes.ts
 async function sizeReport(project, counter) {
@@ -3743,45 +2853,23 @@ async function sizeReport(project, counter) {
 `))));
     }
   }
-  const migration = await migrationNote(project);
-  const notice = migration ? count(wrap({ kind: "records", body: migration })) : 0;
-  if (migration)
-    sessionRows.push(row("Migration reminder (first prompt)", notice));
-  const session = notice + count([doctrine, renderSessionFiles(files)].filter(Boolean).join(`
+  const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join(`
 
 `));
   const retained = (await savedEntries(project)).reverse();
-  const modern = await usesNewStorage(project);
-  const folders = retained.length ? [] : (await shiftNames(project)).reverse();
   const saved = [];
   for (const e of retained.slice(0, 3)) {
     const letter = (await readSaved(project, e.id, NAMES.letter)).files[NAMES.letter];
     if (letter !== undefined)
       saved.push({ name: e.id, letter });
   }
-  for (const name of folders) {
-    const letter = await project.store.read(`${project.root}/${SHIFTS}/${name}/${NAMES.letter}`);
-    if (letter !== null)
-      saved.push({ name, letter });
-    if (saved.length === 3)
-      break;
-  }
-  const dir = modern ? NEXT_SAVED : `${project.root}/${SHIFTS}/<next-shift>`;
+  const dir = NEXT_SAVED;
   const back = await handBack(project, dir, project.actor);
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)));
-    for (const task of modern ? [] : inProgress(back.work)) {
-      const folder = `${TASKS}/${task.name}`;
-      continueRows.push(row(`${folder}/${NAMES.task}`, count(task.task ?? "missing")));
-      continueRows.push(row(`${folder}/${NAMES.track}`, count(trackPreview(task.track ?? "missing"))));
-      if (task.notes.length)
-        continueRows.push(row(`${folder}/notes (descriptions)`, count(notesList(task.name, task.notes))));
-    }
     continueRows.push(row("Knowledge index", count(knowledgeMap(back.work.knowledge))));
   }
   continueRows.push(row("Recent shifts", count(renderRecent(back.recent))));
-  if (back.stuck.length)
-    continueRows.push(row("Unchanged tasks", count(renderStuck(back.stuck))));
   if (back.remarks)
     continueRows.push(row("Document remarks", count(back.remarks)));
   const draft = await project.store.read(`${project.root}/${LETTER}`);
@@ -3800,10 +2888,7 @@ async function sizeReport(project, counter) {
     "",
     "Totals include message framing and the fallback task-command instructions. The next continuation uses estimated identifiers.",
     "",
-    ...saved.length ? [
-      `Saved letters in ${modern ? "the shift archive" : `${SHIFTS}/`} (outside total)`,
-      ...saved.map((entry) => row(entry.name, count(entry.letter)))
-    ] : ["No saved letters."]
+    ...saved.length ? ["Saved letters in the shift archive (outside total)", ...saved.map((entry) => row(entry.name, count(entry.letter)))] : ["No saved letters."]
   ].join(`
 `);
 }
@@ -3839,17 +2924,6 @@ var ROWS = [
         return accepted;
       await holdShift(call.loop, accepted.shift);
       return { result: accepted.result };
-    }
-  },
-  {
-    name: MIGRATE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      try {
-        return { result: await migrateRecords(await call.project(), raw) };
-      } catch (error) {
-        return { deny: String(error) };
-      }
     }
   },
   {
@@ -3980,7 +3054,7 @@ async function setupReport(project, loaded) {
     ...loaded === null ? [] : files.filter((file) => !loaded.includes(fileBlock(file.path, file.text))).map((file) => file.path),
     ...gone
   ];
-  const none = !settings.enabled ? "None: the mod is off here, `enabled = false`." : await staleLayout(project) !== null ? "None: the records are in an older layout; the Records section says what to move." : `None yet: none of ${[settings.files.shift, settings.files.owner, settings.files.glossary, TASK_LIST].map((path) => `\`${path}\``).join(", ")} is here.`;
+  const none = !settings.enabled ? "None: the mod is off here, `enabled = false`." : await staleLayout(project) !== null ? "None: the records are in an older layout; see the Records section." : `None yet: none of ${[settings.files.shift, settings.files.owner, settings.files.glossary].map((path) => `\`${path}\``).join(", ")} is here.`;
   const shown = settings.enabled ? doctrineChars : 0;
   const block = [
     ...files.length === 0 ? [none] : files.map((file) => `- \`${file.path}\` \u2014 ${weight(fileBlock(file.path, file.text).length)}`),
@@ -4016,10 +3090,8 @@ async function setupReport(project, loaded) {
     "",
     `## Files`,
     "",
-    await usesNewStorage(project) ? GRAPH_LAYOUT : SETUP_LAYOUT,
-    ...moved.length === 0 ? [] : ["", `Moved by the settings: ${moved.join("; ")}.`],
-    "",
-    atPlaces(SETUP_MIGRATION, settings.files)
+    GRAPH_LAYOUT,
+    ...moved.length === 0 ? [] : ["", `Moved by the settings: ${moved.join("; ")}.`]
   ].join(`
 `);
 }
@@ -4032,7 +3104,7 @@ async function recordsState(project) {
   const work = await readRecords(project);
   if (work === null)
     return `No board yet: create ${BOARD} by the sections in ${GUIDE_TOOL} before the first shift.`;
-  const problem = checkWork(work, null, project);
+  const problem = checkWork(work, project);
   return problem === null ? "They pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself." : `A shift would refuse them now: ${problem}`;
 }
 var CHARS_PER_TOKEN = 4;
@@ -4094,15 +3166,6 @@ var nodeStore = {
     }
   },
   exists: (path) => access(path).then(() => true, () => false),
-  move: async (from, to) => {
-    try {
-      await mkdir(dirname2(to), { recursive: true });
-      await rename(from, to);
-      return null;
-    } catch (error) {
-      return String(error);
-    }
-  },
   git: (root, args) => new Promise((done) => {
     execFile("git", ["-C", root, ...args], (error, stdout) => {
       const code = error === null ? 0 : error.code;
@@ -4232,7 +3295,7 @@ function usageReading(previous, gauge, tokens, window) {
 function freshSample() {
   return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 };
 }
-function status2({ gauge, reading }) {
+function status({ gauge, reading }) {
   return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) });
 }
 async function sample(state, transcript, reset) {
@@ -4738,7 +3801,8 @@ function withSessionDb(file, run) {
 function readHandover(db, root) {
   if (!db.query("SELECT 1 FROM sqlite_master WHERE name = 'handover'").get())
     return null;
-  return db.query("SELECT * FROM handover WHERE root = ?").get(root);
+  const row = db.query("SELECT * FROM handover WHERE root = ?").get(root);
+  return row && isSaved(row.dir) ? row : null;
 }
 function prepareHandover(file, root, dir, offset) {
   withSessionDb(file, (db) => {
@@ -4909,9 +3973,6 @@ async function contextFor(input, project, state, restoring = false, alreadyDeliv
       await refreshDocs(project, { tocs: false });
   }
   state.docsSettings = docsSettings;
-  if (event === "SessionStart") {
-    state.looks.migrationChecked = false;
-  }
   const legacyStamps = state.looks.docs;
   const records = await promptRecords(courier, true, event !== "SessionStart" && !restoring, contextBody(String(input.prompt ?? "")), alreadyDelivered);
   const recordNotes = records.notes.map(wrap);
@@ -5640,7 +4701,7 @@ async function serve() {
           if (name === "shift_status") {
             if (!(await projectAt(state.root)).settings.enabled)
               throw new Error("Shift is disabled in this project.");
-            return reply(packet.id, { content: [{ type: "text", text: status2(state.usage) }] });
+            return reply(packet.id, { content: [{ type: "text", text: status(state.usage) }] });
           }
           let session = daemon?.sessions.get(id) ?? sessions.get(id);
           let turn = "";

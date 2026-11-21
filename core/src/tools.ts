@@ -8,7 +8,6 @@ import {
   GUIDE_TOOL,
   HISTORY_TOOL,
   MENTIONS_TOOL,
-  MIGRATE_TOOL,
   MOD,
   OUTLINE_TOOL,
   SETUP_TOOL,
@@ -17,7 +16,6 @@ import {
   TOOL,
 } from './layout'
 import { holdShift, type Loop } from './loop'
-import { migrateRecords } from './migration'
 import type { Project } from './project'
 import { historyAction } from './saved'
 import type { Settings } from './settings'
@@ -88,17 +86,6 @@ const ROWS: readonly Row[] = [
       await holdShift(call.loop, accepted.shift)
 
       return { result: accepted.result }
-    },
-  },
-  {
-    name: MIGRATE_TOOL,
-    writes: true,
-    run: async (raw, call) => {
-      try {
-        return { result: await migrateRecords(await call.project(), raw) }
-      } catch (error) {
-        return { deny: String(error) }
-      }
     },
   },
   {

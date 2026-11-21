@@ -1,11 +1,16 @@
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { BOARD, LETTER } from '../../../core/test/data'
+import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
 import { deferred, fields, type Packet, Requests, textInput } from '../protocol'
 
+let archive: Awaited<ReturnType<typeof historyRuntime>>
+beforeAll(async () => {
+  archive = await historyRuntime()
+}, 60000)
 afterAll(cleanup)
 for (const mode of ['continue', 'wait', 'continue twice', 'continue with owner', 'wait with owner'])
   test.skipIf(!Bun.which('codex'))(
@@ -85,7 +90,6 @@ for (const mode of ['continue', 'wait', 'continue twice', 'continue with owner',
             'First letter private next step',
           ),
         ),
-        writeFile(join(records, 'TASKS.md'), '# Tasks\n'),
         writeFile(join(records, 'OWNER.md'), 'none'),
         writeFile(join(records, 'settings.toml'), '[docs]\ndirs = ["docs"]\n'),
         writeFile(join(root, 'docs', 'work.md'), '---\ndescription: Map fixture.\n---\n# Work\n\n## Acceptance marker\n'),
@@ -105,8 +109,10 @@ trust_level = "trusted"
 `,
         ),
       ])
+      const oldIndex = join(records, 'TASKS.md')
+      if (mode === 'wait') await writeFile(oldIndex, 'Unrelated leftover index.')
       const install = (args: string[]) => execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })
-      install(['plugin', 'marketplace', 'add', resolve(import.meta.dir, '../../..')])
+      install(['plugin', 'marketplace', 'add', archive.marketplace])
       install(['plugin', 'add', 'shift@shift'])
       const server = spawn('codex', ['app-server', '--listen', `unix://${socket}`], { env, cwd: root, stdio: 'ignore' })
       const exited = new Promise<void>(done => server.once('exit', () => done()))
@@ -170,20 +176,13 @@ trust_level = "trusted"
         await rpc.call('turn/start', { threadId, input: pick(sizes ? 'sizes' : 'tasks') })
         await reportDone.promise
         expect(requests).toHaveLength(0)
-        expect(notices.join('\n')).toContain(sizes ? 'Session + continue' : 'no open tasks')
+        expect(notices.join('\n')).toContain(sizes ? 'Session + continue' : 'sbd')
         await rpc.call('turn/start', { threadId, input: pick('shift') })
         if (mode === 'wait') {
           const deadline = Date.now() + 6000
           let waiting = false
           while (!waiting && Date.now() < deadline) {
-            const dirs = await readdir(join(records, 'shifts')).catch(() => [] as string[])
-            if (dirs[0]) {
-              const about = await readFile(join(records, 'shifts', dirs[0], 'about.md'), 'utf8').catch(error => {
-                if (error.code === 'ENOENT') return ''
-                throw error
-              })
-              waiting = about.includes('waiting for the owner')
-            }
+            waiting = archive.latest(root)?.about.includes('waiting for the owner') ?? false
             if (!waiting) await Bun.sleep(25)
           }
           expect(waiting).toBe(true)
@@ -198,7 +197,7 @@ trust_level = "trusted"
         ])
         expect(requests[0]).toContain('The owner asks you to shift now')
         expect(requests[0]).not.toContain('Estimated text tokens (4 characters per token).')
-        expect(requests[0]).not.toContain('no open tasks in .shift/TASKS.md')
+        expect(requests[0]).not.toContain('to see tasks.')
         expect(requests[0]?.split('Acceptance marker').length).toBe(2)
         expect(requests[0]?.split('how the shift mod works:').length).toBe(2)
         expect(requests[2]).toContain('HOLD-THIS')
@@ -223,8 +222,11 @@ trust_level = "trusted"
           expect(requests[4]).toContain('fixture-call-4')
           expect(requests[4]).toContain('function_call_output')
         } else expect(requests.at(-1)?.match(/Shift hint: /g)).toHaveLength(1)
-        const [snapshot] = await readdir(join(records, 'shifts'))
-        expect(await readFile(join(records, 'shifts', snapshot ?? '', 'about.md'), 'utf8')).toContain('result: shifted')
+        expect(archive.latest(root)?.state).toBe('complete')
+        if (mode === 'wait') {
+          expect(requests.join('')).not.toContain('Unrelated leftover index.')
+          expect(await readFile(oldIndex, 'utf8')).toBe('Unrelated leftover index.')
+        }
       } finally {
         ws?.close()
         server.kill()
@@ -276,10 +278,9 @@ test.skipIf(!Bun.which('codex'))(
     })
     const env = { ...process.env, CODEX_HOME: home, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
     try {
-      const folder = join(root, '.shift/shifts/20260101-010101')
-      await mkdir(folder, { recursive: true })
+      await mkdir(join(root, '.shift'))
       const body = `Unique restored letter body. ${'Long fixture line. '.repeat(3000)}End of restored letter.`
-      await writeFile(join(folder, 'letter.md'), LETTER.replace('fixing tests', body))
+      archive.seed(root, LETTER.replace('fixing tests', body), BOARD)
       const owner = join(root, '.shift/OWNER.md')
       await writeFile(owner, 'Session fixture marker.')
       const doc = join(root, 'docs/behavior.md')
@@ -303,7 +304,7 @@ trust_level = "trusted"
 `,
       )
       for (const args of [
-        ['plugin', 'marketplace', 'add', resolve(import.meta.dir, '../../..')],
+        ['plugin', 'marketplace', 'add', archive.marketplace],
         ['plugin', 'add', 'shift@shift'],
       ])
         execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })

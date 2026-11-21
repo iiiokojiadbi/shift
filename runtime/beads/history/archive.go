@@ -464,29 +464,3 @@ func Run(path string, in io.Reader, out io.Writer) error {
 	}
 	return json.NewEncoder(out).Encode(result)
 }
-
-// WithComplete pins a recovered letter during the migration's final filesystem transaction.
-func WithComplete(path, id string, use func() error) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("invalid shift archive")
-	}
-	db, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	return db.View(func(tx *bolt.Tx) error {
-		result, err := transact(tx, Request{Action: "read", ID: id})
-		if err != nil {
-			return err
-		}
-		if result.(Entry).State != "complete" {
-			return errors.New("complete and restore a new shift before cleanup")
-		}
-		return use()
-	})
-}

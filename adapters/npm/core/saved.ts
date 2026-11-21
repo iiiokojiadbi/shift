@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { ARCHIVE, DIR, NAMES, SHIFTS, TASK_LIST, TASKS } from './layout'
+import { DIR, NAMES } from './layout'
 import type { Project } from './project'
 import type { Work } from './types'
 
@@ -23,17 +23,6 @@ export async function savedEntries(p: Project, current?: string, session?: strin
 export function readSaved(p: Project, id: string, file?: string): Promise<SavedEntry> {
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')
   return archiveCall(p, { action: 'read', id, file })
-}
-
-// Existing projects keep their original workflow until the agent starts the transfer.
-export async function usesNewStorage(p: Project): Promise<boolean> {
-  if (!p.store.beads) return false
-  return (await hasArchive(p)) || (await p.store.exists(`${p.root}/${DIR}/migration.json`)) || !(await legacyExists(p))
-}
-
-export async function legacyExists(p: Project) {
-  const roots = [TASK_LIST, SHIFTS, TASKS, ARCHIVE]
-  return (await Promise.all(roots.map(path => p.store.exists(`${p.root}/${path}`)))).some(Boolean)
 }
 
 export function savedFiles(work: Work, letter: string, settings: string | null) {

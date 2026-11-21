@@ -1,7 +1,7 @@
 {
   "name": "@iiiokojiadbi/shift",
   "version": "0.40.0",
-  "description": "The agent decides by itself when to shift: it keeps a work board and task folders, writes a letter to itself, and continues from where it stopped.",
+  "description": "The agent decides by itself when to shift: it keeps a work board, writes a letter to itself, and continues from where it stopped.",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/iiiokojiadbi/shift#readme",
