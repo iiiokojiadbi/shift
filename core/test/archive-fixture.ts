@@ -1,13 +1,27 @@
 // A small stand-in for the native process protocol. The Go archive tests exercise
 // transactions, retention, retries and the on-disk format.
 type Entry = { id: string; about: string; state: string; files: Record<string, string> }
-export type ArchiveFixture = { entries: Entry[]; waiting: Record<string, string> }
+export type ArchiveFixture = {
+  working?: Record<string, { revision: string; text: string }>
+  entries: Entry[]
+  waiting: Record<string, string>
+}
 export const emptyArchive = (): ArchiveFixture => ({ entries: [], waiting: {} })
 
 export function archiveFixture(state: ArchiveFixture, stdin: string): string {
   const query = JSON.parse(stdin)
   const entry = state.entries.find(item => item.id === query.id)
   switch (query.action) {
+    case 'working-list':
+      return JSON.stringify(state.working ?? {})
+    case 'working-write': {
+      state.working ??= {}
+      for (const [key, change] of Object.entries(query.changes as Record<string, { revision: string; text: string }>)) {
+        if ((state.working[key]?.revision ?? '') !== change.revision) throw new Error('Working record changed.')
+        state.working[key] = { revision: String(Number(change.revision) + 1), text: change.text }
+      }
+      return JSON.stringify(state.working)
+    }
     case 'begin': {
       const prior = state.entries.find(item => item.id === query.compare)
       if (

@@ -159,7 +159,7 @@ export function renderStatus(current: Gauge, { tokens, window, threshold, hintTa
   return lines.join('\n')
 }
 
-export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`. Check any current issue with the project Beads command.`
+export const UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`. If resuming a tracked issue, check it with the project Beads command.`
 
 // The gauge as an adapter keeps it, and what only the harness knows; how it is kept is the core's. A fresh process
 // (a restart, a reload, a resumed session) starts with none of the stretch counted and restores it once.

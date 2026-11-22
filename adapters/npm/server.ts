@@ -79,7 +79,7 @@ const HOLD_LIMIT = 10 * 60_000
 
 // What the plugin keeps of one session; the plugin is one per project, shared by its sessions.
 type Session = {
-  command: import('./core/beads').SbdCommand | null
+  command: import('./core/beads').TaskCommandPath | null
   // The project's settings turn the mod on for it, read as the session first comes; the rows that start it, told once.
   enabled: boolean
   rows: { text: string; level: Level }[]

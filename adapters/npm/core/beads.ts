@@ -9,18 +9,18 @@ export function beadsExecutable(platform: string, arch: string): string | null {
   return `shift-bd-${os}_${cpu}${os === 'windows' ? '.exe' : ''}`
 }
 
-export type SbdCommand = './.shift/bin/sbd' | './.shift/bin/sbd.exe'
+export type TaskCommandPath = './.shift/bin/shift-task' | './.shift/bin/shift-task.exe'
 
-export async function installSbd(project: import('./project').Project): Promise<SbdCommand> {
+export async function installTaskCommand(project: import('./project').Project): Promise<TaskCommandPath> {
   if (!project.store.beads) throw new Error('The bundled runtime is unavailable.')
-  const path = (await project.store.beads(project.root, ['shift-install-sbd'])).trim()
-  if (path !== './.shift/bin/sbd' && path !== './.shift/bin/sbd.exe')
-    throw new Error('The bundled runtime did not confirm the sbd command.')
+  const path = (await project.store.beads(project.root, ['shift-install-task'])).trim()
+  if (path !== './.shift/bin/shift-task' && path !== './.shift/bin/shift-task.exe')
+    throw new Error('The bundled runtime did not confirm the shift-task command.')
   return path
 }
 
-export function taskInstructions(command?: SbdCommand | null): string {
+export function taskInstructions(command?: TaskCommandPath | null): string {
   return command
-    ? `For tasks, run \`${command} prime\` from the project root. Use \`${command}\` wherever Beads shows \`bd\`.`
-    : 'For tasks, call shift_setup(section="sbd") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.'
+    ? `Use \`${command}\` from the project root for all tracker commands. Start with \`show <id>\` for a named issue or \`ready --parent <epic>\` for available work in an epic. Claim with \`update <id> --claim\`. A prerequisite is \`dep add <dependent> <prerequisite>\`. Close with \`close <id> --reason <result>\`. For the Beads reference run \`${command} prime\`; use this executable wherever it shows \`bd\`.`
+    : 'To use the built-in shift-task tracker, call shift_setup(section="tasks") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.'
 }

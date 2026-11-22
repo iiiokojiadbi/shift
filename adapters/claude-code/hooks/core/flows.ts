@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
-import { installSbd, taskInstructions } from './beads'
+import { installTaskCommand, taskInstructions } from './beads'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary } from './history'
 import { ABOUT_MAX, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
@@ -173,6 +173,7 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const previous = entries.toReversed().find(e => e.state === 'complete' && readAbout(e.about).session === call.sessionId)
   shift.dir = await archiveCall<string>(project, {
     action: 'begin',
+    ...(project.working ? { expected: await project.working.revisions(), session: project.working.session } : {}),
     key: JSON.stringify([call.sessionId, call.at]),
     files,
     about,
@@ -336,7 +337,7 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
 }
 
 // Version of the rendered file block retained across a host restart. Earlier blocks contain a live task list.
-export const SESSION_FILES_VERSION = 3
+export const SESSION_FILES_VERSION = 4
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md, with
 // paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
@@ -361,7 +362,7 @@ export async function staleLayout({ store, root }: Project): Promise<string | nu
 // The display command points to the same private CLI used for ordinary task work.
 export async function tasksView(project: Project): Promise<string> {
   try {
-    return `Run ${await installSbd(project)} list from the project root to see tasks.`
+    return `Run ${await installTaskCommand(project)} list from the project root to see tasks.`
   } catch (error) {
     return `${taskInstructions()}\n${String(error)}`
   }

@@ -48,8 +48,8 @@ type HookState = {
   editOffset?: number
   offered?: ContextReceipt & { dir: string; marker: string; turn?: string }
   context?: ContextReceipt
-  sbdWarning?: string
-  sbd?: import('../../core/src/beads').SbdCommand | null
+  taskCommandWarning?: string
+  taskCommand?: import('../../core/src/beads').TaskCommandPath | null
   doctrineHash?: string
   shells?: string[]
   turn?: string
@@ -161,9 +161,9 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     return { notes: [mapNote, ...notes.map(wrap)], waiting: '' }
   }
   state.shells = []
-  const prepareCommand = event === 'SessionStart' || state.sbd === undefined
-  const start = await startSession(project, prepareCommand ? undefined : state.sbd)
-  state.sbd = start.command
+  const prepareCommand = event === 'SessionStart' || state.taskCommand === undefined
+  const start = await startSession(project, prepareCommand ? undefined : state.taskCommand)
+  state.taskCommand = start.command
   const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
   const resume = event === 'SessionStart' && input.source === 'resume'
   const kept =
@@ -174,9 +174,9 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
   const fresh = !state.map || (event === 'SessionStart' && !kept)
   const doctrineHash = fingerprint(start.doctrine)
   // A cached command skips the probe. Retain its last warning until the next probe.
-  if (prepareCommand) state.sbdWarning = start.rows.find(row => row.sbd)?.text
+  if (prepareCommand) state.taskCommandWarning = start.rows.find(row => row.taskCommandWarning)?.text
   const warnings = start.rows.map(row => row.text)
-  if (!prepareCommand && state.sbdWarning) warnings.push(state.sbdWarning)
+  if (!prepareCommand && state.taskCommandWarning) warnings.push(state.taskCommandWarning)
   const changedWarnings = warnings.filter(row => fresh || !state.warnings?.includes(row))
   state.warnings = warnings
   // An empty folder has no document stamp; creating or removing it still changes the map.

@@ -80,6 +80,7 @@ function load(root: string, chars = 200_000, entries?: () => unknown[]) {
     ui: { notify: (text: string) => notes.push(text) },
     sessionManager: {
       getBranch: () => entries?.() ?? [...branch(chars), ...saved],
+      getEntries: () => entries?.() ?? [...branch(chars), ...saved],
       getSessionId: () => 's1',
       buildSessionProjection: () => ({ messages: [] }),
     },
@@ -119,9 +120,10 @@ test('a project without docs shows no docs tools, neither as tools nor in the do
   await pi.on('session_start')
   expect(pi.active()).toContain('shift')
   expect(pi.active()).not.toContain('doc_outline')
+  expect(await pi.call('shift_record', { action: 'list' })).toContain('No current records')
   const run = { systemPromptOptions: { sections: {} as Record<string, string>, contextFiles: [] }, messageType: 'user' }
   await pi.on('before_agent_start', run)
-  expect(run.systemPromptOptions.sections.shift).toContain('sbd')
+  expect(run.systemPromptOptions.sections.shift).toContain('shift-task')
   expect(run.systemPromptOptions.sections.shift).not.toContain('doc_outline')
   expect([...pi.tools.keys()].filter(name => name.startsWith('task_'))).toEqual([])
   expect(await pi.call('shift_guide', { section: 'records' })).toContain('Beads')
@@ -275,6 +277,37 @@ test('a reopened pi branch ignores an obsolete folder letter and lets owner inpu
     expect(await pi.on('before_agent_start', event)).toBeUndefined()
     expect(pi.sent).toEqual([])
   }
+})
+
+test('a working letter keeps its revision across a shift and stays on its pi branch', async () => {
+  const root = await project({
+    '.shift/board.md': '## Goal\ng\n## Decisions\nnone\n## Dead ends\nnone',
+    '.shift/OWNER.md': 'none',
+  })
+  const original = '## Where I am\nOriginal branch.\n## Next\nContinue here.\n## Unverified\nnone\n## Hold\noriginal'
+  const history = branch(200_000)
+  const pi = load(root, 200_000, () => [...history, ...pi.saved])
+  await pi.on('session_start')
+  const name = 'letter.md'
+  const record = (action: string, params: Record<string, string> = {}) => pi.call('shift_record', { action, name, ...params })
+  const draft = JSON.parse((await record('checkout')) ?? '')
+  await writeFile(draft.path, original)
+  await record('apply', { revision: draft.revision })
+  const before = await record('read')
+  expect(before).toContain(original)
+  expect(await pi.call('shift', { after: 'wait', letter: '.shift/letter.md' })).toContain('Shift accepted')
+  await pi.on('agent_settled', { aborted: false })
+  expect(await record('read')).toBe(before)
+  const oldTip = [...pi.saved]
+  pi.saved.length = 0
+  await pi.on('session_tree', { oldLeafId: 'd', newLeafId: null })
+  expect(await record('read')).toContain('Record missing')
+  const sibling = JSON.parse((await record('checkout')) ?? '')
+  await writeFile(sibling.path, original.replace('Original branch.', 'Sibling branch.'))
+  await record('apply', { revision: sibling.revision })
+  pi.saved.splice(0, pi.saved.length, ...oldTip)
+  await pi.on('session_tree', { oldLeafId: 'sibling', newLeafId: 'd' })
+  expect(await record('read')).toBe(before)
 })
 
 test.each(['wait', 'continue'])('a sibling cannot consume a %s letter; the original branch recovers it after restart', async after => {

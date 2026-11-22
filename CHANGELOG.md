@@ -4,7 +4,9 @@ The adapters share the project's version number. Newest first.
 
 ## Unreleased
 
-- Work with tasks through the bundled project command `./.shift/bin/sbd`. Shift restores its own records independently of Beads. Existing issues retain their IDs, metadata and discussion. Shift ignores old task folders and file-based shift snapshots.
+- Edit internal Markdown through `shift_record` in the project archive, with version-checked passage replacement, temporary drafts and isolated working letters for concurrent chats. Existing internal files can be imported.
+
+- Work with tasks through the bundled project command `./.shift/bin/shift-task`. Shift restores its own records independently of Beads. Existing issues retain their IDs, metadata and discussion. Shift ignores old task folders and file-based shift snapshots.
 - Shift history keeps independent snapshots, deduplicates matching records and retains 30 completed shifts by default. Saved IDs support comparison, export and local search.
 
 ## 0.40.0

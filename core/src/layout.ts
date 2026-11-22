@@ -3,6 +3,8 @@ export const MOD = 'shift'
 
 export const TOOL = 'shift'
 
+export const RECORD_TOOL = 'shift_record'
+
 export const GUIDE_TOOL = 'shift_guide'
 
 export const HISTORY_TOOL = 'shift_history'

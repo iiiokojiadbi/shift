@@ -89,7 +89,7 @@ export class Session {
   private prints?: MapPrints
   private mapOffset?: number
   private loaded: string | null = null
-  private command: import('../../core/src/beads').SbdCommand | null = null
+  private command: import('../../core/src/beads').TaskCommandPath | null = null
   private prepared = false
   private enabled = false
   private observation = Promise.resolve()

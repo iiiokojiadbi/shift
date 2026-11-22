@@ -82,7 +82,7 @@ function checkSettings(project: Pick<Project, 'problem'>): string | null {
   return project.problem === null ? null : `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`
 }
 
-function checkBoard(board: string): string | null {
+export function checkBoard(board: string): string | null {
   if (sections(board).has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }
@@ -90,12 +90,7 @@ function checkBoard(board: string): string | null {
   if (boardMissing !== null) return boardMissing
 
   return (
-    overLimit(
-      'The board',
-      board,
-      BOARD_MAX_LINES,
-      'it has become a diary. Move what belongs to one task into that task, keep only decisions in force.',
-    ) ??
+    overLimit('The board', board, BOARD_MAX_LINES, 'it has become a diary. Keep decisions in force and put the next step in the letter.') ??
     dated('the board', board, "The board has no dates — each shift's time is recorded by itself.") ??
     badRejected(board, 'The board')
   )
@@ -108,7 +103,7 @@ function badRejected(text: string, where: string): string | null {
   return bad === undefined ? null : `${where}: "${bad.trim()}" — a rejected option needs its reason: "rejected: <option> — <why>".`
 }
 
-function checkOwner(owner: string | null): string | null {
+export function checkOwner(owner: string | null): string | null {
   if (owner === null) return `No ${OWNER}: create it with the owner's decisions in force for the whole project, or "none".`
   if (owner.trim() === '') return `${OWNER} is empty. No decisions yet — write "none".`
   return (

@@ -1,10 +1,20 @@
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import plugin from '../server'
+import { nodeStore } from '../store'
+import { historyRuntime } from './native-history'
 import { cleanup, scratch } from './scratch'
 
-afterAll(cleanup)
+const bundled = nodeStore.beads
+beforeAll(async () => {
+  const runtime = await historyRuntime()
+  nodeStore.beads = async (root, args, input) => runtime.run(root, args, input)
+}, 60000)
+afterAll(async () => {
+  nodeStore.beads = bundled
+  await cleanup()
+})
 
 async function setup(root: string, storage: Map<string, unknown>) {
   const hooks = new Map<string, (event: unknown) => Promise<void>>()
@@ -16,6 +26,14 @@ async function setup(root: string, storage: Map<string, unknown>) {
     await writer.write({ type: name, data: { sessionID, reason: 'auto' } })
     await writer.write({ type: 'drain' })
   }
+  type Tool = { name: string; execute: (input: object, call: { sessionID: string }) => Promise<{ content: string }> }
+  const tools = new Map<string, Tool>()
+  const collect = (fn: (registry: { add: (tool: Tool) => void }) => void) =>
+    fn({
+      add: t => {
+        tools.set(t.name, t)
+      },
+    })
   const transform = async () => {}
   const compacted: string[] = []
   await plugin.setup({
@@ -37,7 +55,7 @@ async function setup(root: string, storage: Map<string, unknown>) {
     },
     model: { default: async () => undefined },
     event: { subscribe: () => events.readable },
-    tool: { transform, hook },
+    tool: { transform: collect, hook },
     command: { transform },
   } as never)
   const send = async (name: string, event: object) => {
@@ -55,7 +73,7 @@ async function setup(root: string, storage: Map<string, unknown>) {
     await send('prompt', { sessionID, prompt: input })
     return input.text
   }
-  return { send, context, prompt, notify, compacted, close: () => writer.close() }
+  return { tools, send, context, prompt, notify, compacted, close: () => writer.close() }
 }
 
 test('session hooks keep per-chat map changes across plugin reload and refresh the block on compaction', async () => {
@@ -67,6 +85,8 @@ test('session hooks keep per-chat map changes across plugin reload and refresh t
   await writeFile(join(root, path), body)
 
   const original = await setup(root, storage)
+  const map = await original.tools.get('shift_record')?.execute({ action: 'read', name: 'SHIFT.md' }, { sessionID: 'reader' })
+  expect(map?.content).toContain('Slots · Stable')
   const first = await original.context('reader')
   expect(first).toContain('Slots · Stable')
   expect(await original.context('writer')).toBe(first)

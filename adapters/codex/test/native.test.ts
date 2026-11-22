@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
@@ -109,6 +109,17 @@ trust_level = "trusted"
 `,
         ),
       ])
+      // Run the installed wait path against current records only. The other
+      // cases exercise projects still using their existing loose Markdown.
+      if (mode === 'wait') {
+        const changes: Record<string, { text: string; revision: string }> = {}
+        for (const name of ['board.md', 'letter.md', 'OWNER.md']) {
+          changes[name] = { text: await readFile(join(records, name), 'utf8'), revision: '' }
+        }
+        archive.query(root, { action: 'working-write', changes })
+        for (const name of Object.keys(changes)) await unlink(join(records, name))
+        await writeFile(join(records, 'beads'), 'offline')
+      }
       const oldIndex = join(records, 'TASKS.md')
       if (mode === 'wait') await writeFile(oldIndex, 'Unrelated leftover index.')
       const install = (args: string[]) => execFileSync('codex', args, { env, cwd: root, stdio: 'pipe' })
@@ -176,7 +187,7 @@ trust_level = "trusted"
         await rpc.call('turn/start', { threadId, input: pick(sizes ? 'sizes' : 'tasks') })
         await reportDone.promise
         expect(requests).toHaveLength(0)
-        expect(notices.join('\n')).toContain(sizes ? 'Session + continue' : 'sbd')
+        expect(notices.join('\n')).toContain(sizes ? 'Session + continue' : 'shift-task')
         await rpc.call('turn/start', { threadId, input: pick('shift') })
         if (mode === 'wait') {
           const deadline = Date.now() + 6000

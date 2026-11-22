@@ -20,27 +20,26 @@ The rules as the model reads them live in one place, `core/src/texts/doctrine.ts
 
 ## Layout
 
-Current project records remain editable in their configured locations. Both databases belong to the project and work offline.
+Internal records are Markdown stored in `.shift/history.db`. Logical names such as `board.md` and `knowledge/traps.md` identify the current text. The board, owner rules, glossary, knowledge and documentation map are shared. Each chat edits its own working letter; pi distinguishes branches. Completed snapshots retain the text accepted at that shift.
 
 ```
 .shift/
-├── board.md          current goal, cross-task decisions and dead ends
-├── OWNER.md          the owner's standing decisions
-├── GLOSSARY.md       project terminology
-├── SHIFT.md          knowledge rules and documentation map
 ├── settings.toml     optional project settings
-├── letter.md         the working letter
-├── knowledge/        traps, lessons, runbook and facts
-├── bin/              project-local sbd launcher
-├── beads/            private Beads issues, history and runtime profile
-└── history.db        shift manifests and shared record contents
+├── drafts/           temporary Markdown from active checkouts
+├── bin/              project-local shift-task launcher
+├── beads/            optional private task workspace
+└── history.db        current record revisions and saved shifts
 ```
 
-The names are `NAMES` in `core/src/layout.ts`: reading the records, writing a snapshot and the setup's tree go by that one list. The settings may move OWNER.md, GLOSSARY.md and SHIFT.md; every text that names them passes through `atPlaces`.
+Use `shift_record(action="read", name="board.md")` to get the revision and text. Pass that revision, a unique literal `find` and its `replacement` to `replace`. An optional section title limits the match to that heading's body. For a long edit or the first version of a record, use `checkout`, edit the returned file, then `apply` with its base revision. `drafts` finds interrupted edits for that name in this chat. A conflict or validation failure keeps the draft. Read the current revision, reconcile in a new checkout, then discard the superseded draft. Successful application removes the applied draft. If an editor replaces it during cleanup, the replacement stays at its path. An interrupted cleanup can also leave a recovery file listed by drafts. Compare its text with the current record and remove it after reconciliation. The shift tool still accepts the logical letter path `.shift/letter.md`.
+
+On upgrade, existing loose files remain usable until adoption. With writers stopped, back up the project and invoke `shift_record(action="import")`. It imports missing internal records together and leaves existing revisions and source files intact. An imported letter seeds chats until each edits its own. Compare each imported record to its source before retiring the originals. Repeating the import skips adopted records. Import does not read the task store. The project can be transferred offline by copying the database, settings and configured files with writers stopped.
+
+Project documentation, settings and explicit file sources stay on disk. With `commit = true` working records stay file-backed for version control. Before switching an existing database-backed project to file sources, copy its current records to the desired paths and verify their contents. The archive preserves earlier versions.
 
 ## Board and project tasks
 
-Run `./.shift/bin/sbd prime` from the project root for the bundled Beads workflow. Use the same executable in place of `bd` in its examples. `sbd ready` finds available work, `sbd show <id>` reads an issue and `sbd comments <id>` reads its discussion. Tasks, claims, dependencies, labels and comments belong to Beads. Put the issue ID and the next concrete step in the working letter when a chat needs to resume a particular issue.
+Write the next concrete step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. Run `./.shift/bin/shift-task prime` from the project root for the bundled Beads workflow. Use the same executable in place of `bd` in its examples. `shift-task ready` finds available work, `shift-task show <id>` reads an issue and `shift-task comments <id>` reads its discussion. Tasks, claims, dependencies, labels and comments belong to Beads. Put the issue ID and the next concrete step in the working letter when a chat needs to resume a particular issue.
 
 The board returns in full. Keep the goal to the current project outcome. A decision records a choice other tasks must follow and its reason. A dead end records what was tried, the observed failure and the condition under which it matters. Review affected lines when scope changes or a task closes. Keep decisions specific to one task on its card.
 
@@ -76,7 +75,7 @@ The opening paragraph of “Where I am” supplies the history description. Put 
 
 An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
 
-`shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to find saved shift records. `delete` removes an eligible shift. Use `sbd history <id>` for issue revisions.
+`shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to find saved shift records. `delete` removes an eligible shift. Use `shift-task history <id>` for issue revisions.
 
 Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The default `history_limit` is 30. Pending, unsettled and undelivered letters remain recoverable. A completed continue stays protected from rotation until its host accepts the message or records it in replacement history. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.
 
@@ -86,4 +85,4 @@ To transfer a project, stop writers and copy the whole `.shift/` directory along
 
 Before saving a letter, Shift checks its four sections, the board, owner rules, glossary, knowledge files, settings and git exclusion. A refusal identifies the affected record. The archive compares the snapshot with the same chat's last completed shift to detect unchanged work. A failed attempt can be retried. `shift_setup` checks the current project records on demand.
 
-The mod also looks at the records around every tool the agent runs, by each file's time and size from one listing per folder — no file is read unless its stamp moved, and then its text's fingerprint decides, so a file rewritten with the same text, or edited and put back, is no change. A change made while the agent's tool ran is the agent's own: it is checked by the checks of that file alone and told once in that tool's result only when broken. A change made between its tools — the owner's hand, another session — is named in the next result, broken or not, so the agent reads it before writing over it. While another tool runs, a change is not attributed: it may be that tool's. The mod's own tools are only remembered. A record written by hand used to break silently and surface only at the shift, hundreds of K later. Checks across files stay the shift's alone — another record broken, nothing changed — so a record half written in two steps is told once, not refused.
+The mod also looks at the records around every tool the agent runs, using revisions from the current database view and modification stamps for files on disk. When a stamp moves the text's fingerprint decides, so a file rewritten with the same text, or edited and put back, is no change. A change made while the agent's tool ran is the agent's own: it is checked by the checks of that file alone and told once in that tool's result only when broken. A change made between its tools — the owner's hand, another session — is named in the next result, broken or not, so the agent reads it before writing over it. While another tool runs, a change is not attributed: it may be that tool's. The mod's own tools are only remembered. A record written by hand used to break silently and surface only at the shift, hundreds of K later. Checks across files stay the shift's alone — another record broken, nothing changed — so a record half written in two steps is told once, not refused.

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { replacePassage } from '../src/editing'
 import {
   addGrowth,
   checkLetter,
@@ -200,4 +201,13 @@ test('about.md is read back by one reader: the base of a fill under 1K too, only
   expect(shiftFill(about(OUTCOME.continuing('300K → 20K'), '300K → 20K'), 's2')).toBeNull()
   expect(shiftFill(about(OUTCOME.unsettled('disk'), '300K → 20K'), 's1')).toBeNull()
   expect(readAbout(about(OUTCOME.pending, 'unknown'))).toMatchObject({ description: 'd', after: 'wait', shifted: false, tokensAfter: null })
+})
+
+test('literal replacement uses one Markdown section and rejects ambiguous matches', () => {
+  const source = '## Goal\nentry\n```md\n## Inner\n```\n## Next\nentry\n'
+  expect(replacePassage(source, 'entry', 'done', 'Goal')).toBe(source.replace('entry', 'done'))
+  expect(() => replacePassage(source, 'entry', 'done')).toThrow('one exact match')
+  expect(() => replacePassage(source, 'entry', 'done', 'Inner')).toThrow('Section')
+  expect(() => replacePassage(`${source}## Goal\n`, 'entry', 'done', 'Goal')).toThrow('Section')
+  expect(() => replacePassage(source, 'absent', 'done', 'Next')).toThrow('one exact match')
 })

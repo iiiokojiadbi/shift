@@ -14,7 +14,7 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
   return {
     files,
     beads: async (root, args, stdin) => {
-      if (args[0] === 'shift-install-sbd') return './.shift/bin/sbd'
+      if (args[0] === 'shift-install-task') return './.shift/bin/shift-task'
       if (args[0] !== 'shift-history' || !stdin) throw new Error('Unexpected runtime operation')
       const path = `${root}/.shift/history.db`
       const raw = files.get(path)

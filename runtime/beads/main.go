@@ -167,7 +167,7 @@ func run(args []string) error {
 	if len(args) < 2 || !filepath.IsAbs(args[0]) {
 		return errors.New("usage: shift-bd ABSOLUTE_PROJECT command [args]")
 	}
-	if len(args) == 2 && args[1] == "shift-install-sbd" {
+	if len(args) == 2 && args[1] == "shift-install-task" {
 		path, err := installSBD(args[0])
 		if err == nil {
 			fmt.Println(path)
@@ -222,7 +222,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if strings.EqualFold(filepath.Base(self), "sbd.exe") {
+		if strings.EqualFold(filepath.Base(self), "shift-task.exe") {
 			args = append([]string{filepath.Clean(filepath.Join(filepath.Dir(self), "../..")), "shift-sbd"}, args...)
 		}
 	}

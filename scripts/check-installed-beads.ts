@@ -45,9 +45,9 @@ try {
   const startup = await startSession(source)
   assert.ok(!(await readdir(join(project, '.shift'))).includes('beads'), 'Startup must leave Beads unopened.')
   assert.ok(startup.enabled)
-  const sbd = resolve(project, '.shift/bin/sbd')
+  const taskCommand = resolve(project, '.shift/bin/shift-task')
   const runCLI = promisify(execFile)
-  const cli = async (...args: string[]) => (await runCLI(sbd, args, { cwd: project })).stdout
+  const cli = async (...args: string[]) => (await runCLI(taskCommand, args, { cwd: project })).stdout
   assert.match(await cli('prime'), /bd ready/)
   const created = await Promise.all(['Left', 'Right'].map(async title => JSON.parse(await cli('create', title, '--json')).id))
   assert.equal(new Set(created).size, 2)
@@ -65,6 +65,20 @@ try {
     if ('deny' in done) throw new Error(done.deny)
     return done.result
   }
+  // Exercise the optional workflow from the agent guide with a conflicting bd on PATH.
+  const { id: group } = JSON.parse(await cli('create', 'Test optional tracker guide', '--type=epic', '--json'))
+  const task = async (title: string) => JSON.parse(await cli('create', title, '--parent', group, '--json')).id as string
+  const first = await task('Read the record')
+  const next = await task('Apply the revision')
+  await cli('dep', 'add', next, first)
+  const ready = async () => JSON.parse(await cli('ready', '--parent', group, '--json')).map((row: { id: string }) => row.id)
+  assert.deepEqual(await ready(), [first])
+  await cli('update', first, '--claim')
+  assert.equal(JSON.parse(await cli('show', first, '--json'))[0].status, 'in_progress')
+  await cli('close', first, '--reason', 'Verified the record revision')
+  assert.deepEqual(await ready(), [next])
+  await cli('close', next, '--reason', 'Applied the revision')
+  await cli('close', group, '--reason', 'Verified optional tracker workflow')
   const { id: epic } = JSON.parse(await cli('create', 'Verify task transfer', '--type=epic', '--json'))
   await cli('comments', 'add', epic, 'Independent evidence')
   assert.match(await cli('comments', epic, '--json'), /Independent evidence/)
@@ -156,7 +170,7 @@ try {
   const history = (TOOLS as Tool[]).find(t => t.name === 'shift_history')
   assert.ok(history)
   await startSession(copied)
-  const copiedCLI = (...args: string[]) => execFileSync(resolve(copy, '.shift/bin/sbd'), args, { cwd: copy, encoding: 'utf8' })
+  const copiedCLI = (...args: string[]) => execFileSync(resolve(copy, '.shift/bin/shift-task'), args, { cwd: copy, encoding: 'utf8' })
   assert.match(copiedCLI('comments', epic, '--json'), /Independent evidence/)
   assert.equal(JSON.parse(copiedCLI('show', epic, '--json'))[0].status, 'closed')
   assert.equal(JSON.parse(copiedCLI('ready', '--json')).length, created.length)

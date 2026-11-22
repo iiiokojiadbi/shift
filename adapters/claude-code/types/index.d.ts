@@ -66,6 +66,7 @@ declare module 'claude-code' {
     mcp__shift__shift: { letter: string; after: ShiftAfter; about?: string }
     mcp__shift__shift_guide: { section?: 'flow' | 'records' }
     mcp__shift__shift_sizes: Record<never, never>
+    mcp__shift__shift_record: { action: string; name?: string; revision?: string; find?: string; replacement?: string; section?: string }
     mcp__shift__shift_history: {
       action?: 'list' | 'read' | 'compare' | 'export' | 'delete' | 'search'
       count?: number
@@ -75,7 +76,7 @@ declare module 'claude-code' {
       query?: string
     }
     mcp__shift__shift_status: Record<never, never>
-    mcp__shift__shift_setup: { section?: 'runtime' | 'sbd' }
+    mcp__shift__shift_setup: { section?: 'runtime' | 'tasks' | 'sbd' }
     mcp__shift__doc_outline: { path: string }
     mcp__shift__docs_mentioning: { file: string }
   }

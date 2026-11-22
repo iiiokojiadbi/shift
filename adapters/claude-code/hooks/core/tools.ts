@@ -1,6 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { installSbd, type SbdCommand, taskInstructions } from './beads'
+import { installTaskCommand, type TaskCommandPath, taskInstructions } from './beads'
 import { docOutline, docsMentioning } from './docs'
+import { editRecord } from './editing'
 import { acceptShift, keepRecordsOut, shiftHistory, staleLayout } from './flows'
 import { parseHistoryCount, parsePath, parseShiftInput } from './input'
 import {
@@ -11,6 +12,7 @@ import {
   MENTIONS_TOOL,
   MOD,
   OUTLINE_TOOL,
+  RECORD_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
@@ -105,6 +107,19 @@ const ROWS: readonly Row[] = [
       return typeof count === 'string' ? { deny: count } : { result: await shiftHistory(await call.project(), count) }
     },
   },
+  {
+    name: RECORD_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      try {
+        const project = await call.project()
+        const stale = await staleLayout(project)
+        return stale ? { deny: stale } : { result: await editRecord(project, raw) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   {
@@ -113,15 +128,15 @@ const ROWS: readonly Row[] = [
     run: async (raw, call) => {
       const project = await call.project()
       if (raw.section === undefined) return { result: await setupReport(project, await call.loaded()) }
-      if (raw.section === 'sbd') {
+      if (raw.section === 'tasks' || raw.section === 'sbd') {
         try {
           const stale = await staleLayout(project)
-          return stale ? { deny: stale } : { result: taskInstructions(await installSbd(project)) }
+          return stale ? { deny: stale } : { result: taskInstructions(await installTaskCommand(project)) }
         } catch (error) {
           return { deny: String(error) }
         }
       }
-      if (raw.section !== 'runtime') return { deny: 'Expected section runtime or sbd.' }
+      if (raw.section !== 'runtime') return { deny: 'Expected section runtime or tasks.' }
       if (!project.store.beads) return { deny: 'This adapter has no private task runtime.' }
       try {
         return { result: (await project.store.beads(project.root, ['version'])).trim() }
@@ -170,9 +185,9 @@ export function shownTools(settings: Settings): Tool[] {
 
 // What a session starts with: whether the mod is on, the rows for the owner, the tools to register and the doctrine.
 export type SessionStart = {
-  command: SbdCommand | null
+  command: TaskCommandPath | null
   enabled: boolean
-  rows: { text: string; level: 'info' | 'warning'; sbd?: true }[]
+  rows: { text: string; level: 'info' | 'warning'; taskCommandWarning?: true }[]
   tools: Tool[]
   // The doctrine for the system prompt, with and without its tag.
   doctrine: string
@@ -183,7 +198,7 @@ export type SessionStart = {
 // git would take in are kept out before the first shift too.
 // The doctrine with the tools the project shows, at the places its settings give: in its tag, and the body alone for a
 // harness that puts it under a heading of its own. An adapter that has none kept yet builds it here, not from the table.
-export function sessionDoctrine(settings: Settings, command?: SbdCommand | null): { doctrine: string; doctrineBody: string } {
+export function sessionDoctrine(settings: Settings, command?: TaskCommandPath | null): { doctrine: string; doctrineBody: string } {
   const names = shownTools(settings).map(tool => tool.name)
 
   return {
@@ -192,7 +207,7 @@ export function sessionDoctrine(settings: Settings, command?: SbdCommand | null)
   }
 }
 
-export async function startSession(project: Project, knownCommand?: SbdCommand | null): Promise<SessionStart> {
+export async function startSession(project: Project, knownCommand?: TaskCommandPath | null): Promise<SessionStart> {
   const { settings, problem } = project
   const rows: SessionStart['rows'] = []
   if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: 'warning' })
@@ -210,9 +225,9 @@ export async function startSession(project: Project, knownCommand?: SbdCommand |
   if (stale !== null) rows.push({ text: `${MOD}: ${stale}`, level: 'warning' })
   else if (knownCommand === undefined && project.store.beads) {
     try {
-      command = await installSbd(project)
+      command = await installTaskCommand(project)
     } catch (error) {
-      rows.push({ text: `Could not prepare the project sbd command: ${String(error)}`, level: 'warning', sbd: true })
+      rows.push({ text: `Could not prepare the project shift-task command: ${String(error)}`, level: 'warning', taskCommandWarning: true })
     }
   }
   if (await project.store.exists(`${project.root}/${DIR}`)) {

@@ -6,6 +6,7 @@ import type { KnowledgeFile, Recent, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
 export type Store = {
+  nativeRecords?: boolean
   // The installed adapter owns the executable and the child process environment.
   beads?(root: string, args: readonly string[], stdin?: string): Promise<string>
   // The file's text; null when it is missing or unreadable.

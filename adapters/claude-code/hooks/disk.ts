@@ -4,6 +4,7 @@ import { beadsExecutable, loadProject, type Project, type Store } from './core/i
 // The core's store over Claude Code's files and processes.
 export function claudeStore($: EngineInterface): Store {
   return {
+    nativeRecords: true,
     beads: async (root, args, stdin) => {
       const windows = (await $.env.get('OS')) === 'Windows_NT'
       const [os, arch] = windows

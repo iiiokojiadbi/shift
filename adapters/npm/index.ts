@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type {
   CompactionEntry,
@@ -60,6 +60,7 @@ const READING: ReadonlySet<string> = new Set(['read', 'grep', 'find', 'ls'])
 
 // The custom entry that keeps a wait note across a reload: the extension's own state lives only as long as its runtime.
 const DELIVERY_ENTRY = `${MOD}:delivery`
+const LETTER_BRANCH = `${MOD}:letter-branch`
 const OFFER_ENTRY = `${MOD}:offered`
 type LetterOffer = { id: string; hash: string }
 const hashText = (text: string) => createHash('sha256').update(text).digest('hex')
@@ -71,7 +72,7 @@ export default function shift(pi: ExtensionAPI): void {
   // Set by the owner's own input, consumed by the run it starts.
   let ownerTyped = false
   // false when the project's settings turn the mod off; read at each session start.
-  let command: import('./core/beads').SbdCommand | null = null
+  let command: import('./core/beads').TaskCommandPath | null = null
   let enabled = true
   // The documents' tocs and the map are refreshed at the first run of a session, before anything looks at them.
   let mapFile: SessionFile | null | undefined
@@ -225,8 +226,16 @@ export default function shift(pi: ExtensionAPI): void {
 
   // Another branch has its own wait note, or none: a letter of the branch left behind never goes with this one.
   // Its history too: the gauge is counted anew from the branch.
-  pi.on('session_tree', async (_event, ctx) => {
+  pi.on('session_tree', async (event, ctx) => {
     if (!enabled) return
+    // Returning to an existing tip keeps its working letter. Continuing from
+    // inside the tree creates a sibling with its own durable letter identity.
+    if (
+      event.newLeafId !== event.oldLeafId &&
+      (event.summaryEntry || ctx.sessionManager.getEntries().some(entry => entry.parentId === event.newLeafId))
+    ) {
+      pi.appendEntry(LETTER_BRANCH, randomUUID())
+    }
     loop = { ...loop, note: branchNote(ctx) }
     gauge = FRESH_GAUGE
     restoreBranch(ctx)
@@ -496,9 +505,14 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
 // The project loaded once for the hook at hand.
 async function branchProject(ctx: ExtensionContext): Promise<Project> {
   const actor = ctx.sessionManager.getSessionId()
-  const anchor = ctx.sessionManager.getBranch().findLast(entry => entry.type === 'custom' && entry.customType === DELIVERY_ENTRY)
+  const entries = ctx.sessionManager.getBranch()
+  const anchor = entries.findLast(entry => entry.type === 'custom' && entry.customType === DELIVERY_ENTRY)
   const branch = anchor?.type === 'custom' && typeof anchor.data === 'string' ? anchor.data : null
-  return { ...(await projectAt(ctx.cwd, actor)), deliveryKey: JSON.stringify([actor, branch]) }
+  const letter = entries.findLast(entry => entry.type === 'custom' && entry.customType === LETTER_BRANCH)
+  const letterSession = letter?.type === 'custom' ? JSON.stringify([actor, letter.data]) : actor
+  const project = await projectAt(ctx.cwd, actor, letterSession)
+  project.deliveryKey = JSON.stringify([actor, branch])
+  return project
 }
 
 function once(ctx: ExtensionContext): () => Promise<Project> {

@@ -1,5 +1,5 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { type SbdCommand, taskInstructions } from '../beads'
+import { type TaskCommandPath, taskInstructions } from '../beads'
 import { TOC_END, TOC_START } from '../docs'
 import {
   ABOUT_MAX,
@@ -35,11 +35,11 @@ const BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: 'who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Milestones and next steps belong to tasks',
+  Goal: 'who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Write the next concrete step in the letter',
   Decisions:
-    'one line per choice other tasks still depend on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> — <why>`',
+    'one line per choice later work still depends on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> — <why>`',
   'Dead ends':
-    'one line per failed approach another task might try again. State what was tried, what happened and under which condition. Revisit when that condition changes',
+    'one line per failed approach later work might repeat. State what was tried, what happened and under which condition. Revisit when that condition changes',
 })}
 
 Example from a stocktaking project:
@@ -47,9 +47,9 @@ Example from a stocktaking project:
 - Decisions: Assign each count an ID on the device so retrying a sync cannot count it twice.
 - Dead ends: Deduplicating by timestamp merged distinct counts on devices with identical clocks. Keep this warning while old devices send timestamps alone.
 
-When taking over an existing board or closing a task, ask of each affected line: what would another task do differently after reading this? Keep that instruction short. Put single-task findings with the task. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`
+When taking over an existing board or closing a task, ask of each affected line: what would you do differently next time after reading this? Keep that instruction short. Keep issue-specific findings with the issue when tracking it. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`
 
-const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes in the Beads issue.`
+const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. When tracking an issue, keep decisions specific to it on the issue.`
 
 const KNOWLEDGE_KINDS = `- \`traps\` — what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(' and ')};
 - \`lessons\` — an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(' and ')};
@@ -86,20 +86,20 @@ Those documents the mod keeps as you write them. After an Edit or a Write the ma
 // ones shown in this project, in the order given.
 const LETTER_OPENING = `Open "Where I am" with one paragraph of 2–3 short sentences (up to ${ABOUT_MAX} characters). Say what you worked on, what you found or verified, and where that leaves the work. This paragraph becomes the description in later shift history.`
 
-export function doctrineBody(tools: readonly string[], command?: SbdCommand | null): string {
+export function doctrineBody(tools: readonly string[], command?: TaskCommandPath | null): string {
   return `# Shift
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
-## Board and tasks
+## Board and letter
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` keeps the project outcome and decisions that guide later work. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Use import for existing loose records. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
 
-Include a relevant task ID in the letter when it helps you resume. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
+When continuing a tracked issue, include its ID in the letter. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
@@ -115,7 +115,7 @@ ${tools.map(name => `- \`${name}\` — ${TOOL_TEXTS[name]?.brief ?? ''}`).join('
 }
 
 // In a tag that names the mod: the agent tells this section from the owner's own instructions.
-export function doctrine(tools: readonly string[], command?: SbdCommand | null): string {
+export function doctrine(tools: readonly string[], command?: TaskCommandPath | null): string {
   return `<${MOD} note="how the ${MOD} mod works: its tools, its records and when to shift">
 ${doctrineBody(tools, command)}
 </${MOD}>`
@@ -129,12 +129,12 @@ const DOC_WRITING = `When you change what someone using or maintaining the proje
 4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
 5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`
 
-export const GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`
+export const GRAPH_LAYOUT = `Default internal Markdown records live in .shift/history.db. Each chat writes its own letter. Record paths in the guide identify their logical names. An explicit project file source, or commit = true, stays file-backed. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`
 
 export const GUIDE_RECORDS = [
   '## What goes where',
   GRAPH_LAYOUT,
-  'Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads.',
+  'Project-wide focus can go in the board Goal. Write the next step in the letter. Use Beads when work needs its own status, dependencies or discussion.',
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -145,13 +145,13 @@ export const GUIDE_RECORDS = [
 
 export const GUIDE_FLOW = `## How to shift
 
-Check the board and current project records. At the final hint, write the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
+Use shift_record(action="checkout", name="letter.md"), edit its returned path and apply the revision before calling shift. Use drafts to recover an interrupted edit. A conflict keeps the file for reconciliation. In file-backed projects edit the configured paths directly. Check the board and current project records. At the final hint, prepare the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
 - Where I am: ${LETTER_OPENING}
-- Next: the concrete work to resume and how to check it. Include a Beads ID when a task is relevant.
+- Next: the concrete work to resume and how to check it. Include the issue ID when continuing tracked work.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
 List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
 

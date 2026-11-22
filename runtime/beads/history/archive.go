@@ -18,19 +18,23 @@ import (
 )
 
 type Request struct {
-	Upcoming bool              `json:"upcoming"`
-	File     string            `json:"file"`
-	Compare  string            `json:"compare"`
-	Session  string            `json:"session"`
-	Wait     bool              `json:"wait"`
-	Query    string            `json:"query"`
-	Action   string            `json:"action"`
-	ID       string            `json:"id"`
-	Key      string            `json:"key"`
-	About    string            `json:"about"`
-	Files    map[string]string `json:"files"`
-	Limit    int               `json:"limit"`
-	State    string            `json:"state"`
+	Text     string                   `json:"text"`
+	Revision string                   `json:"revision"`
+	Changes  map[string]WorkingChange `json:"changes"`
+	Expected map[string]string        `json:"expected"`
+	Upcoming bool                     `json:"upcoming"`
+	File     string                   `json:"file"`
+	Compare  string                   `json:"compare"`
+	Session  string                   `json:"session"`
+	Wait     bool                     `json:"wait"`
+	Query    string                   `json:"query"`
+	Action   string                   `json:"action"`
+	ID       string                   `json:"id"`
+	Key      string                   `json:"key"`
+	About    string                   `json:"about"`
+	Files    map[string]string        `json:"files"`
+	Limit    int                      `json:"limit"`
+	State    string                   `json:"state"`
 }
 type Entry struct {
 	Initial    string            `json:"initial,omitempty"`
@@ -175,10 +179,13 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		if empty, _ := tx.Cursor().First(); empty != nil {
 			return nil, errors.New("unrecognized shift archive")
 		}
+		if r.Action == "working-list" {
+			return map[string]WorkingRecord{}, nil
+		}
 		if r.Action == "list" {
 			return []Entry{}, nil
 		}
-		if !tx.Writable() || r.Action != "begin" {
+		if !tx.Writable() || (r.Action != "begin" && r.Action != "working-write") {
 			return nil, errors.New("no saved shift")
 		}
 		var err error
@@ -192,6 +199,8 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		}
 	}
 	switch r.Action {
+	case "working-list", "working-write":
+		return workingOperation(tx, r)
 	case "begin":
 		if r.Key == "" || r.Files["letter.md"] == "" || r.Files["board.md"] == "" || r.About == "" {
 			return nil, errors.New("missing shift records")
@@ -222,6 +231,19 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 					return nil, errors.New("shift request key already used for different records")
 				}
 				return e.ID, nil
+			}
+		}
+		if r.Expected != nil {
+			records, err := currentRecords(tx, r.Session)
+			if err != nil {
+				return nil, err
+			}
+			revisions := map[string]string{}
+			for name, record := range records {
+				revisions[name] = record.Revision
+			}
+			if !maps.Equal(revisions, r.Expected) {
+				return nil, errors.New("working records changed before saving; read them and retry")
 			}
 		}
 		if r.Compare != "" && b.Get([]byte(r.Compare)) != nil {
@@ -431,12 +453,22 @@ func Run(path string, in io.Reader, out io.Writer) error {
 	if err := json.NewDecoder(in).Decode(&r); err != nil {
 		return err
 	}
-	readOnly := r.Action == "list" || r.Action == "read" || r.Action == "waiting" || r.Action == "search"
+	if strings.HasPrefix(r.Action, "draft-") {
+		result, err := draftOperation(path, r)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(result)
+	}
+	readOnly := r.Action == "working-list" || r.Action == "list" || r.Action == "read" || r.Action == "waiting" || r.Action == "search"
 	st, err := os.Lstat(path)
 	if err == nil && !st.Mode().IsRegular() {
 		return errors.New("expected a regular shift archive")
 	}
 	if errors.Is(err, os.ErrNotExist) && readOnly {
+		if r.Action == "working-list" {
+			return json.NewEncoder(out).Encode(map[string]WorkingRecord{})
+		}
 		if r.Action == "list" {
 			return json.NewEncoder(out).Encode([]Entry{})
 		}
@@ -445,7 +477,7 @@ func Run(path string, in io.Reader, out io.Writer) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if errors.Is(err, os.ErrNotExist) && (r.Action != "begin" || r.Key == "" || r.About == "" || r.Files["letter.md"] == "" || r.Files["board.md"] == "") {
+	if errors.Is(err, os.ErrNotExist) && r.Action != "working-write" && (r.Action != "begin" || r.Key == "" || r.About == "" || r.Files["letter.md"] == "" || r.Files["board.md"] == "") {
 		return errors.New("no saved shift or missing initial records")
 	}
 	db, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: readOnly, Timeout: 5 * time.Second})

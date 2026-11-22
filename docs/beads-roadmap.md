@@ -11,9 +11,9 @@ description: How the project-local Beads command and shift history are separated
 
 ## Ownership
 
-Shift returns the letter, board, owner rules, glossary and documentation map. The board can name a project-wide focus. The letter can name a task ID in Next. Beads owns the issue, status, dependencies and discussion. The agent opens the issue when its work calls for it.
+Shift returns the letter, board, owner rules, glossary and documentation map. The board can name a project-wide focus. Next holds the concrete step to resume. Include an issue ID when continuing tracked work. Beads owns the issue, status, dependencies and discussion. The agent opens the issue when its work calls for it.
 
-All four adapters use the tested Beads installation shipped with Shift and the same private workspace at `.shift/beads/`. The project-root command is `./.shift/bin/sbd` (`sbd.exe` on Windows). Beads examples that use `bd` refer to this command. The owner's shell configuration and existing tracker belong to the owner.
+All four adapters use the tested Beads installation shipped with Shift and the same private workspace at `.shift/beads/`. The project-root command is `./.shift/bin/shift-task` (`shift-task.exe` on Windows). Beads examples that use `bd` refer to this command. The owner's shell configuration and existing tracker belong to the owner.
 
 ## Implementation and acceptance
 

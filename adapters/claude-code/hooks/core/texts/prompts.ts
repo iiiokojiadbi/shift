@@ -48,7 +48,7 @@ export function compactInstructions(shift: Pick<PendingShift, 'hold' | 'board' |
 // Added to an automatic compaction the agent did not ask for.
 export function unassistedInstructions(files: Settings['files']): string {
   return atPlaces(
-    `The agent did not shift before this point, so there is no letter. Its work board may be on disk at ${BOARD}, the owner's decisions at ${OWNER}. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`,
+    `The agent did not shift before this point, so there is no letter. Its current board is identified by ${BOARD}, the owner's decisions at ${OWNER}. Keep the overall goal and how it evolved, open tasks with their status, decisions with their reasons, exact paths, commands, error texts and values. End with a short "Where to continue" section.`,
     files,
   )
 }
@@ -77,7 +77,7 @@ export function renderSessionFiles(files: readonly SessionFile[]): string | null
   if (files.length === 0) return null
 
   return [
-    `<${MOD} note="loaded at the session's start and after each shift; the files on disk are newer if you changed them since">`,
+    `<${MOD} note="loaded at the session's start and after each shift; read current records if they have changed since">`,
     ...files.map(each => fileBlock(each.path, each.text)),
     `</${MOD}>`,
   ].join('\n\n')

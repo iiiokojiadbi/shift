@@ -9,6 +9,7 @@ import { createInterface as createInterface4 } from "readline";
 // core/src/layout.ts
 var MOD = "shift";
 var TOOL = "shift";
+var RECORD_TOOL = "shift_record";
 var GUIDE_TOOL = "shift_guide";
 var HISTORY_TOOL = "shift_history";
 var STATUS_TOOL = "shift_status";
@@ -287,16 +288,16 @@ function beadsExecutable(platform, arch) {
     return null;
   return `shift-bd-${os}_${cpu}${os === "windows" ? ".exe" : ""}`;
 }
-async function installSbd(project) {
+async function installTaskCommand(project) {
   if (!project.store.beads)
     throw new Error("The bundled runtime is unavailable.");
-  const path = (await project.store.beads(project.root, ["shift-install-sbd"])).trim();
-  if (path !== "./.shift/bin/sbd" && path !== "./.shift/bin/sbd.exe")
-    throw new Error("The bundled runtime did not confirm the sbd command.");
+  const path = (await project.store.beads(project.root, ["shift-install-task"])).trim();
+  if (path !== "./.shift/bin/shift-task" && path !== "./.shift/bin/shift-task.exe")
+    throw new Error("The bundled runtime did not confirm the shift-task command.");
   return path;
 }
 function taskInstructions(command) {
-  return command ? `For tasks, run \`${command} prime\` from the project root. Use \`${command}\` wherever Beads shows \`bd\`.` : 'For tasks, call shift_setup(section="sbd") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.';
+  return command ? `Use \`${command}\` from the project root for all tracker commands. Start with \`show <id>\` for a named issue or \`ready --parent <epic>\` for available work in an epic. Claim with \`update <id> --claim\`. A prerequisite is \`dep add <dependent> <prerequisite>\`. Close with \`close <id> --reason <result>\`. For the Beads reference run \`${command} prime\`; use this executable wherever it shows \`bd\`.` : 'To use the built-in shift-task tracker, call shift_setup(section="tasks") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.';
 }
 // core/src/paths.ts
 function dirname(path) {
@@ -896,7 +897,7 @@ function checkBoard(board) {
   const boardMissing = missingSections(board, BOARD_SECTIONS, "The board");
   if (boardMissing !== null)
     return boardMissing;
-  return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Move what belongs to one task into that task, keep only decisions in force.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.") ?? badRejected(board, "The board");
+  return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Keep decisions in force and put the next step in the letter.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.") ?? badRejected(board, "The board");
 }
 function badRejected(text, where) {
   const bad = (sections(text).get("Decisions") ?? "").split(`
@@ -1118,7 +1119,7 @@ function renderSessionFiles(files) {
   if (files.length === 0)
     return null;
   return [
-    `<${MOD} note="loaded at the session's start and after each shift; the files on disk are newer if you changed them since">`,
+    `<${MOD} note="loaded at the session's start and after each shift; read current records if they have changed since">`,
     ...files.map((each) => fileBlock(each.path, each.text)),
     `</${MOD}>`
   ].join(`
@@ -1357,6 +1358,7 @@ async function acceptShift(project, call) {
   const previous = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === call.sessionId);
   shift.dir = await archiveCall(project, {
     action: "begin",
+    ...project.working ? { expected: await project.working.revisions(), session: project.working.session } : {},
     key: JSON.stringify([call.sessionId, call.at]),
     files,
     about,
@@ -1498,7 +1500,7 @@ async function staleLayout({ store, root }) {
 }
 async function tasksView(project) {
   try {
-    return `Run ${await installSbd(project)} list from the project root to see tasks.`;
+    return `Run ${await installTaskCommand(project)} list from the project root to see tasks.`;
   } catch (error) {
     return `${taskInstructions()}
 ${String(error)}`;
@@ -1596,7 +1598,7 @@ function renderStatus(current, { tokens, window, threshold, hintTargets: overrid
   return lines.join(`
 `);
 }
-var UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`. Check any current issue with the project Beads command.`;
+var UNASSISTED_HINT = `The harness let the history go by itself, without your shift: there is no letter, only its digest is in memory. Before going on, read the board \`${BOARD}\`. If resuming a tracked issue, check it with the project Beads command.`;
 function letGoGauge(unassisted) {
   return { ...FRESH_GAUGE, unassisted, whole: true };
 }
@@ -2594,13 +2596,133 @@ function quoted(value) {
   return found === null ? undefined : found[1] ?? found[2];
 }
 
+// core/src/working.ts
+var names = [BOARD, LETTER, OWNER, GLOSSARY, SHIFT_FILE];
+var fileKeys = {
+  [OWNER]: "owner",
+  [GLOSSARY]: "glossary",
+  [SHIFT_FILE]: "shift"
+};
+
+class WorkingRecords {
+  project;
+  disk;
+  session;
+  loaded;
+  constructor(project, disk, session) {
+    this.project = project;
+    this.disk = disk;
+    this.session = session;
+  }
+  all() {
+    this.loaded ??= this.disk.exists(`${this.project.root}/${ARCHIVE_DB}`).then((exists) => exists ? archiveCall(this.project, { action: "working-list", session: this.session }) : {});
+    return this.loaded;
+  }
+  async revisions() {
+    return Object.fromEntries(Object.entries(await this.all()).map(([name, r]) => [name, r.revision]));
+  }
+  key(path) {
+    const p = fromRoot(this.project.root, path);
+    if (this.project.settings.commit || this.project.settings.files.always.includes(p))
+      return null;
+    for (const key of ["shift", "owner", "glossary"]) {
+      if (this.project.set.has(`files.${key}`) && this.project.settings.files[key] === p)
+        return null;
+    }
+    const key = fileKeys[p];
+    if (key && (this.project.set.has(`files.${key}`) || this.project.settings.files[key] !== p))
+      return null;
+    if (!names.includes(p) && !(dirname(p) === KNOWLEDGE && !basename(p).includes("\\") && basename(p).endsWith(".md") && basename(p).length > 3))
+      return null;
+    return p.slice(DIR.length + 1);
+  }
+  async put(changes, session = this.session) {
+    const before = await this.all();
+    const updated = await archiveCall(this.project, { action: "working-write", session, changes });
+    this.loaded = session === this.session ? Promise.resolve({ ...before, ...Object.fromEntries(Object.entries(updated).filter(([n]) => Object.hasOwn(changes, n))) }) : undefined;
+    return updated;
+  }
+  async importFiles() {
+    const { root } = this.project;
+    const paths = [...names, ...(await this.disk.list(`${root}/${KNOWLEDGE}`, "file")).map((n) => `${KNOWLEDGE}/${n}`)];
+    const current = await archiveCall(this.project, { action: "working-list", session: "" });
+    const changes = {};
+    for (const path of paths) {
+      const name = this.key(path);
+      if (!name || current[name] || !await this.disk.exists(`${root}/${path}`))
+        continue;
+      const text = await this.disk.read(`${root}/${path}`);
+      if (text === null)
+        throw new Error(`Cannot import ${path}; existing file is unreadable.`);
+      changes[name] = { text, revision: "" };
+    }
+    if (Object.keys(changes).length)
+      await this.put(changes, "");
+    return Object.keys(changes);
+  }
+  store() {
+    const disk = this.disk;
+    const entries = async (path) => {
+      const dir = fromRoot(this.project.root, path);
+      if (dir !== DIR && dir !== KNOWLEDGE)
+        return [];
+      return Object.entries(await this.all()).filter(([n]) => dirname(`${DIR}/${n}`) === dir && this.key(`${DIR}/${n}`));
+    };
+    return {
+      ...disk,
+      read: async (path) => {
+        const key = this.key(path);
+        return (key && (await this.all())[key]?.text) ?? disk.read(path);
+      },
+      exists: async (path) => {
+        const key = this.key(path);
+        return !!(key && (await this.all())[key]) || await disk.exists(path);
+      },
+      write: async (path, text) => {
+        const key = this.key(path);
+        if (!key)
+          return disk.write(path, text);
+        const old = (await this.all())[key];
+        if (!old && await disk.exists(path))
+          return disk.write(path, text);
+        await this.put({ [key]: { text, revision: old?.revision ?? "" } });
+      },
+      list: async (path, kind) => {
+        const physical = await disk.list(path, kind);
+        if (kind !== "file")
+          return physical;
+        return [...new Set([...physical, ...(await entries(path)).map(([name]) => basename(name))])].sort();
+      },
+      stamps: async (path) => {
+        const result = await disk.stamps(path);
+        for (const [name, entry] of await entries(path))
+          result[basename(name)] = entry.revision;
+        return result;
+      }
+    };
+  }
+}
+
 // core/src/project.ts
-async function loadProject(store, root, actor) {
+async function loadProject(store, root, actor, letterSession = actor) {
   const settingsText = await store.read(`${root}/${SETTINGS}`);
   const parsed = settingsText === null ? null : parseSettings(settingsText);
   if (typeof parsed === "string")
     return { store, root, actor, settings: DEFAULT_SETTINGS, problem: parsed, settingsText, set: new Set };
-  return { store, root, actor, settings: parsed?.settings ?? DEFAULT_SETTINGS, problem: null, settingsText, set: parsed?.set ?? new Set };
+  const p = {
+    store,
+    root,
+    actor,
+    settings: parsed?.settings ?? DEFAULT_SETTINGS,
+    problem: null,
+    settingsText,
+    set: parsed?.set ?? new Set
+  };
+  if (store.nativeRecords && p.settings.enabled && !p.settings.commit) {
+    p.working = new WorkingRecords(p, store, letterSession ?? "");
+    p.store = p.working.store();
+  }
+  return p;
 }
 // core/src/texts/tools.ts
 var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
@@ -2650,7 +2772,7 @@ var TOOL_SCHEMA = {
   properties: {
     letter: {
       type: "string",
-      description: `The path to your letter, usually ${LETTER}. Open "Where I am" with 2\u20133 short sentences about the work and its outcome. Shift uses that paragraph in history.`
+      description: `The logical path of the applied working letter, usually ${LETTER}. Open "Where I am" with 2\u20133 short sentences about the work and its outcome. Shift uses that paragraph in history.`
     },
     after: {
       type: "string",
@@ -2665,6 +2787,23 @@ var TOOL_SCHEMA = {
   required: ["letter", "after"]
 };
 var TOOL_TEXTS = {
+  [RECORD_TOOL]: {
+    label: "Working records",
+    brief: "read, edit and import current Markdown records.",
+    description: "Read current Markdown by logical name. Replace one exact passage at its revision. For long edits checkout a temporary file, edit it and apply using the returned revision. Use drafts to recover a draft or discard to remove it. Import adopts existing internal files.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "read", "replace", "checkout", "apply", "drafts", "discard", "import"] },
+        name: { type: "string", description: "board.md, letter.md, OWNER.md, GLOSSARY.md, SHIFT.md or knowledge/<name>.md" },
+        revision: { type: "string" },
+        find: { type: "string" },
+        replacement: { type: "string" },
+        section: { type: "string" }
+      },
+      required: ["action"]
+    }
+  },
   [GUIDE_TOOL]: {
     label: "Shift guide",
     description: GUIDE_DESCRIPTION,
@@ -2692,9 +2831,9 @@ var TOOL_TEXTS = {
   },
   [SETUP_TOOL]: {
     label: "Shift setup",
-    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or sbd to prepare and locate the project command.`,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or tasks to prepare and locate the project command.`,
     brief: "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: { type: "object", properties: { section: { type: "string", enum: ["runtime", "sbd"] } } }
+    schema: { type: "object", properties: { section: { type: "string", enum: ["runtime", "tasks", "sbd"] } } }
   },
   [OUTLINE_TOOL]: {
     label: "Document outline",
@@ -2722,9 +2861,9 @@ var BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: "who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Milestones and next steps belong to tasks",
-  Decisions: "one line per choice other tasks still depend on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> \u2014 <why>`",
-  "Dead ends": "one line per failed approach another task might try again. State what was tried, what happened and under which condition. Revisit when that condition changes"
+  Goal: "who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Write the next concrete step in the letter",
+  Decisions: "one line per choice later work still depends on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> \u2014 <why>`",
+  "Dead ends": "one line per failed approach later work might repeat. State what was tried, what happened and under which condition. Revisit when that condition changes"
 })}
 
 Example from a stocktaking project:
@@ -2732,8 +2871,8 @@ Example from a stocktaking project:
 - Decisions: Assign each count an ID on the device so retrying a sync cannot count it twice.
 - Dead ends: Deduplicating by timestamp merged distinct counts on devices with identical clocks. Keep this warning while old devices send timestamps alone.
 
-When taking over an existing board or closing a task, ask of each affected line: what would another task do differently after reading this? Keep that instruction short. Put single-task findings with the task. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`;
-var OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet \u2014 "none". A new word is checked against what is written: it contradicts a rule \u2014 the rule is rewritten; it narrows, widens or refines one \u2014 the rule is rewritten to cover both; it is new \u2014 a new line. A rule changes or goes only on the owner's word. A decision that binds one task goes in the Beads issue.`;
+When taking over an existing board or closing a task, ask of each affected line: what would you do differently next time after reading this? Keep that instruction short. Keep issue-specific findings with the issue when tracking it. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`;
+var OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet \u2014 "none". A new word is checked against what is written: it contradicts a rule \u2014 the rule is rewritten; it narrows, widens or refines one \u2014 the rule is rewritten to cover both; it is new \u2014 a new line. A rule changes or goes only on the owner's word. When tracking an issue, keep decisions specific to it on the issue.`;
 var KNOWLEDGE_KINDS = `- \`traps\` \u2014 what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(" and ")};
 - \`lessons\` \u2014 an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(" and ")};
 - \`runbook\` \u2014 what is run and with what: \`### <task>\`, a command block, then ${KINDS.runbook.join(" and ")};
@@ -2767,15 +2906,15 @@ function doctrineBody(tools, command) {
 
 You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change \u2014 only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
-## Board and tasks
+## Board and letter
 
-\`${BOARD}\` keeps the project outcome and choices other tasks depend on. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` keeps the project outcome and decisions that guide later work. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Use import for existing loose records. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
 
-Include a relevant task ID in the letter when it helps you resume. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. Keep task-specific decisions and evidence with the task. Read comments and closed work on demand. Dates belong to the mod's snapshots.
+When continuing a tracked issue, include its ID in the letter. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Record decisions for one task in that task. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
@@ -2802,11 +2941,11 @@ var DOC_WRITING = `When you change what someone using or maintaining the project
 3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
 4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
 5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`;
-var GRAPH_LAYOUT = `Current board, owner rules, glossary, documentation map, knowledge and working letter are files. Project settings select their paths. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`;
+var GRAPH_LAYOUT = `Default internal Markdown records live in .shift/history.db. Each chat writes its own letter. Record paths in the guide identify their logical names. An explicit project file source, or commit = true, stays file-backed. .shift/beads/ holds this project's private active and closed tasks. .shift/history.db stores letters and versioned project records for retained shifts. Copy the whole project with all writers stopped to transfer both stores and configured files.`;
 var GUIDE_RECORDS = [
   "## What goes where",
   GRAPH_LAYOUT,
-  "Project-wide focus can go in the board Goal. Keep issue status, dependencies and discussion in Beads.",
+  "Project-wide focus can go in the board Goal. Write the next step in the letter. Use Beads when work needs its own status, dependencies or discussion.",
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,
@@ -2818,18 +2957,139 @@ var GUIDE_RECORDS = [
 `);
 var GUIDE_FLOW = `## How to shift
 
-Check the board and current project records. At the final hint, write the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
+Use shift_record(action="checkout", name="letter.md"), edit its returned path and apply the revision before calling shift. Use drafts to recover an interrupted edit. A conflict keeps the file for reconciliation. In file-backed projects edit the configured paths directly. Check the board and current project records. At the final hint, prepare the letter at ${LETTER} with four nonempty sections under level-two Markdown headings. Write "none" for a section with nothing to record:
 - Where I am: ${LETTER_OPENING}
-- Next: the concrete work to resume and how to check it. Include a Beads ID when a task is relevant.
+- Next: the concrete work to resume and how to check it. Include the issue ID when continuing tracked work.
 - Unverified: what still needs evidence.
 - Hold: reasoning and details to carry through the shift.
 
-Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. For task work, use the project command confirmed in your session instructions or by shift_setup(section="sbd"). Run its prime subcommand.
+Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
 List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. Project retention is history_limit, default 30 completions. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
+
+// core/src/editing.ts
+function field(raw, name) {
+  const value = raw[name];
+  if (typeof value !== "string")
+    throw new Error(`Expected a string for ${name}.`);
+  return value;
+}
+function replacePassage(text, find, replacement, section) {
+  let start = 0, end = text.length;
+  if (section !== undefined) {
+    const outline = headings(text);
+    const matches = outline.filter((h) => h.title === section);
+    const heading = matches[0];
+    if (matches.length !== 1 || !heading)
+      throw new Error("Section missing or ambiguous. Read the record and use unique context.");
+    const next = outline.find((h) => h.line > heading.line && h.level <= heading.level);
+    const lines = text.split(`
+`);
+    const offset = (line) => lines.slice(0, line - 1).reduce((sum, s) => sum + s.length + 1, 0);
+    start = Math.min(text.length, offset(heading.line + 1));
+    if (next)
+      end = offset(next.line);
+  }
+  const body = text.slice(start, end);
+  const at = body.indexOf(find);
+  if (!find || at < 0 || body.indexOf(find, at + 1) >= 0)
+    throw new Error("Expected one exact match. Read the record and include more context.");
+  return text.slice(0, start + at) + replacement + text.slice(start + at + find.length);
+}
+function problem(name, text) {
+  switch (name) {
+    case NAMES.board:
+      return checkBoard(text);
+    case NAMES.owner:
+      return checkOwner(text);
+    case NAMES.glossary:
+      return checkGlossary(text, name);
+    case NAMES.letter:
+      return checkLetter(text);
+    case NAMES.shift:
+      return null;
+    default:
+      return checkKnowledge({ name: name.slice("knowledge/".length), text });
+  }
+}
+async function editRecord(p, raw) {
+  const w = p.working;
+  if (!w)
+    throw new Error("This project uses file-backed records. Edit its Markdown files directly.");
+  const action = field(raw, "action");
+  if (action === "import") {
+    const names = await w.importFiles();
+    return names.length ? `Imported ${names.join(", ")}. Originals remain on disk.` : "No new internal files to import.";
+  }
+  const all = await w.all();
+  if (action === "list")
+    return Object.entries(all).filter(([n]) => w.key(`${DIR}/${n}`)).map(([n, r]) => `${n} ${r.revision}`).join(`
+`) || "No current records. Use checkout to create one, or import existing internal files.";
+  const name = field(raw, "name");
+  if (w.key(`${DIR}/${name}`) !== name)
+    throw new Error("Unknown or file-backed record. Use a logical name such as board.md or knowledge/traps.md. Edit configured files at their paths.");
+  const r = all[name] ?? { revision: "", text: "" };
+  if (!r.revision && await w.disk.exists(`${p.root}/${DIR}/${name}`))
+    throw new Error("Existing Markdown record. Use import to adopt the internal files, or edit the original file.");
+  if (action === "read")
+    return r.revision ? `${r.revision}
+${r.text}` : "Record missing. Use checkout to create it.";
+  const session = w.session;
+  if (!session)
+    throw new Error("A session identity is required to edit records.");
+  const draft = (op, revision, text = "") => archiveCall(p, { action: `draft-${op}`, session, file: name, revision, text });
+  if (action === "drafts")
+    return JSON.stringify(await draft("list", ""));
+  if (action === "checkout") {
+    const path = await draft("open", r.revision, r.text);
+    return JSON.stringify({ path, revision: r.revision || "new" });
+  }
+  const version = field(raw, "revision");
+  const revision = version === "new" ? "" : version;
+  if (action === "discard") {
+    const body = await draft("read", revision);
+    await draft("remove", revision, body);
+    return "Discarded draft.";
+  }
+  if (action !== "apply" && action !== "replace")
+    throw new Error("Unknown record action.");
+  let next;
+  let diff = "";
+  if (action === "apply") {
+    next = await draft("read", revision);
+  } else {
+    const find = field(raw, "find"), replacement = field(raw, "replacement");
+    if (revision !== r.revision)
+      throw new Error("Record changed. Read its current revision and retry.");
+    next = replacePassage(r.text, find, replacement, raw.section === undefined ? undefined : field(raw, "section"));
+    diff = `
+` + find.split(`
+`).map((s) => `- ${s}`).concat(replacement.split(`
+`).map((s) => `+ ${s}`)).join(`
+`);
+  }
+  const bad = problem(name, next);
+  if (bad)
+    throw new Error(bad);
+  const expected = action === "apply" && r.text === next && r.revision ? r.revision : revision;
+  const written = await w.put({ [name]: { text: next, revision: expected } });
+  const saved = written[name];
+  if (!saved)
+    throw new Error("Missing record after write.");
+  const result = `${name} ${saved.revision}${diff}`;
+  if (action === "apply") {
+    try {
+      await draft("remove", revision, next);
+    } catch (error) {
+      return `${result}
+The record was saved. Check remaining drafts before editing again. ${String(error)}`;
+    }
+  }
+  return result;
+}
 
 // core/src/sizes.ts
 async function sizeReport(project, counter) {
@@ -2941,6 +3201,19 @@ var ROWS = [
       return typeof count === "string" ? { deny: count } : { result: await shiftHistory(await call.project(), count) };
     }
   },
+  {
+    name: RECORD_TOOL,
+    writes: true,
+    run: async (raw, call) => {
+      try {
+        const project = await call.project();
+        const stale = await staleLayout(project);
+        return stale ? { deny: stale } : { result: await editRecord(project, raw) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
   { name: STATUS_TOOL, run: async (_raw, call) => ({ result: await call.status() }) },
   { name: SIZES_TOOL, run: async (_raw, call) => ({ result: await sizeReport(await call.project()) }) },
   {
@@ -2950,16 +3223,16 @@ var ROWS = [
       const project = await call.project();
       if (raw.section === undefined)
         return { result: await setupReport(project, await call.loaded()) };
-      if (raw.section === "sbd") {
+      if (raw.section === "tasks" || raw.section === "sbd") {
         try {
           const stale = await staleLayout(project);
-          return stale ? { deny: stale } : { result: taskInstructions(await installSbd(project)) };
+          return stale ? { deny: stale } : { result: taskInstructions(await installTaskCommand(project)) };
         } catch (error) {
           return { deny: String(error) };
         }
       }
       if (raw.section !== "runtime")
-        return { deny: "Expected section runtime or sbd." };
+        return { deny: "Expected section runtime or tasks." };
       if (!project.store.beads)
         return { deny: "This adapter has no private task runtime." };
       try {
@@ -3024,9 +3297,9 @@ async function startSession(project, knownCommand) {
     rows.push({ text: `${MOD}: ${stale}`, level: "warning" });
   else if (knownCommand === undefined && project.store.beads) {
     try {
-      command = await installSbd(project);
+      command = await installTaskCommand(project);
     } catch (error) {
-      rows.push({ text: `Could not prepare the project sbd command: ${String(error)}`, level: "warning", sbd: true });
+      rows.push({ text: `Could not prepare the project shift-task command: ${String(error)}`, level: "warning", taskCommandWarning: true });
     }
   }
   if (await project.store.exists(`${project.root}/${DIR}`)) {
@@ -3122,6 +3395,7 @@ import { basename as basename2, dirname as dirname2, resolve } from "path";
 import { promisify } from "util";
 var writes = 0;
 var nodeStore = {
+  nativeRecords: true,
   beads: async (root, args, stdin) => {
     const executable = beadsExecutable(process.platform, process.arch);
     if (!executable)
@@ -3173,8 +3447,8 @@ var nodeStore = {
     });
   })
 };
-function projectAt(root, actor) {
-  return loadProject(nodeStore, root, actor);
+function projectAt(root, actor, letterSession) {
+  return loadProject(nodeStore, root, actor, letterSession);
 }
 var MAX_LINKS = 40;
 async function through(path) {
@@ -3946,9 +4220,9 @@ async function contextFor(input, project, state, restoring = false, alreadyDeliv
     return { notes: [mapNote, ...notes.map(wrap)], waiting: "" };
   }
   state.shells = [];
-  const prepareCommand = event === "SessionStart" || state.sbd === undefined;
-  const start = await startSession(project, prepareCommand ? undefined : state.sbd);
-  state.sbd = start.command;
+  const prepareCommand = event === "SessionStart" || state.taskCommand === undefined;
+  const start = await startSession(project, prepareCommand ? undefined : state.taskCommand);
+  state.taskCommand = start.command;
   const transcript = typeof input.transcript_path === "string" ? input.transcript_path : undefined;
   const resume = event === "SessionStart" && input.source === "resume";
   const kept = resume && transcript && state.context && await retainedContext(transcript, state.context, start.doctrine.slice(0, start.doctrine.indexOf(`
@@ -3956,10 +4230,10 @@ async function contextFor(input, project, state, restoring = false, alreadyDeliv
   const fresh = !state.map || event === "SessionStart" && !kept;
   const doctrineHash = fingerprint(start.doctrine);
   if (prepareCommand)
-    state.sbdWarning = start.rows.find((row) => row.sbd)?.text;
+    state.taskCommandWarning = start.rows.find((row) => row.taskCommandWarning)?.text;
   const warnings = start.rows.map((row) => row.text);
-  if (!prepareCommand && state.sbdWarning)
-    warnings.push(state.sbdWarning);
+  if (!prepareCommand && state.taskCommandWarning)
+    warnings.push(state.taskCommandWarning);
   const changedWarnings = warnings.filter((row) => fresh || !state.warnings?.includes(row));
   state.warnings = warnings;
   const present = await Promise.all(project.settings.docs.dirs.map((path) => project.store.exists(`${project.root}/${path}`)));

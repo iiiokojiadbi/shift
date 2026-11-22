@@ -13,6 +13,7 @@ let writes = 0
 // The core's store over node's files and processes: pi runs an extension in its own node process, opencode a plugin
 // in its server under Bun.
 export const nodeStore: Store = {
+  nativeRecords: true,
   beads: async (root, args, stdin) => {
     const executable = beadsExecutable(process.platform, process.arch)
     if (!executable) throw new Error(`No embedded Beads build for ${process.platform}/${process.arch}.`)
@@ -86,8 +87,8 @@ export const nodeStore: Store = {
 }
 
 // The project at `root`, loaded once for the event or tool call at hand.
-export function projectAt(root: string, actor?: string): Promise<Project> {
-  return loadProject(nodeStore, root, actor)
+export function projectAt(root: string, actor?: string, letterSession?: string): Promise<Project> {
+  return loadProject(nodeStore, root, actor, letterSession)
 }
 
 // The file a write goes to: a link's target, through a chain of links, even one not there yet; a cycle of links is

@@ -10,9 +10,9 @@ description: The project's map and the rules for every change: what shift is, wh
 - Rules for every change
 <!-- /toc -->
 
-An agent decides by itself when to **shift**: at a stage boundary it updates its board and current tasks, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter and board back and continues from where it stopped. The agent does not change — only what is in front of it does.
+An agent decides by itself when to **shift**: at a stage boundary it updates its board, writes a letter to itself, and asks the harness to let the stretch's history go with a direction of what to hold. Right after the shift it gets its letter and board back and continues from where it stopped. The agent does not change — only what is in front of it does.
 
-The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, a private Beads task graph and an independent archive for shift records.
+The problem it solves: long work outlives the context window, and a harness's own compaction keeps a generic summary, not the agent's thread of thought. Records on disk are strict — a state, not a diary: no dates, fixed sections, a line limit, an optional private Beads task graph and an independent archive for shift records.
 
 Harnesses: Claude Code (first, done as a mod), pi (an extension) and opencode (a plugin), the last two from one npm package. Codex uses an installable marketplace plugin with session hooks and MCP tools over its local app server.
 
@@ -37,6 +37,7 @@ Keep it yourself, as part of the work, not on request: a change to how the mod w
 ```
 core/                      shared logic, pure TypeScript, no harness imports — docs/architecture.md
   src/project.ts           loadProject: the store, the root and the parsed settings, once per hook or tool call
+  src/working.ts, editing.ts   current Markdown records, revisions and editing tools
   src/store.ts             the storage port, current records and retained shifts
   src/layout.ts            record names and paths, sections, limits and atPlaces
   src/tools.ts             the tool table and what a session starts with

@@ -8,6 +8,7 @@ import {
   LETTER,
   MENTIONS_TOOL,
   OUTLINE_TOOL,
+  RECORD_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
   STATUS_TOOL,
@@ -83,7 +84,7 @@ export const TOOL_SCHEMA = {
   properties: {
     letter: {
       type: 'string',
-      description: `The path to your letter, usually ${LETTER}. Open "Where I am" with 2–3 short sentences about the work and its outcome. Shift uses that paragraph in history.`,
+      description: `The logical path of the applied working letter, usually ${LETTER}. Open "Where I am" with 2–3 short sentences about the work and its outcome. Shift uses that paragraph in history.`,
     },
     after: {
       type: 'string',
@@ -103,6 +104,24 @@ export const TOOL_SCHEMA = {
 export type ToolText = { label: string; description: string; brief: string; schema: Record<string, unknown> }
 
 export const TOOL_TEXTS: Record<string, ToolText> = {
+  [RECORD_TOOL]: {
+    label: 'Working records',
+    brief: 'read, edit and import current Markdown records.',
+    description:
+      'Read current Markdown by logical name. Replace one exact passage at its revision. For long edits checkout a temporary file, edit it and apply using the returned revision. Use drafts to recover a draft or discard to remove it. Import adopts existing internal files.',
+    schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'read', 'replace', 'checkout', 'apply', 'drafts', 'discard', 'import'] },
+        name: { type: 'string', description: 'board.md, letter.md, OWNER.md, GLOSSARY.md, SHIFT.md or knowledge/<name>.md' },
+        revision: { type: 'string' },
+        find: { type: 'string' },
+        replacement: { type: 'string' },
+        section: { type: 'string' },
+      },
+      required: ['action'],
+    },
+  },
   [GUIDE_TOOL]: {
     label: 'Shift guide',
     description: GUIDE_DESCRIPTION,
@@ -131,10 +150,10 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
   },
   [SETUP_TOOL]: {
     label: 'Shift setup',
-    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or sbd to prepare and locate the project command.`,
+    description: `${SETUP_DESCRIPTION} Use section runtime to check the bundled executable or tasks to prepare and locate the project command.`,
     brief:
       "how the mod is set up here: the settings with their values and the version each came in, the session's files and whether they changed since the session read them, the documents with remarks.",
-    schema: { type: 'object', properties: { section: { type: 'string', enum: ['runtime', 'sbd'] } } },
+    schema: { type: 'object', properties: { section: { type: 'string', enum: ['runtime', 'tasks', 'sbd'] } } },
   },
   [OUTLINE_TOOL]: {
     label: 'Document outline',

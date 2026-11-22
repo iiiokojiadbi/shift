@@ -4,7 +4,7 @@
 [![downloads](https://img.shields.io/npm/dm/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
 [![license](https://img.shields.io/npm/l/@iiiokojiadbi/shift)](https://github.com/iiiokojiadbi/shift/blob/main/LICENSE)
 
-An agent decides by itself when to **shift**. At a stage boundary it updates its board and current tasks, writes a letter to itself and asks the harness to let the stretch's history go, saying what to hold. Right after the shift its letter and board come back, and it continues from where it stopped. The agent does not change: only what is in front of it does.
+An agent decides by itself when to **shift**. At a stage boundary it updates its board, writes a letter to itself and asks the harness to let the stretch's history go, saying what to hold. Right after the shift its letter and board come back, and it continues from where it stopped. The agent does not change: only what is in front of it does.
 
 Long work outlives the context window. A harness's own compaction keeps a generic summary of the history, not the agent's line of thought: decisions get lost, and knowledge that was written down is not looked up again. shift keeps the thread on disk, in records strict enough to resume from: a state, not a diary.
 
@@ -12,9 +12,9 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 
 ## How it works
 
-1. **Records as you go.** The agent keeps `.shift/` in the project: a board (the goal, decisions with their reasons, dead ends), a private Beads workspace for tasks, items, dependencies and comments, the owner's decisions, a glossary, and knowledge by kind.
+1. **Records as you go.** The agent keeps `.shift/` in the project: a board (the goal, decisions with their reasons, dead ends), the owner's decisions, a glossary, and knowledge by kind.
 2. **When to shift.** A soft hint invites the agent to shift at a stage boundary. A final hint tells it to check the records, write its letter and shift immediately. Small windows receive only the final hint.
-3. **The letter.** Before a shift the agent writes `letter.md`: where it is, what is next, what is unverified, and what the harness must hold.
+3. **The letter.** Before a shift the agent edits its working `letter.md` with `shift_record`: where it is, what is next, what is unverified, and what the harness must hold.
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, invalid records or no recorded progress. Then it saves the letter and project records in `.shift/history.db` and has the harness let the history go, steered by the letter's Hold.
 5. **Back to work.** The next message carries the records, the last shifts in brief and the letter, last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.
 
@@ -22,7 +22,7 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 
 ### Project tasks
 
-From the project root, run `./.shift/bin/sbd prime` (Windows: `./.shift/bin/sbd.exe prime`). Substitute that executable for `bd` in Beads examples. Use `ready` to find work and `show <id>` to read an issue. Shift prepares the command at startup. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
+Write the next step in the shift letter. Use the built-in tracker when work needs its own status, dependencies or discussion. To continue a tracked issue, include its ID in the letter. From the project root, run `./.shift/bin/shift-task prime` (Windows: `./.shift/bin/shift-task.exe prime`). Substitute that executable for `bd` in Beads examples. Use `ready` to find work and `show <id>` to read an issue. Shift prepares the command at startup. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
 
 ## Install
 
@@ -95,8 +95,9 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `shift_guide` | full guide or one section, `flow` or `records` |
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |
+| `shift_record` | read and edit current Markdown, check out a temporary file or import existing internal records. [Working records](docs/records.md) |
 | `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
-| `shift_setup` | settings, record checks and session files. Use section `sbd` to prepare the task command and see its path |
+| `shift_setup` | settings, record checks and session files. Use section `tasks` to prepare the task command and see its path |
 | `doc_outline` / `docs_mentioning` | a document's sections with line numbers; which documents mention a file |
 
 ## Settings

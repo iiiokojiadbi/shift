@@ -52,17 +52,17 @@ function stubSession(
   on('process.spawn', async function* (_$, request) {
     if (!request.argv.includes('shift-history')) throw new Error('Unexpected native process.')
     const text = archiveFixture(archive, request.input ?? '')
-    if (archive.entries.length) files.set('/proj/.shift/history.db', '')
+    if (archive.entries.length || archive.working) files.set('/proj/.shift/history.db', '')
     yield { stream: 'stdout', text }
     return { value: { code: 0, signal: null } }
   })
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
     const [command] = e.argv
-    if (command === 'uname' || e.argv.includes('shift-install-sbd')) {
+    if (command === 'uname' || e.argv.includes('shift-install-task')) {
       return {
         value: {
           exitCode: 0,
-          stdout: command === 'uname' ? 'Linux x86_64' : './.shift/bin/sbd',
+          stdout: command === 'uname' ? 'Linux x86_64' : './.shift/bin/shift-task',
           stderr: '',
           isStdoutTruncated: false,
           isStderrTruncated: false,
@@ -389,7 +389,7 @@ test('the guide directs agents to the project CLI without exposing task tools', 
   const files = project()
   stubSession(on, files)
   const guide = await $.tool.call({ tool: 'mcp__shift__shift_guide', section: 'flow' })
-  expect(String(guide.result)).toContain('shift_setup(section="sbd")')
+  expect(String(guide.result)).toContain('shift_setup(section="tasks")')
   expect(String(guide.result)).not.toContain('task_open')
   expect(String(guide.result)).not.toContain('shift_migrate')
 })
@@ -505,7 +505,9 @@ test('after Edit and Write the map follows, the toc and remarks come with the ne
   const edited = await $.tool.call({ tool: 'Edit', file_path: '/proj/docs/a.md', old_string: 'x', new_string: 'y' } as never)
   expect(edited.context).toBeUndefined()
   expect(files.get('/proj/docs/a.md')).not.toContain('<!-- toc -->')
-  expect(files.get('/proj/.shift/SHIFT.md')).toContain('`docs/a.md` — A')
+  const map = await $.tool.call({ tool: 'mcp__shift__shift_record', action: 'read', name: 'SHIFT.md' })
+  expect(String(map.result)).toContain('`docs/a.md` — A')
+  expect(files.has('/proj/.shift/SHIFT.md')).toBe(false)
   const written = await $.tool.call({ tool: 'Write', file_path: '/proj/src/x.ts', content: '// docs/gone.md' } as never)
   expect(written.context).toBeUndefined()
 

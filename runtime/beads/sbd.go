@@ -42,12 +42,12 @@ func installSBD(root string) (string, error) {
 	}
 	// A Windows reader can otherwise hold the old executable open during another
 	// session's upgrade. Installation must work even when the task DB is offline.
-	lock, err := workspaceLock(filepath.Join(bin, "sbd-install.lock"))
+	lock, err := workspaceLock(filepath.Join(bin, "shift-task-install.lock"))
 	if err != nil {
 		return "", err
 	}
 	defer lock.Close()
-	name := "sbd"
+	name := "shift-task"
 	var contents io.Reader
 	var script string
 	var source *os.File
@@ -84,7 +84,7 @@ exec ` + shellLiteral(installed) + ` "$root" shift-sbd "$@"
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(bin, ".sbd-")
+	tmp, err := os.CreateTemp(bin, ".shift-task-")
 	if err != nil {
 		return "", err
 	}
@@ -207,7 +207,7 @@ func sbdCommand(args []string) (string, error) {
 		key, _, hasValue := strings.Cut(arg, "=")
 		switch key {
 		case "--global", "--db", "--database":
-			return "", fmt.Errorf("sbd selects this project's private Beads database; omit %s", key)
+			return "", fmt.Errorf("shift-task selects this project's private Beads database; omit %s", key)
 		}
 		if name != "" {
 			continue
