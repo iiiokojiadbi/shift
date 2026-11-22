@@ -60,6 +60,16 @@ test('a shift is refused without a letter, with a bad letter or without a board'
   expect(await deny(noBoard)).toContain('No board')
 })
 
+test('a revised file-backed legacy decision must acquire a scope before its next snapshot', async () => {
+  const p = await project()
+  await accepted(p)
+  await p.store.write(`${R}/OWNER.md`, '- Keep the preview private.')
+  const call = { input: INPUT, at: AT + 1, sessionId: 'another-chat' }
+  expect(await acceptShift(p, call)).toEqual({ deny: expect.stringContaining('Permanent') })
+  await p.store.write(`${R}/OWNER.md`, '- Keep the preview private.\n  [tasks preview-1] · Until the owner approves access')
+  expect(await acceptShift(p, call)).toHaveProperty('shift')
+})
+
 test("records the project's git does not ignore are excluded locally, unless the owner lets them be committed", async () => {
   const call = { input: INPUT, at: AT, sessionId: 's1' }
   const store = await project({ [`${ROOT}/.git/info/exclude`]: '# git ls-files --others --exclude-from=.git/info/exclude' }, false)
@@ -213,7 +223,7 @@ test("records changed by the agent's tools are told only when broken, by someone
   await put('board.md', '## Goal\nthe mod')
   expect((await changedRecords(p, broken.seen, 'other')).body).toBeNull()
 
-  await put('OWNER.md', '# Owner decisions\n\n## Work\n\n- «green first, always»')
+  await put('OWNER.md', '# Owner decisions\n\n## Work\n\n- «green first, always»\n  Permanent')
   const outside = (await changedRecords(p, broken.seen, 'other')).body ?? ''
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools — by the owner or another session')
   expect(outside).not.toContain('board.md')

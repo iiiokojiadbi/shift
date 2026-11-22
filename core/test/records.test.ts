@@ -20,6 +20,7 @@ import {
   shiftFill,
   shiftHint,
 } from '../src/index'
+import { checkOwner } from '../src/records'
 import { BOARD, boardWith, check, LETTER, OWNER, TRAPS, WORK } from './fixtures'
 
 // The checks of the records, about.md and the history, the hint rule and the texts: pure logic over plain values.
@@ -77,7 +78,9 @@ test('knowledge files have a kind, an about, their entry fields and room', () =>
     '"**Source.**"',
   )
   expect(file('glossary.md', '---\nkind: glossary\nabout: terms\n---\n\n- **shift** — the boundary')).toContain('GLOSSARY.md now')
-  expect(knowledgeMap(WORK.knowledge)).toBe('- .shift/knowledge/traps.md — traps of edits and tests; lessons — lessons.md (1 entries)')
+  expect(knowledgeMap(WORK.knowledge)).toBe(
+    '- `.shift/knowledge/traps.md` — traps of edits and tests; lessons — lessons.md\n  sections: Edits',
+  )
 })
 
 test('the summarizer gets the hold and is told not to plan', () => {
@@ -210,4 +213,16 @@ test('literal replacement uses one Markdown section and rejects ambiguous matche
   expect(() => replacePassage(source, 'entry', 'done', 'Inner')).toThrow('Section')
   expect(() => replacePassage(`${source}## Goal\n`, 'entry', 'done', 'Goal')).toThrow('Section')
   expect(() => replacePassage(source, 'absent', 'done', 'Next')).toThrow('one exact match')
+})
+
+test('owner decisions carry an explicit duration and optional task references', () => {
+  for (const line of ['Permanent', 'Until the owner approves access', '[tasks trial-1, trial-2.1] · Until both trials finish']) {
+    expect(checkOwner(`## Access\n- Keep the preview private.\n  ${line}`)).toBeNull()
+  }
+  const legacy = '- Keep the preview private.'
+  expect(checkOwner(legacy, { allowLegacy: true })).toBeNull()
+  expect(checkOwner(legacy)).toContain('Permanent')
+  for (const scope of ['Until', '[tasks ] · Permanent', '[tasks issue-1]', 'Permanent\n- Another rule']) {
+    expect(checkOwner(`${legacy}\n  ${scope}`, { allowLegacy: true })).toContain('Permanent')
+  }
 })

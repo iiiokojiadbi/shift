@@ -65,9 +65,9 @@ test('the map of knowledge says where knowledge goes', () => {
     shift: null,
   }
   expect(renderWork(work, null, '.shift/OWNER.md')).toContain(
-    'goes="here until the owner sets knowledge in .shift/settings.toml; ask them once"',
+    'Knowledge placement: here until the owner sets knowledge in .shift/settings.toml; ask them once',
   )
-  expect(renderWork(work, 'project', '.shift/OWNER.md')).toContain('goes="to the project\'s docs')
+  expect(renderWork(work, 'project', '.shift/OWNER.md')).toContain("Knowledge placement: to the project's docs")
 })
 
 test('a moved OWNER.md is named where it is: in refusals, the doctrine, the guide and the summarizer', async () => {

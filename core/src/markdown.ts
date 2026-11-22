@@ -85,6 +85,17 @@ export function headings(text: string): Heading[] {
   return found
 }
 
+// Zero-based line bounds including the heading and all nested sections.
+export function sectionRange(text: string, title: string) {
+  const outline = headings(text)
+  const matches = outline.filter(h => h.title === title)
+  const heading = matches[0]
+  if (!heading || matches.length !== 1)
+    throw new Error('Section missing or ambiguous. Read the whole file or name a unique parent heading.')
+  const next = outline.find(h => h.line > heading.line && h.level <= heading.level)
+  return { first: heading.line - 1, after: next ? next.line - 1 : undefined }
+}
+
 const PIN = /^ {0,3}> ?\[!IMPORTANT\]\s*$/
 const QUOTED = /^ {0,3}> ?/
 

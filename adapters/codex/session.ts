@@ -27,6 +27,7 @@ import {
   type Note,
   type Project,
   type Reading,
+  readingPath,
   renderSessionFiles,
   resumeShift,
   SOURCES,
@@ -237,7 +238,14 @@ export class Session {
       }
       const tool = shownTools(project.settings).find(tool => tool.name === name)
       if (!tool) throw new Error(`Unknown tool: ${name}`)
-      const file = name === 'doc_outline' ? raw.path : name === 'shift' ? raw.letter : undefined
+      const file =
+        name === 'shift_read' && typeof raw.path === 'string'
+          ? readingPath(raw.path.trim(), project.settings.docs.dirs)
+          : name === 'doc_outline'
+            ? raw.path
+            : name === 'shift'
+              ? raw.letter
+              : undefined
       if (typeof file === 'string' && file) {
         const root = await realpath(this.root)
         const path = resolve(root, file)

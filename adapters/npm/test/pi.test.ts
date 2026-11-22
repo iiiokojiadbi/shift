@@ -196,7 +196,7 @@ test("records are looked at around every tool: the agent's own change told only 
   const put = (path: string, text: string) => () => writeFile(join(root, path), text)
 
   await bash()
-  expect(await bash(put('.shift/OWNER.md', 'Owner confirmed the test.'))).toBe('')
+  expect(await bash(put('.shift/OWNER.md', '- Keep the preview private.\n  Until the owner approves access'))).toBe('')
   expect(await bash(put('.shift/board.md', '## Goal\nthe mod, broken\n'))).toContain('`.shift/board.md`: The board lacks sections')
   await put('.shift/OWNER.md', 'Updated outside the chat.')()
   const outside = await bash()

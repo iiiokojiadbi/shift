@@ -18,7 +18,7 @@ import {
   OWNER_SECTION,
   SETTINGS,
 } from './layout'
-import { blocks, dated, frontmatter, missingSections, overLimit, quote, sections } from './markdown'
+import { blocks, dated, frontmatter, headings, missingSections, overLimit, quote, sections } from './markdown'
 import type { Project } from './project'
 import type { Kind, KnowledgeFile, Work } from './types'
 
@@ -45,7 +45,7 @@ function checkRecords(work: Work, project: Pick<Project, 'settings' | 'problem'>
   const boardProblem = checkBoard(work.board)
   if (boardProblem !== null) return boardProblem
 
-  const ownerProblem = checkOwner(work.owner)
+  const ownerProblem = checkOwner(work.owner, { allowLegacy: true })
   if (ownerProblem !== null) return ownerProblem
 
   for (const file of work.knowledge) {
@@ -102,17 +102,33 @@ export function checkBoard(board: string): string | null {
   )
 }
 
-export function checkOwner(owner: string | null): string | null {
+export function checkOwner(owner: string | null, { allowLegacy = false } = {}): string | null {
   if (owner === null) return `No ${OWNER}: create it with the owner's decisions in force for the whole project, or "none".`
   if (owner.trim() === '') return `${OWNER} is empty. No decisions yet — write "none".`
-  return (
+  const general =
     overLimit(
       OWNER,
       owner,
       OWNER_MAX_LINES,
       'it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.',
     ) ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.")
-  )
+  if (general) return general
+
+  const lines = owner.split('\n').map(line => line.trim())
+  // Existing free-form records can still shift. Validate the entire record when it is edited.
+  if (allowLegacy && !lines.some(line => /^(?:permanent\b|until\b|\[tasks\b)/i.test(line))) return null
+  if (lines.filter(line => line && !/^#{1,2} /.test(line)).join('\n') === 'none') return null
+  let rules = 0
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? ''
+    if (!line || /^#{1,2} /.test(line)) continue
+    if (!/^- \S/.test(line)) return `${OWNER} line ${index + 1}: write a decision as "- <rule>" or "none" for an empty record.`
+    const scope = lines[++index] ?? ''
+    if (!/^(?:\[tasks [\w.-]+(?:, [\w.-]+)*\] · )?(?:Permanent|Until \S.*)$/.test(scope))
+      return `${OWNER} line ${index + 1}: follow the decision with "Permanent" or "Until <observable event>". Optionally prefix it with "[tasks ID, ID] · ".`
+    rules++
+  }
+  return rules ? null : `${OWNER}: write a decision or "none".`
 }
 
 export const isKind = (kind: string): kind is Kind => Object.hasOwn(KINDS, kind)
@@ -146,16 +162,18 @@ export function checkKnowledge({ name, text }: KnowledgeFile): string | null {
   return null
 }
 
-// What each knowledge file holds, one line per file: it is read on demand, not handed over.
+// The session map names topics; individual entries are read on demand.
 export function knowledgeMap(files: readonly KnowledgeFile[]): string {
-  if (files.length === 0) return `${KNOWLEDGE}/ is empty.`
-
   return files
     .map(({ name, text }) => {
-      const kind = frontmatter(text).get('kind') ?? ''
-      const count = kind === 'glossary' ? text.split('\n').filter(line => line.startsWith('- **')).length : blocks(text, 3).length
-
-      return `- ${KNOWLEDGE}/${name} — ${frontmatter(text).get('about') ?? ''} (${count} ${kind === 'glossary' ? 'terms' : 'entries'})`
+      const marks = headings(text)
+      const title = marks.find(h => h.level === 1)?.title
+      const topics = marks.filter(h => h.level === 2).map(h => h.title)
+      const about = frontmatter(text).get('about')
+      return [
+        `- \`${KNOWLEDGE}/${name}\` — ${[title, about].filter(Boolean).join(' — ')}`,
+        ...(topics.length ? [`  sections: ${topics.join(' · ')}`] : []),
+      ].join('\n')
     })
     .join('\n')
 }

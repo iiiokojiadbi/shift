@@ -7,7 +7,6 @@ import {
   GUIDE_TOOL,
   HISTORY_MAX,
   HISTORY_TOOL,
-  KNOWLEDGE,
   LETTER,
   MOD,
   NAMES,
@@ -18,7 +17,6 @@ import {
   SHIFT_COMMAND,
   TOOL,
 } from '../layout'
-import { knowledgeMap } from '../records'
 import type { Placement, Settings } from '../settings'
 import type { HandedBack, PendingShift, Recent, SessionFile, ShiftAfter, Work } from '../types'
 
@@ -57,10 +55,7 @@ export function unassistedInstructions(files: Settings['files']): string {
 // Each file goes in a tag with its path: the records carry headings and code blocks of their own, so neither can mark where a file ends.
 export function renderWork(work: Work | null, knowledge: Placement | null, owner: string): string {
   if (work === null) return `There is no board at ${BOARD}.`
-  return [
-    `**Board**\n\n${fileBlock(BOARD, work.board)}`,
-    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">\n${knowledgeMap(work.knowledge)}\n</knowledge>`,
-  ].join('\n\n---\n\n')
+  return [`**Board**\n\n${fileBlock(BOARD, work.board)}`, `Knowledge placement: ${placement(knowledge, owner)}.`].join('\n\n---\n\n')
 }
 
 // Where new knowledge goes, by the owner's \`knowledge\` setting.
@@ -90,9 +85,7 @@ export function fileBlock(path: string, text: string): string {
 // What a shift hands back, as paths inside the records folder: the owner's row names them.
 export function deliveredFiles(work: Work | null): string[] {
   if (work === null) return [NAMES.letter]
-  const knowledge = work.knowledge.length === 0 ? [] : [`${NAMES.knowledge}/ (the map)`]
-
-  return [NAMES.letter, NAMES.board, ...knowledge]
+  return [NAMES.letter, NAMES.board]
 }
 
 // What the agent did before this stretch: a line per recent shift, oldest first, from its about.md.
@@ -126,7 +119,7 @@ function shiftMessage(opening: string, letter: string, back: HandedBack, closing
     `<${MOD} id="${dir}">`,
     opening,
     '',
-    'Your current board and knowledge map follow. The session files were read again after this shift.',
+    'Your current board follows. The session files were read again after this shift.',
     '',
     renderWork(work, back.knowledge, back.owner),
     '',

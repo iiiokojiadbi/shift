@@ -17,6 +17,7 @@ import {
   OUTLINE_TOOL,
   OWNER,
   OWNER_MAX_LINES,
+  READ_TOOL,
   SHIFT_FILE,
   STATUS_TOOL,
   TOOL,
@@ -50,7 +51,13 @@ We are checking what happens when a device retries a sync. Keep the original cou
 
 When revising an older board, read its Decisions and Dead ends. Keep an active constraint in Current focus. Preserve durable design in the appropriate document and reusable lessons according to the project's knowledge rules. Keep owner policy in the owner record. Earlier boards remain available in saved shifts.`
 
-const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. When tracking an issue, keep decisions specific to it on the issue.`
+const OWNER_RULES = `\`${OWNER}\` holds decisions in force across the project, grouped under ## headings, up to ${OWNER_MAX_LINES} lines. Write "none" when empty. Quote wording that determines the rule. Each decision takes two lines:
+- Keep the preview private.
+  [tasks preview-3] · Until the owner approves public access
+- Use the project launcher.
+  Permanent
+
+The second line is Permanent or Until followed by an observable event. The optional prefix [tasks ID] · or [tasks ID, ID] · points to related issues. Tasks keep their own decisions and evidence. When closing a linked issue, changing the relevant workflow, or finishing an experiment, revisit the affected rule. Remove it when its stated condition is fulfilled. A closed issue alone settles only a condition explicitly tied to its closure. Keep a rule with uncertain status until the owner clarifies it. Replace superseded rules in place and remove exact duplicates of standing instructions. Keep one-off requests in the letter or the issue. Older free-form records can still shift; convert their entries when editing them.`
 
 const KNOWLEDGE_KINDS = `- \`traps\` — what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(' and ')};
 - \`lessons\` — an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(' and ')};
@@ -62,7 +69,7 @@ Terms are not a kind: they live in \`${GLOSSARY}\`.`
 const KNOWLEDGE_RULES = `\`${KNOWLEDGE}/\` is what you learned that stays true for months: traps, lessons, commands, facts. One file per kind — \`<kind>.md\`, or \`<kind>-<topic>.md\` once split by topic; a frontmatter with \`kind\` and \`about\` (what is in the file and where the neighbouring files are); entries grouped under \`##\` headings by topic. Kinds and the fields every entry carries:
 ${KNOWLEDGE_KINDS}
 
-No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. After a shift only the map of knowledge comes back — read a file when its topic comes up.`
+No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. The session map in \`${SHIFT_FILE}\` lists the files and their ## topics. When a symptom looks familiar, use \`${READ_TOOL}\` to open the topic or a single ### entry before investigating it again.`
 
 const GLOSSARY_RULES = `\`${GLOSSARY}\` holds the project's own words, one article each — names, codes, abbreviations, terms that mean something particular here:
 
@@ -100,7 +107,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 When continuing a tracked issue, include its ID in the letter. Under Goal, use an unordered list of stage outcomes by default. Under Current focus, describe the work underway and any temporary condition other chats need. Update the board when that shared picture changes. On return, check whether the letter's Next still fits the current board. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Write each decision as a bullet followed by Permanent or Until <observable event>, optionally prefixed with "[tasks ID] · ". Revisit affected conditions when related work ends. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation, knowledge topics and pinned advice. Use \`${READ_TOOL}\` to read the relevant section. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 

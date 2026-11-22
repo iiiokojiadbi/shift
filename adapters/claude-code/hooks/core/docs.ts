@@ -1,10 +1,22 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { DIR, DOCS_MAX_DEPTH, MOD } from './layout'
-import { frontmatter, type Heading, headings, lineCount, lineOutside, linkTargets, type Pin, pinned, unfenced } from './markdown'
-import { basename, dirname, fromRoot, normalize, resolvePath } from './paths'
+import { DIR, DOCS_MAX_DEPTH, KNOWLEDGE, MOD, NAMES } from './layout'
+import {
+  frontmatter,
+  type Heading,
+  headings,
+  lineCount,
+  lineOutside,
+  linkTargets,
+  type Pin,
+  pinned,
+  sectionRange,
+  unfenced,
+} from './markdown'
+import { basename, dirname, fromRoot, isInside, normalize, resolvePath } from './paths'
 import type { Project } from './project'
+import { knowledgeMap } from './records'
 import type { DocsSettings } from './settings'
-import type { Store } from './store'
+import { readKnowledge, type Store } from './store'
 
 // The project's documents the mod keeps, the ones `[docs] dirs` names — folders, or a single document such as
 // AGENTS.md at the root: a map of them in SHIFT.md, a toc inside each, checks after the agent writes a file, a
@@ -228,6 +240,30 @@ export async function docOutline({ store, root }: Project, file: string): Promis
   return [`${path} — ${lineCount(text)} lines`, `  ${description(text) ?? 'no description'}`, ...rows].join('\n')
 }
 
+// A logical knowledge name is shorthand for the path printed in the session map.
+export function readingPath(input: string, dirs: readonly string[]): string {
+  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs)) return `${DIR}/${input}`
+  return input.replace(/^\.\//, '')
+}
+
+export async function readMapped(project: Project, input: string, section?: string): Promise<string> {
+  const path = readingPath(input, project.settings.docs.dirs)
+  if (
+    !isInside(path) ||
+    /[\\:]/.test(path) ||
+    path.includes('\0') ||
+    !path.endsWith('.md') ||
+    (dirname(path) !== KNOWLEDGE && !isDoc(path, project.settings.docs.dirs))
+  ) {
+    throw new Error('Use a local knowledge file or a document path from the project map.')
+  }
+  const text = await project.store.read(`${project.root}/${path}`)
+  if (text === null) throw new Error(`No file at ${path}.`)
+  if (section === undefined) return text
+  const { first, after } = sectionRange(text, section)
+  return text.split('\n').slice(first, after).join('\n').trimEnd()
+}
+
 // The documents that name a file — its name without the folder, as a whole word — to check them against a change.
 export async function docsMentioning({ store, root, settings }: Project, file: string): Promise<string> {
   const dirs = settings.docs.dirs
@@ -298,6 +334,9 @@ export async function docStamps(project: Project): Promise<Record<string, string
     }
   }
 
+  for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${KNOWLEDGE}`))) {
+    if (name.endsWith('.md')) found[`${KNOWLEDGE}/${name}`] = stamp
+  }
   return found
 }
 
@@ -317,19 +356,20 @@ function entryName(entry: string): string {
 }
 
 // Each active entry keeps its sections regardless of the size of its siblings.
-export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing: readonly string[]): string {
+export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing: readonly string[], knowledge = ''): string {
   const { dirs } = settings
+  const end = [...(knowledge ? ['', '## Knowledge', '', knowledge] : []), '', MAP_END]
   if (dirs.length === 0) {
     const off =
       "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it."
 
-    return [MAP_START, '', `## Documents`, '', off, '', MAP_END].join('\n')
+    return [MAP_START, '', `## Documents`, '', off, ...end].join('\n')
   }
   const empty = dirs
     .map(trimDir)
     .filter(entry => !docs.some(doc => isDoc(doc.path, [entry])))
     .map(entry => `- ${entryName(entry)} — ${isFile(entry) ? 'no such file' : missing.includes(entry) ? 'no such folder' : 'no documents'}`)
-  if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, '', MAP_END].join('\n')
+  if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, ...end].join('\n')
   const folders = new Map<string, Doc[]>()
   for (const doc of docs) {
     const folder = dirname(doc.path)
@@ -361,8 +401,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
     '',
     body.join('\n\n'),
     ...nothing,
-    '',
-    MAP_END,
+    ...end,
   ].join('\n')
 }
 
@@ -431,8 +470,9 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const shift = `${root}/${project.settings.files.shift}`
   const current = await store.read(shift)
   // A file there that cannot be read is not written over: the owner's text in it would be lost.
-  if ((docs.length === 0 || (await store.exists(shift))) && current === null) return docs
-  const map = withMap(current, renderMap(docs, settings, missing))
+  const knowledge = knowledgeMap(await readKnowledge(project))
+  if (current === null && ((!docs.length && !knowledge) || (await store.exists(shift)))) return docs
+  const map = withMap(current, renderMap(docs, settings, missing, knowledge))
   if (map !== current) await store.write(shift, map)
 
   return docs

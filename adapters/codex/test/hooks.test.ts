@@ -81,7 +81,10 @@ test('installed hooks send targeted changes and actionable diagnostics once', as
   expect(await hook('UserPromptSubmit')).toBe('')
   await hook('PreToolUse')
   await appendFile(doc, '\n## Verify\nSee [missing](gone.md).\n')
-  await appendFile(join(root, '.shift/OWNER.md'), '\nA decision made during the tool.\n')
+  await writeFile(
+    join(root, '.shift/OWNER.md'),
+    '- Unrelated decision marker.\n  Permanent\n- A decision made during the tool.\n  Permanent\n',
+  )
   expect(await hook('PostToolUse')).toBe('')
   const update = await hook('UserPromptSubmit')
   expect(update).toContain('Verify')

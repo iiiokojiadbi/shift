@@ -18,7 +18,7 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, invalid records or no recorded progress. Then it saves the letter and project records in `.shift/history.db` and has the harness let the history go, steered by the letter's Hold.
 5. **Back to work.** The next message carries the records, the last shifts in brief and the letter, last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.
 
-The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs with their descriptions), `OWNER.md`, `GLOSSARY.md` and instructions for opening project issues with Beads, so the agent knows what is written down before it needs it.
+The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs and local knowledge topics), `OWNER.md`, `GLOSSARY.md` and instructions for opening project issues with Beads, so the agent knows what is written down before it needs it.
 
 ### Project tasks
 
@@ -98,6 +98,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `shift_record` | read and edit current Markdown, check out a temporary file or import existing internal records. [Working records](docs/records.md) |
 | `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
 | `shift_setup` | settings, record checks and session files. Use section `tasks` to prepare the task command and see its path |
+| `shift_read` | read a mapped document or knowledge file, optionally by exact heading |
 | `doc_outline` / `docs_mentioning` | a document's sections with line numbers; which documents mention a file |
 
 ## Settings

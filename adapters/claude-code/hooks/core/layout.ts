@@ -4,6 +4,8 @@ export const MOD = 'shift'
 
 export const TOOL = 'shift'
 
+export const READ_TOOL = 'shift_read'
+
 export const RECORD_TOOL = 'shift_record'
 
 export const GUIDE_TOOL = 'shift_guide'

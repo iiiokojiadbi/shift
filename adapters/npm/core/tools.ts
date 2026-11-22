@@ -1,6 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { installTaskCommand, type TaskCommandPath, taskInstructions } from './beads'
-import { docOutline, docsMentioning } from './docs'
+import { docOutline, docsMentioning, readMapped } from './docs'
 import { editRecord } from './editing'
 import { acceptShift, keepRecordsOut, shiftHistory, staleLayout } from './flows'
 import { parseHistoryCount, parsePath, parseShiftInput } from './input'
@@ -12,6 +12,7 @@ import {
   MENTIONS_TOOL,
   MOD,
   OUTLINE_TOOL,
+  READ_TOOL,
   RECORD_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
@@ -115,6 +116,19 @@ const ROWS: readonly Row[] = [
         const project = await call.project()
         const stale = await staleLayout(project)
         return stale ? { deny: stale } : { result: await editRecord(project, raw) }
+      } catch (error) {
+        return { deny: String(error) }
+      }
+    },
+  },
+  {
+    name: READ_TOOL,
+    run: async (raw, call) => {
+      const path = parsePath(raw, 'path')
+      if (!path) return { deny: 'Provide a knowledge or document path from the map.' }
+      if (raw.section !== undefined && (typeof raw.section !== 'string' || !raw.section.trim())) return { deny: 'Name a section heading.' }
+      try {
+        return { result: await readMapped(await call.project(), path, raw.section) }
       } catch (error) {
         return { deny: String(error) }
       }

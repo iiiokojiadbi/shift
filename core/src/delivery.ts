@@ -2,7 +2,7 @@ import { readAbout } from './about'
 import { docStamps, followWrite, refreshDocs, settleDocs } from './docs'
 import { type ChangedBy, type ConfirmedEdit, changedRecords, handBack, type Seen } from './flows'
 import type { GaugeKeeper } from './hint'
-import { MOD, NAMES } from './layout'
+import { KNOWLEDGE, MOD, NAMES } from './layout'
 import { type Loop, loopHint, loopOffer, waitingNote } from './loop'
 import { currentMap, type MapPrints } from './map'
 import { fromRoot } from './paths'
@@ -308,7 +308,10 @@ async function scripted(courier: RecordCourier): Promise<void> {
     if (before !== undefined && (changed.length > 0 || removed)) {
       await courier.updateLooks(current => ({
         ...current,
-        written: [...(current.written ?? []), ...changed.filter(path => !(current.written ?? []).includes(path))],
+        written: [
+          ...(current.written ?? []),
+          ...changed.filter(path => !path.startsWith(`${KNOWLEDGE}/`) && !(current.written ?? []).includes(path)),
+        ],
       }))
       await refreshDocs(project, { tocs: false })
     }

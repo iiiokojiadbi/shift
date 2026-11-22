@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test'
-import { tasksView } from '../src/flows'
+import { sessionFiles, tasksView } from '../src/flows'
 import { FRESH_LOOP, type Loop, type LoopState } from '../src/loop'
 import type { Project } from '../src/project'
 import { archiveCall } from '../src/saved'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { sessionDoctrine, shownTools, startSession, TOOLS, type ToolCall } from '../src/tools'
-import { R } from './fixtures'
+import { R, TRAPS } from './fixtures'
 import { memoryProject } from './memory'
 
 const loopAt = (state: LoopState): Loop => ({
@@ -139,4 +139,22 @@ test('only a confirmed local task command can be recommended on startup, setup o
     expect(await setup()).toHaveProperty('deny')
     expect(await tasksView(project)).not.toContain('./.shift/bin/shift-task list')
   }
+})
+
+test('a knowledge-only project delivers topics at startup and reads an entry without the tracker', async () => {
+  const project = await memoryProject({ [`${R}/settings.toml`]: '[docs]\ndirs = []', [`${R}/knowledge/traps.md`]: TRAPS })
+  project.store.beads = async () => {
+    throw new Error('tracker offline')
+  }
+  const map = (await sessionFiles(project)).find(file => file.path === '.shift/SHIFT.md')?.text
+  expect(map).toContain('## Knowledge')
+  expect(map).toContain('sections: Edits')
+  expect(map).not.toContain('third replacement')
+  const read = (path: string, section?: string) => tool('shift_read').run({ path, section }, callOn(project))
+  const entry = await read('knowledge/traps.md', 'The script stopped on the third replacement')
+  expect(entry).toEqual({ result: expect.stringContaining('### The script stopped') })
+  expect(await read('.shift/knowledge/traps.md', 'Edits')).toEqual({ result: expect.stringContaining('## Edits') })
+  expect(await read('knowledge/traps.md')).toEqual({ result: TRAPS })
+  expect(await read('knowledge/../OWNER.md')).toHaveProperty('deny')
+  expect(await read('docs/manual.md')).toHaveProperty('deny')
 })

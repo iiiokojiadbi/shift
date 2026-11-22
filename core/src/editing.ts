@@ -1,6 +1,6 @@
 import { checkGlossary } from './glossary'
 import { DIR, NAMES } from './layout'
-import { headings } from './markdown'
+import { sectionRange } from './markdown'
 import type { Project } from './project'
 import { checkBoard, checkKnowledge, checkLetter, checkOwner } from './records'
 import { archiveCall } from './saved'
@@ -15,15 +15,11 @@ export function replacePassage(text: string, find: string, replacement: string, 
   let start = 0,
     end = text.length
   if (section !== undefined) {
-    const outline = headings(text)
-    const matches = outline.filter(h => h.title === section)
-    const heading = matches[0]
-    if (matches.length !== 1 || !heading) throw new Error('Section missing or ambiguous. Read the record and use unique context.')
-    const next = outline.find(h => h.line > heading.line && h.level <= heading.level)
+    const { first, after } = sectionRange(text, section)
     const lines = text.split('\n')
-    const offset = (line: number) => lines.slice(0, line - 1).reduce((sum, s) => sum + s.length + 1, 0)
-    start = Math.min(text.length, offset(heading.line + 1))
-    if (next) end = offset(next.line)
+    const offset = (index: number) => lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0)
+    start = Math.min(text.length, offset(first + 1))
+    if (after !== undefined) end = offset(after)
   }
   const body = text.slice(start, end)
   const at = body.indexOf(find)

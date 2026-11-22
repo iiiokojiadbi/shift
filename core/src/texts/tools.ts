@@ -7,6 +7,7 @@ import {
   LETTER,
   MENTIONS_TOOL,
   OUTLINE_TOOL,
+  READ_TOOL,
   RECORD_TOOL,
   SETUP_TOOL,
   SIZES_TOOL,
@@ -103,6 +104,13 @@ export const TOOL_SCHEMA = {
 export type ToolText = { label: string; description: string; brief: string; schema: Record<string, unknown> }
 
 export const TOOL_TEXTS: Record<string, ToolText> = {
+  [READ_TOOL]: {
+    label: 'Read knowledge or documentation',
+    brief: 'read a mapped file, topic or single entry by heading.',
+    description:
+      'Read a project document or local knowledge file from the map in SHIFT.md. Pass an exact heading to read its text and nested entries. Omit section for the whole file.',
+    schema: { type: 'object', properties: { path: { type: 'string' }, section: { type: 'string' } }, required: ['path'] },
+  },
   [RECORD_TOOL]: {
     label: 'Working records',
     brief: 'read, edit and import current Markdown records.',

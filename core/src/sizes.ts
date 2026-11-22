@@ -2,7 +2,6 @@ import { mapBounds } from './docs'
 import { handBack, sessionFiles } from './flows'
 import { BOARD, LETTER, NAMES } from './layout'
 import type { Project } from './project'
-import { knowledgeMap } from './records'
 import { NEXT_SAVED, readSaved, savedEntries } from './saved'
 import { continuePrompt, fileBlock, renderRecent, renderSessionFiles } from './texts/prompts'
 import { sessionDoctrine } from './tools'
@@ -22,7 +21,7 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
     if (file.path === project.settings.files.shift) {
       const parts = file.text.split('\n')
       const { start, end } = mapBounds(parts)
-      if (end >= 0) sessionRows.push(row('  of which: documentation map', count(parts.slice(start, end + 1).join('\n'))))
+      if (end >= 0) sessionRows.push(row('  of which: documentation and knowledge map', count(parts.slice(start, end + 1).join('\n'))))
     }
   }
   const session = count([doctrine, renderSessionFiles(files)].filter(Boolean).join('\n\n'))
@@ -36,7 +35,6 @@ export async function sizeReport(project: Project, counter?: (text: string) => n
   const back = await handBack(project, dir, project.actor)
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)))
-    continueRows.push(row('Knowledge index', count(knowledgeMap(back.work.knowledge))))
   }
   continueRows.push(row('Recent shifts', count(renderRecent(back.recent))))
   if (back.remarks) continueRows.push(row('Document remarks', count(back.remarks)))

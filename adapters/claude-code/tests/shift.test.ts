@@ -186,7 +186,8 @@ test('continue: after the turn the history is let go with the hold, and the lett
   expect(submitted[0]).toContain('fixing tests')
   expect(submitted[0]).not.toContain('.shift/tasks/')
   expect(submitted[0]).not.toContain('«тесты зеленые перед коммитом»')
-  expect(submitted[0]).toContain('knowledge/traps.md — traps of edits and tests')
+  expect(submitted[0]).not.toContain('knowledge/traps.md')
+  expect(archive.entries[0]?.files['SHIFT.md']).toContain('sections: Edits')
   expect(submitted[0]).not.toContain('third replacement')
   expect(archive.entries[0]?.files['summary.md']).toContain('SUMMARY')
   expect(archive.entries[0]?.about).toContain('continuing')
@@ -378,7 +379,7 @@ test("wait: the letter rides along with the owner's next prompt, once", async ($
     expect.stringContaining('waiting for you, the letter goes with your next message'),
     'entered: a notification',
     'entered: owner speaks',
-    expect.stringContaining('went with your message: letter.md, board.md, knowledge/ (the map) — '),
+    expect.stringContaining('went with your message: letter.md, board.md — '),
     'entered: owner again',
   ])
   expect(logs.some(line => line.startsWith('status:'))).toBe(false)
@@ -558,12 +559,12 @@ test("records are looked at around every tool: the agent's own change told only 
   const bash = () => $.tool.call({ tool: 'Bash', command: 'x' } as never)
 
   await bash()
-  edit = () => files.set('/proj/.shift/OWNER.md', `${OWNER}\n- confirmed`)
+  edit = () => files.set('/proj/.shift/OWNER.md', `${OWNER}\n- confirmed\n  Permanent`)
   expect((await bash()).context).toBeUndefined()
   edit = () => files.set('/proj/.shift/board.md', '## Goal\nthe mod')
   expect(String((await bash()).context)).toContain('`.shift/board.md`: The board lacks sections')
   edit = null
-  files.set('/proj/.shift/OWNER.md', `${OWNER}\n- by the owner's hand`)
+  files.set('/proj/.shift/OWNER.md', `${OWNER}\n- by the owner's hand\n  Permanent`)
   const outside = String((await bash()).context)
   expect(outside).toContain('`.shift/OWNER.md` changed outside your tools')
   expect(outside).not.toContain('board.md')

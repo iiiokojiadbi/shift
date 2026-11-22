@@ -9,6 +9,7 @@ import { createInterface as createInterface4 } from "readline";
 // core/src/layout.ts
 var MOD = "shift";
 var TOOL = "shift";
+var READ_TOOL = "shift_read";
 var RECORD_TOOL = "shift_record";
 var GUIDE_TOOL = "shift_guide";
 var HISTORY_TOOL = "shift_history";
@@ -137,6 +138,15 @@ function headings(text) {
     });
   }
   return found;
+}
+function sectionRange(text, title) {
+  const outline = headings(text);
+  const matches = outline.filter((h) => h.title === title);
+  const heading = matches[0];
+  if (!heading || matches.length !== 1)
+    throw new Error("Section missing or ambiguous. Read the whole file or name a unique parent heading.");
+  const next = outline.find((h) => h.line > heading.line && h.level <= heading.level);
+  return { first: heading.line - 1, after: next ? next.line - 1 : undefined };
 }
 var PIN = /^ {0,3}> ?\[!IMPORTANT\]\s*$/;
 var QUOTED = /^ {0,3}> ?/;
@@ -332,6 +342,330 @@ function isInside(path) {
   return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
 }
 
+// core/src/glossary.ts
+var GLOSSARY_LABELS = ["Variants", "Means", "Avoid", "Where", "Unconfirmed"];
+function parseGlossary(text, where) {
+  const articles = [];
+  for (const block of blocks(text, 2)) {
+    const article = { term: block.title, fields: {} };
+    articles.push(article);
+    for (const line of block.body.split(`
+`).map((each) => each.trim())) {
+      if (line === "")
+        continue;
+      const signed = /^([A-Za-z]+): *(.*)$/.exec(line);
+      const label = signed?.[1];
+      if (signed === null || label === undefined || !GLOSSARY_LABELS.includes(label)) {
+        return `${where}, "${article.term}": "${line}" is not a signed line; the labels are ${GLOSSARY_LABELS.join(", ")}.`;
+      }
+      if (article.fields[label] !== undefined)
+        return `${where}, "${article.term}": "${label}:" twice; one line each.`;
+      article.fields[label] = (signed[2] ?? "").trim();
+    }
+  }
+  return articles;
+}
+function checkGlossary(text, where) {
+  if (text === null)
+    return null;
+  const size = overLimit(where, text, GLOSSARY_MAX_LINES, "it comes into every session. Drop general words and terms no longer in use.") ?? dated(where, text, "A term means what it means now.");
+  if (size !== null)
+    return size;
+  const articles = parseGlossary(text, where);
+  if (typeof articles === "string")
+    return articles;
+  const seen = new Map;
+  for (const article of articles) {
+    if (!article.fields.Means)
+      return `${where}, "${article.term}" has no "Means:" \u2014 what it is, in one or two sentences.`;
+    const own = new Set;
+    for (const name of [article.term, ...words(article.fields.Variants)]) {
+      const key = name.toLowerCase();
+      if (own.has(key))
+        continue;
+      own.add(key);
+      const earlier = seen.get(key);
+      if (earlier !== undefined)
+        return `${where}: "${name}" is in both "${earlier}" and "${article.term}". One word, one article.`;
+      seen.set(key, article.term);
+    }
+  }
+  for (const article of articles) {
+    for (const avoided of words(article.fields.Avoid)) {
+      const owner = seen.get(avoided.toLowerCase());
+      if (owner !== undefined) {
+        return `${where}: "${article.term}" says to avoid "${avoided}", but "${owner}" uses that word. Keep one of them.`;
+      }
+    }
+  }
+  return null;
+}
+function words(list) {
+  return (list ?? "").split(",").map((word) => word.trim()).filter((word) => word !== "");
+}
+
+// core/src/records.ts
+function checkLetter(text) {
+  const missing = missingSections(text, LETTER_SECTIONS, "The letter");
+  if (missing !== null)
+    return missing;
+  const found = sections(text);
+  const empty = LETTER_SECTIONS.filter((name) => found.get(name) === "");
+  if (empty.length > 0)
+    return `The letter has empty sections: ${quote(empty)}. Nothing to say \u2014 write "none".`;
+  return null;
+}
+function checkWork(work, project) {
+  const problem = checkRecords(work, project);
+  return problem === null ? null : atPlaces(problem, project.settings.files);
+}
+function checkRecords(work, project) {
+  const settingsProblem = checkSettings(project);
+  if (settingsProblem !== null)
+    return settingsProblem;
+  const boardProblem = checkBoard(work.board);
+  if (boardProblem !== null)
+    return boardProblem;
+  const ownerProblem = checkOwner(work.owner, { allowLegacy: true });
+  if (ownerProblem !== null)
+    return ownerProblem;
+  for (const file of work.knowledge) {
+    const problem = checkKnowledge(file);
+    if (problem !== null)
+      return problem;
+  }
+  const glossaryProblem = checkGlossary(work.glossary, GLOSSARY);
+  if (glossaryProblem !== null)
+    return glossaryProblem;
+  return null;
+}
+function checkWritten(path, work, project) {
+  const { files } = project.settings;
+  const [dir, name = "", rest] = path.split("/").slice(1);
+  const inShift = path.startsWith(`${DIR}/`);
+  let problem = null;
+  if (path === SETTINGS)
+    problem = checkSettings(project);
+  else if (path === BOARD)
+    problem = checkBoard(work.board);
+  else if (path === files.owner)
+    problem = checkOwner(work.owner);
+  else if (path === files.glossary)
+    problem = checkGlossary(work.glossary, GLOSSARY);
+  else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith(".md")) {
+    const file = work.knowledge.find((each) => each.name === name);
+    problem = file === undefined ? null : checkKnowledge(file);
+  }
+  return problem === null ? null : atPlaces(problem, files);
+}
+function checkSettings(project) {
+  return project.problem === null ? null : `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`;
+}
+function checkBoard(board) {
+  const headings = sections(board);
+  if (headings.has(OWNER_SECTION)) {
+    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`;
+  }
+  const legacy = headings.has("Decisions") && headings.has("Dead ends");
+  const boardMissing = missingSections(board, legacy ? ["Goal"] : BOARD_SECTIONS, "The board");
+  if (boardMissing !== null)
+    return boardMissing;
+  return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Keep the stage goals and shared focus. Put the next step in the letter.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.");
+}
+function checkOwner(owner, { allowLegacy = false } = {}) {
+  if (owner === null)
+    return `No ${OWNER}: create it with the owner's decisions in force for the whole project, or "none".`;
+  if (owner.trim() === "")
+    return `${OWNER} is empty. No decisions yet \u2014 write "none".`;
+  const general = overLimit(OWNER, owner, OWNER_MAX_LINES, "it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.") ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.");
+  if (general)
+    return general;
+  const lines = owner.split(`
+`).map((line) => line.trim());
+  if (allowLegacy && !lines.some((line) => /^(?:permanent\b|until\b|\[tasks\b)/i.test(line)))
+    return null;
+  if (lines.filter((line) => line && !/^#{1,2} /.test(line)).join(`
+`) === "none")
+    return null;
+  let rules = 0;
+  for (let index = 0;index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (!line || /^#{1,2} /.test(line))
+      continue;
+    if (!/^- \S/.test(line))
+      return `${OWNER} line ${index + 1}: write a decision as "- <rule>" or "none" for an empty record.`;
+    const scope = lines[++index] ?? "";
+    if (!/^(?:\[tasks [\w.-]+(?:, [\w.-]+)*\] \u00B7 )?(?:Permanent|Until \S.*)$/.test(scope))
+      return `${OWNER} line ${index + 1}: follow the decision with "Permanent" or "Until <observable event>". Optionally prefix it with "[tasks ID, ID] \xB7 ".`;
+    rules++;
+  }
+  return rules ? null : `${OWNER}: write a decision or "none".`;
+}
+var isKind = (kind) => Object.hasOwn(KINDS, kind);
+var hasCommand = (body) => /^ {0,3}(```|~~~)/m.test(body) || /^ {4}\S/m.test(body);
+function checkKnowledge({ name, text }) {
+  const where = `${KNOWLEDGE}/${name}`;
+  const meta = frontmatter(text);
+  const kind = meta.get("kind") ?? "";
+  if (kind === "glossary")
+    return `${where} is a glossary: terms live in ${GLOSSARY} now, one article each \u2014 see ${GUIDE_TOOL}. Move them there and remove the file.`;
+  if (!isKind(kind))
+    return `${where} needs a frontmatter "kind": one of ${Object.keys(KINDS).join(", ")}.`;
+  if (name !== `${kind}.md` && !name.startsWith(`${kind}-`)) {
+    return `${where} is of kind "${kind}": name it ${kind}.md or ${kind}-<topic>.md.`;
+  }
+  if ((meta.get("about") ?? "") === "")
+    return `${where} needs a frontmatter "about": what is in it and where the neighbouring files are.`;
+  const size = overLimit(where, text, KNOWLEDGE_MAX_LINES, `drop what is dead, then split the rest by topic into ${kind}-<topic>.md files.`) ?? dated(where, text, "Knowledge has no dates: an entry that lied is fixed or removed when it is used.");
+  if (size !== null)
+    return size;
+  const fields = KINDS[kind];
+  const lacking = blocks(text, 3).filter((e) => fields.some((f) => !e.body.includes(f)) || kind === "runbook" && !hasCommand(e.body));
+  if (lacking.length > 0) {
+    const need = kind === "runbook" ? `a command block and ${quote(fields)}` : quote(fields);
+    return `Entries in ${where} lack ${need}: ${lacking.map((e) => `"### ${e.title}"`).join(", ")}.`;
+  }
+  return null;
+}
+function knowledgeMap(files) {
+  return files.map(({ name, text }) => {
+    const marks = headings(text);
+    const title = marks.find((h) => h.level === 1)?.title;
+    const topics = marks.filter((h) => h.level === 2).map((h) => h.title);
+    const about = frontmatter(text).get("about");
+    return [
+      `- \`${KNOWLEDGE}/${name}\` \u2014 ${[title, about].filter(Boolean).join(" \u2014 ")}`,
+      ...topics.length ? [`  sections: ${topics.join(" \xB7 ")}`] : []
+    ].join(`
+`);
+  }).join(`
+`);
+}
+
+// core/src/saved.ts
+var ARCHIVE_DB = `${DIR}/history.db`;
+var NEXT_SAVED = "s-0000000000000000";
+var isSaved = (id) => /^s-[a-f0-9]{16}$/.test(id);
+var hasArchive = (p) => p.store.exists(`${p.root}/${ARCHIVE_DB}`);
+async function archiveCall(p, request) {
+  if (!p.store.beads)
+    throw new Error("This adapter has no bundled history runtime.");
+  return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
+}
+async function savedEntries(p, current, session) {
+  if (!await hasArchive(p))
+    return [];
+  if (!current)
+    return archiveCall(p, { action: "list" });
+  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current };
+  return archiveCall(p, { action: "list", ...selection, session, limit: p.settings.historyLimit });
+}
+function readSaved(p, id, file) {
+  if (!isSaved(id))
+    throw new Error("Pass a saved shift ID from shift_history.");
+  return archiveCall(p, { action: "read", id, file });
+}
+function savedFiles(work, letter, settings) {
+  const files = { [NAMES.board]: work.board, [NAMES.letter]: letter };
+  for (const [name, text] of [
+    [NAMES.owner, work.owner],
+    [NAMES.glossary, work.glossary],
+    [NAMES.shift, work.shift],
+    [NAMES.settings, settings]
+  ]) {
+    if (text !== null)
+      files[name] = text;
+  }
+  for (const file of work.knowledge)
+    files[`${NAMES.knowledge}/${file.name}`] = file.text;
+  return files;
+}
+async function historyAction(p, raw) {
+  if (raw.action === "search") {
+    const text = typeof raw.query === "string" ? raw.query.trim() : "";
+    if (!text)
+      throw new Error("Pass nonempty search text.");
+    const limit = raw.count ?? 10;
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 50)
+      throw new Error("count must be between 1 and 50.");
+    const shifts = await hasArchive(p) ? await archiveCall(p, { action: "search", query: text, limit }) : [];
+    return shifts.map((hit) => `shift \xB7 ${hit}`).join(`
+`) || "No matches.";
+  }
+  const id = String(raw.id ?? "");
+  if (!isSaved(id))
+    throw new Error("Pass a saved shift ID from shift_history.");
+  if (raw.action === "delete") {
+    await archiveCall(p, { action: "delete", id });
+    return `Deleted saved shift ${id}.`;
+  }
+  if (raw.action === "read") {
+    const file = String(raw.file ?? NAMES.letter);
+    const entry = await readSaved(p, id, file);
+    const content = file === NAMES.about ? entry.about : entry.files[file];
+    if (typeof content !== "string")
+      throw new Error(`No record ${file} in ${id}.`);
+    return content;
+  }
+  const entry = await readSaved(p, id);
+  if (raw.action === "export")
+    return JSON.stringify({ id, files: { ...entry.files, [NAMES.about]: entry.about } }, null, 2);
+  if (raw.action === "compare") {
+    const other = await readSaved(p, String(raw.other ?? ""));
+    const delta = [];
+    const before = { ...entry.files, [NAMES.about]: entry.about }, after = { ...other.files, [NAMES.about]: other.about };
+    for (const file of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      if (before[file] === after[file])
+        continue;
+      const a = before[file]?.split(`
+`) ?? [], b = after[file]?.split(`
+`) ?? [];
+      let start = 0, end = 0;
+      while (start < a.length && start < b.length && a[start] === b[start])
+        start++;
+      while (end < a.length - start && end < b.length - start && a[a.length - end - 1] === b[b.length - end - 1])
+        end++;
+      delta.push(`--- ${id}/${file}
++++ ${other.id}/${file}
+@@ -${start + Number(a.length > start + end)},${a.length - start - end} +${start + Number(b.length > start + end)},${b.length - start - end} @@`, ...a.slice(start, a.length - end).map((s) => `-${s}`), ...b.slice(start, b.length - end).map((s) => `+${s}`));
+    }
+    return delta.join(`
+`) || "Identical records.";
+  }
+  throw new Error("Choose list, read, compare, export or delete.");
+}
+
+// core/src/store.ts
+async function readKnowledge({ store, root }) {
+  return Promise.all((await store.list(`${root}/${KNOWLEDGE}`, "file")).filter((name) => name.endsWith(".md")).map(async (name) => ({ name, text: await store.read(`${root}/${KNOWLEDGE}/${name}`) ?? "" })));
+}
+async function readRecords(project) {
+  const {
+    root,
+    store,
+    settings: { files }
+  } = project;
+  const base = `${root}/${DIR}`;
+  const board = await store.read(`${base}/${NAMES.board}`);
+  if (board === null)
+    return null;
+  return {
+    board,
+    knowledge: await readKnowledge(project),
+    owner: await store.read(`${root}/${files.owner}`),
+    glossary: await store.read(`${root}/${files.glossary}`),
+    shift: await store.read(`${root}/${files.shift}`)
+  };
+}
+async function lastShifts(project, count, exclude, session, preview = true) {
+  const saved = await savedEntries(project, preview ? exclude : undefined, session);
+  const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
+  return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
+}
+function recentShifts(project, current, session, preview = true) {
+  return lastShifts(project, project.settings.historyLimit, current, session, preview);
+}
+
 // core/src/docs.ts
 var TOC_START = "<!-- toc -->";
 var TOC_END = "<!-- /toc -->";
@@ -516,6 +850,26 @@ async function docOutline({ store, root }, file) {
   return [`${path} \u2014 ${lineCount(text)} lines`, `  ${description(text) ?? "no description"}`, ...rows].join(`
 `);
 }
+function readingPath(input, dirs) {
+  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs))
+    return `${DIR}/${input}`;
+  return input.replace(/^\.\//, "");
+}
+async function readMapped(project, input, section) {
+  const path = readingPath(input, project.settings.docs.dirs);
+  if (!isInside(path) || /[\\:]/.test(path) || path.includes("\x00") || !path.endsWith(".md") || dirname(path) !== KNOWLEDGE && !isDoc(path, project.settings.docs.dirs)) {
+    throw new Error("Use a local knowledge file or a document path from the project map.");
+  }
+  const text = await project.store.read(`${project.root}/${path}`);
+  if (text === null)
+    throw new Error(`No file at ${path}.`);
+  if (section === undefined)
+    return text;
+  const { first, after } = sectionRange(text, section);
+  return text.split(`
+`).slice(first, after).join(`
+`).trimEnd();
+}
 async function docsMentioning({ store, root, settings }, file) {
   const dirs = settings.docs.dirs;
   if (dirs.length === 0)
@@ -585,6 +939,10 @@ async function docStamps(project) {
         found[entry] = stamp;
     }
   }
+  for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${KNOWLEDGE}`))) {
+    if (name.endsWith(".md"))
+      found[`${KNOWLEDGE}/${name}`] = stamp;
+  }
   return found;
 }
 function trimDir(dir) {
@@ -596,16 +954,17 @@ function isFile(entry) {
 function entryName(entry) {
   return isFile(entry) ? `\`${entry}\`` : `\`${entry}/\``;
 }
-function renderMap(docs, settings, missing) {
+function renderMap(docs, settings, missing, knowledge = "") {
   const { dirs } = settings;
+  const end = [...knowledge ? ["", "## Knowledge", "", knowledge] : [], "", MAP_END];
   if (dirs.length === 0) {
     const off = "off: the owner set `[docs] dirs = []` in the settings. No map of the documents; do not add descriptions, headings or anything else to the project's docs for it.";
-    return [MAP_START, "", `## Documents`, "", off, "", MAP_END].join(`
+    return [MAP_START, "", `## Documents`, "", off, ...end].join(`
 `);
   }
   const empty = dirs.map(trimDir).filter((entry) => !docs.some((doc) => isDoc(doc.path, [entry]))).map((entry) => `- ${entryName(entry)} \u2014 ${isFile(entry) ? "no such file" : missing.includes(entry) ? "no such folder" : "no documents"}`);
   if (docs.length === 0)
-    return [MAP_START, "", `## Documents`, "", "none:", ...empty, "", MAP_END].join(`
+    return [MAP_START, "", `## Documents`, "", "none:", ...empty, ...end].join(`
 `);
   const folders = new Map;
   for (const doc of docs) {
@@ -637,8 +996,7 @@ function renderMap(docs, settings, missing) {
 
 `),
     ...nothing,
-    "",
-    MAP_END
+    ...end
   ].join(`
 `);
 }
@@ -714,9 +1072,10 @@ async function refreshDocs(project, { tocs = true } = {}) {
   }
   const shift = `${root}/${project.settings.files.shift}`;
   const current = await store.read(shift);
-  if ((docs.length === 0 || await store.exists(shift)) && current === null)
+  const knowledge = knowledgeMap(await readKnowledge(project));
+  if (current === null && (!docs.length && !knowledge || await store.exists(shift)))
     return docs;
-  const map = withMap(current, renderMap(docs, settings, missing));
+  const map = withMap(current, renderMap(docs, settings, missing, knowledge));
   if (map !== current)
     await store.write(shift, map);
   return docs;
@@ -771,303 +1130,6 @@ ${about.description ?? ""}`;
 `);
 }
 
-// core/src/glossary.ts
-var GLOSSARY_LABELS = ["Variants", "Means", "Avoid", "Where", "Unconfirmed"];
-function parseGlossary(text, where) {
-  const articles = [];
-  for (const block of blocks(text, 2)) {
-    const article = { term: block.title, fields: {} };
-    articles.push(article);
-    for (const line of block.body.split(`
-`).map((each) => each.trim())) {
-      if (line === "")
-        continue;
-      const signed = /^([A-Za-z]+): *(.*)$/.exec(line);
-      const label = signed?.[1];
-      if (signed === null || label === undefined || !GLOSSARY_LABELS.includes(label)) {
-        return `${where}, "${article.term}": "${line}" is not a signed line; the labels are ${GLOSSARY_LABELS.join(", ")}.`;
-      }
-      if (article.fields[label] !== undefined)
-        return `${where}, "${article.term}": "${label}:" twice; one line each.`;
-      article.fields[label] = (signed[2] ?? "").trim();
-    }
-  }
-  return articles;
-}
-function checkGlossary(text, where) {
-  if (text === null)
-    return null;
-  const size = overLimit(where, text, GLOSSARY_MAX_LINES, "it comes into every session. Drop general words and terms no longer in use.") ?? dated(where, text, "A term means what it means now.");
-  if (size !== null)
-    return size;
-  const articles = parseGlossary(text, where);
-  if (typeof articles === "string")
-    return articles;
-  const seen = new Map;
-  for (const article of articles) {
-    if (!article.fields.Means)
-      return `${where}, "${article.term}" has no "Means:" \u2014 what it is, in one or two sentences.`;
-    const own = new Set;
-    for (const name of [article.term, ...words(article.fields.Variants)]) {
-      const key = name.toLowerCase();
-      if (own.has(key))
-        continue;
-      own.add(key);
-      const earlier = seen.get(key);
-      if (earlier !== undefined)
-        return `${where}: "${name}" is in both "${earlier}" and "${article.term}". One word, one article.`;
-      seen.set(key, article.term);
-    }
-  }
-  for (const article of articles) {
-    for (const avoided of words(article.fields.Avoid)) {
-      const owner = seen.get(avoided.toLowerCase());
-      if (owner !== undefined) {
-        return `${where}: "${article.term}" says to avoid "${avoided}", but "${owner}" uses that word. Keep one of them.`;
-      }
-    }
-  }
-  return null;
-}
-function words(list) {
-  return (list ?? "").split(",").map((word) => word.trim()).filter((word) => word !== "");
-}
-
-// core/src/records.ts
-function checkLetter(text) {
-  const missing = missingSections(text, LETTER_SECTIONS, "The letter");
-  if (missing !== null)
-    return missing;
-  const found = sections(text);
-  const empty = LETTER_SECTIONS.filter((name) => found.get(name) === "");
-  if (empty.length > 0)
-    return `The letter has empty sections: ${quote(empty)}. Nothing to say \u2014 write "none".`;
-  return null;
-}
-function checkWork(work, project) {
-  const problem = checkRecords(work, project);
-  return problem === null ? null : atPlaces(problem, project.settings.files);
-}
-function checkRecords(work, project) {
-  const settingsProblem = checkSettings(project);
-  if (settingsProblem !== null)
-    return settingsProblem;
-  const boardProblem = checkBoard(work.board);
-  if (boardProblem !== null)
-    return boardProblem;
-  const ownerProblem = checkOwner(work.owner);
-  if (ownerProblem !== null)
-    return ownerProblem;
-  for (const file of work.knowledge) {
-    const problem = checkKnowledge(file);
-    if (problem !== null)
-      return problem;
-  }
-  const glossaryProblem = checkGlossary(work.glossary, GLOSSARY);
-  if (glossaryProblem !== null)
-    return glossaryProblem;
-  return null;
-}
-function checkWritten(path, work, project) {
-  const { files } = project.settings;
-  const [dir, name = "", rest] = path.split("/").slice(1);
-  const inShift = path.startsWith(`${DIR}/`);
-  let problem = null;
-  if (path === SETTINGS)
-    problem = checkSettings(project);
-  else if (path === BOARD)
-    problem = checkBoard(work.board);
-  else if (path === files.owner)
-    problem = checkOwner(work.owner);
-  else if (path === files.glossary)
-    problem = checkGlossary(work.glossary, GLOSSARY);
-  else if (inShift && dir === NAMES.knowledge && rest === undefined && name.endsWith(".md")) {
-    const file = work.knowledge.find((each) => each.name === name);
-    problem = file === undefined ? null : checkKnowledge(file);
-  }
-  return problem === null ? null : atPlaces(problem, files);
-}
-function checkSettings(project) {
-  return project.problem === null ? null : `${project.problem} The file is the owner's: tell them, and do not shift until it is fixed.`;
-}
-function checkBoard(board) {
-  const headings = sections(board);
-  if (headings.has(OWNER_SECTION)) {
-    return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`;
-  }
-  const legacy = headings.has("Decisions") && headings.has("Dead ends");
-  const boardMissing = missingSections(board, legacy ? ["Goal"] : BOARD_SECTIONS, "The board");
-  if (boardMissing !== null)
-    return boardMissing;
-  return overLimit("The board", board, BOARD_MAX_LINES, "it has become a diary. Keep the stage goals and shared focus. Put the next step in the letter.") ?? dated("the board", board, "The board has no dates \u2014 each shift's time is recorded by itself.");
-}
-function checkOwner(owner) {
-  if (owner === null)
-    return `No ${OWNER}: create it with the owner's decisions in force for the whole project, or "none".`;
-  if (owner.trim() === "")
-    return `${OWNER} is empty. No decisions yet \u2014 write "none".`;
-  return overLimit(OWNER, owner, OWNER_MAX_LINES, "it has become a log. Merge rules that say the same, drop revoked ones, move what binds one task into that task.") ?? dated(OWNER, owner, "The owner's decisions have no dates: a newer word rewrites the older line.");
-}
-var isKind = (kind) => Object.hasOwn(KINDS, kind);
-var hasCommand = (body) => /^ {0,3}(```|~~~)/m.test(body) || /^ {4}\S/m.test(body);
-function checkKnowledge({ name, text }) {
-  const where = `${KNOWLEDGE}/${name}`;
-  const meta = frontmatter(text);
-  const kind = meta.get("kind") ?? "";
-  if (kind === "glossary")
-    return `${where} is a glossary: terms live in ${GLOSSARY} now, one article each \u2014 see ${GUIDE_TOOL}. Move them there and remove the file.`;
-  if (!isKind(kind))
-    return `${where} needs a frontmatter "kind": one of ${Object.keys(KINDS).join(", ")}.`;
-  if (name !== `${kind}.md` && !name.startsWith(`${kind}-`)) {
-    return `${where} is of kind "${kind}": name it ${kind}.md or ${kind}-<topic>.md.`;
-  }
-  if ((meta.get("about") ?? "") === "")
-    return `${where} needs a frontmatter "about": what is in it and where the neighbouring files are.`;
-  const size = overLimit(where, text, KNOWLEDGE_MAX_LINES, `drop what is dead, then split the rest by topic into ${kind}-<topic>.md files.`) ?? dated(where, text, "Knowledge has no dates: an entry that lied is fixed or removed when it is used.");
-  if (size !== null)
-    return size;
-  const fields = KINDS[kind];
-  const lacking = blocks(text, 3).filter((e) => fields.some((f) => !e.body.includes(f)) || kind === "runbook" && !hasCommand(e.body));
-  if (lacking.length > 0) {
-    const need = kind === "runbook" ? `a command block and ${quote(fields)}` : quote(fields);
-    return `Entries in ${where} lack ${need}: ${lacking.map((e) => `"### ${e.title}"`).join(", ")}.`;
-  }
-  return null;
-}
-function knowledgeMap(files) {
-  if (files.length === 0)
-    return `${KNOWLEDGE}/ is empty.`;
-  return files.map(({ name, text }) => {
-    const kind = frontmatter(text).get("kind") ?? "";
-    const count = kind === "glossary" ? text.split(`
-`).filter((line) => line.startsWith("- **")).length : blocks(text, 3).length;
-    return `- ${KNOWLEDGE}/${name} \u2014 ${frontmatter(text).get("about") ?? ""} (${count} ${kind === "glossary" ? "terms" : "entries"})`;
-  }).join(`
-`);
-}
-
-// core/src/saved.ts
-var ARCHIVE_DB = `${DIR}/history.db`;
-var NEXT_SAVED = "s-0000000000000000";
-var isSaved = (id) => /^s-[a-f0-9]{16}$/.test(id);
-var hasArchive = (p) => p.store.exists(`${p.root}/${ARCHIVE_DB}`);
-async function archiveCall(p, request) {
-  if (!p.store.beads)
-    throw new Error("This adapter has no bundled history runtime.");
-  return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
-}
-async function savedEntries(p, current, session) {
-  if (!await hasArchive(p))
-    return [];
-  if (!current)
-    return archiveCall(p, { action: "list" });
-  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current };
-  return archiveCall(p, { action: "list", ...selection, session, limit: p.settings.historyLimit });
-}
-function readSaved(p, id, file) {
-  if (!isSaved(id))
-    throw new Error("Pass a saved shift ID from shift_history.");
-  return archiveCall(p, { action: "read", id, file });
-}
-function savedFiles(work, letter, settings) {
-  const files = { [NAMES.board]: work.board, [NAMES.letter]: letter };
-  for (const [name, text] of [
-    [NAMES.owner, work.owner],
-    [NAMES.glossary, work.glossary],
-    [NAMES.shift, work.shift],
-    [NAMES.settings, settings]
-  ]) {
-    if (text !== null)
-      files[name] = text;
-  }
-  for (const file of work.knowledge)
-    files[`${NAMES.knowledge}/${file.name}`] = file.text;
-  return files;
-}
-async function historyAction(p, raw) {
-  if (raw.action === "search") {
-    const text = typeof raw.query === "string" ? raw.query.trim() : "";
-    if (!text)
-      throw new Error("Pass nonempty search text.");
-    const limit = raw.count ?? 10;
-    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 50)
-      throw new Error("count must be between 1 and 50.");
-    const shifts = await hasArchive(p) ? await archiveCall(p, { action: "search", query: text, limit }) : [];
-    return shifts.map((hit) => `shift \xB7 ${hit}`).join(`
-`) || "No matches.";
-  }
-  const id = String(raw.id ?? "");
-  if (!isSaved(id))
-    throw new Error("Pass a saved shift ID from shift_history.");
-  if (raw.action === "delete") {
-    await archiveCall(p, { action: "delete", id });
-    return `Deleted saved shift ${id}.`;
-  }
-  if (raw.action === "read") {
-    const file = String(raw.file ?? NAMES.letter);
-    const entry = await readSaved(p, id, file);
-    const content = file === NAMES.about ? entry.about : entry.files[file];
-    if (typeof content !== "string")
-      throw new Error(`No record ${file} in ${id}.`);
-    return content;
-  }
-  const entry = await readSaved(p, id);
-  if (raw.action === "export")
-    return JSON.stringify({ id, files: { ...entry.files, [NAMES.about]: entry.about } }, null, 2);
-  if (raw.action === "compare") {
-    const other = await readSaved(p, String(raw.other ?? ""));
-    const delta = [];
-    const before = { ...entry.files, [NAMES.about]: entry.about }, after = { ...other.files, [NAMES.about]: other.about };
-    for (const file of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
-      if (before[file] === after[file])
-        continue;
-      const a = before[file]?.split(`
-`) ?? [], b = after[file]?.split(`
-`) ?? [];
-      let start = 0, end = 0;
-      while (start < a.length && start < b.length && a[start] === b[start])
-        start++;
-      while (end < a.length - start && end < b.length - start && a[a.length - end - 1] === b[b.length - end - 1])
-        end++;
-      delta.push(`--- ${id}/${file}
-+++ ${other.id}/${file}
-@@ -${start + Number(a.length > start + end)},${a.length - start - end} +${start + Number(b.length > start + end)},${b.length - start - end} @@`, ...a.slice(start, a.length - end).map((s) => `-${s}`), ...b.slice(start, b.length - end).map((s) => `+${s}`));
-    }
-    return delta.join(`
-`) || "Identical records.";
-  }
-  throw new Error("Choose list, read, compare, export or delete.");
-}
-
-// core/src/store.ts
-async function readRecords(project) {
-  const {
-    root,
-    store,
-    settings: { files }
-  } = project;
-  const base = `${root}/${DIR}`;
-  const board = await store.read(`${base}/${NAMES.board}`);
-  if (board === null)
-    return null;
-  const knowledge = await Promise.all((await store.list(`${base}/${NAMES.knowledge}`, "file")).filter((name) => name.endsWith(".md")).map(async (name) => ({ name, text: await store.read(`${base}/${NAMES.knowledge}/${name}`) ?? "" })));
-  return {
-    board,
-    knowledge,
-    owner: await store.read(`${root}/${files.owner}`),
-    glossary: await store.read(`${root}/${files.glossary}`),
-    shift: await store.read(`${root}/${files.shift}`)
-  };
-}
-async function lastShifts(project, count, exclude, session, preview = true) {
-  const saved = await savedEntries(project, preview ? exclude : undefined, session);
-  const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
-  return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
-}
-function recentShifts(project, current, session, preview = true) {
-  return lastShifts(project, project.settings.historyLimit, current, session, preview);
-}
-
 // core/src/texts/prompts.ts
 var NOTE_KINDS = {
   hint: "a hint from the mod, not part of what it came with",
@@ -1090,14 +1152,9 @@ function compactInstructions(shift) {
 function renderWork(work, knowledge, owner) {
   if (work === null)
     return `There is no board at ${BOARD}.`;
-  return [
-    `**Board**
+  return [`**Board**
 
-${fileBlock(BOARD, work.board)}`,
-    `<knowledge path="${KNOWLEDGE}/" note="read a file when its topic comes up" goes="${placement(knowledge, owner)}">
-${knowledgeMap(work.knowledge)}
-</knowledge>`
-  ].join(`
+${fileBlock(BOARD, work.board)}`, `Knowledge placement: ${placement(knowledge, owner)}.`].join(`
 
 ---
 
@@ -1131,8 +1188,7 @@ ${text.trim()}
 function deliveredFiles(work) {
   if (work === null)
     return [NAMES.letter];
-  const knowledge = work.knowledge.length === 0 ? [] : [`${NAMES.knowledge}/ (the map)`];
-  return [NAMES.letter, NAMES.board, ...knowledge];
+  return [NAMES.letter, NAMES.board];
 }
 function renderRecent(recent) {
   if (recent.entries.length === 0)
@@ -1157,7 +1213,7 @@ function shiftMessage(opening, letter, back, closing = []) {
     `<${MOD} id="${dir}">`,
     opening,
     "",
-    "Your current board and knowledge map follow. The session files were read again after this shift.",
+    "Your current board follows. The session files were read again after this shift.",
     "",
     renderWork(work, back.knowledge, back.owner),
     "",
@@ -1352,6 +1408,10 @@ async function acceptShift(project, call) {
   const about = renderAbout({ ...shift, result: OUTCOME.pending });
   const files = savedFiles(work, letter, project.settingsText);
   const entries = await savedEntries(project);
+  const ownerFormat = checkOwner(work.owner);
+  const latest = entries.at(-1);
+  if (ownerFormat && latest && (await readSaved(project, latest.id, NAMES.owner)).files[NAMES.owner] !== work.owner)
+    return { deny: atPlaces(ownerFormat, settings.files) };
   const previous = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === call.sessionId);
   shift.dir = await archiveCall(project, {
     action: "begin",
@@ -2291,7 +2351,10 @@ async function scripted(courier) {
     if (before !== undefined && (changed.length > 0 || removed)) {
       await courier.updateLooks((current) => ({
         ...current,
-        written: [...current.written ?? [], ...changed.filter((path) => !(current.written ?? []).includes(path))]
+        written: [
+          ...current.written ?? [],
+          ...changed.filter((path) => !path.startsWith(`${KNOWLEDGE}/`) && !(current.written ?? []).includes(path))
+        ]
       }));
       await refreshDocs(project, { tocs: false });
     }
@@ -2784,6 +2847,12 @@ var TOOL_SCHEMA = {
   required: ["letter", "after"]
 };
 var TOOL_TEXTS = {
+  [READ_TOOL]: {
+    label: "Read knowledge or documentation",
+    brief: "read a mapped file, topic or single entry by heading.",
+    description: "Read a project document or local knowledge file from the map in SHIFT.md. Pass an exact heading to read its text and nested entries. Omit section for the whole file.",
+    schema: { type: "object", properties: { path: { type: "string" }, section: { type: "string" } }, required: ["path"] }
+  },
   [RECORD_TOOL]: {
     label: "Working records",
     brief: "read, edit and import current Markdown records.",
@@ -2871,7 +2940,13 @@ Example board:
 We are checking what happens when a device retries a sync. Keep the original count IDs during the trial so the receiving system can recognize a retry.
 
 When revising an older board, read its Decisions and Dead ends. Keep an active constraint in Current focus. Preserve durable design in the appropriate document and reusable lessons according to the project's knowledge rules. Keep owner policy in the owner record. Earlier boards remain available in saved shifts.`;
-var OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet \u2014 "none". A new word is checked against what is written: it contradicts a rule \u2014 the rule is rewritten; it narrows, widens or refines one \u2014 the rule is rewritten to cover both; it is new \u2014 a new line. A rule changes or goes only on the owner's word. When tracking an issue, keep decisions specific to it on the issue.`;
+var OWNER_RULES = `\`${OWNER}\` holds decisions in force across the project, grouped under ## headings, up to ${OWNER_MAX_LINES} lines. Write "none" when empty. Quote wording that determines the rule. Each decision takes two lines:
+- Keep the preview private.
+  [tasks preview-3] \xB7 Until the owner approves public access
+- Use the project launcher.
+  Permanent
+
+The second line is Permanent or Until followed by an observable event. The optional prefix [tasks ID] \xB7 or [tasks ID, ID] \xB7 points to related issues. Tasks keep their own decisions and evidence. When closing a linked issue, changing the relevant workflow, or finishing an experiment, revisit the affected rule. Remove it when its stated condition is fulfilled. A closed issue alone settles only a condition explicitly tied to its closure. Keep a rule with uncertain status until the owner clarifies it. Replace superseded rules in place and remove exact duplicates of standing instructions. Keep one-off requests in the letter or the issue. Older free-form records can still shift; convert their entries when editing them.`;
 var KNOWLEDGE_KINDS = `- \`traps\` \u2014 what behaves not as expected: \`### <symptom>\`, then ${KINDS.traps.join(" and ")};
 - \`lessons\` \u2014 an approach that worked or failed: \`### <approach>\`, then ${KINDS.lessons.join(" and ")};
 - \`runbook\` \u2014 what is run and with what: \`### <task>\`, a command block, then ${KINDS.runbook.join(" and ")};
@@ -2881,7 +2956,7 @@ Terms are not a kind: they live in \`${GLOSSARY}\`.`;
 var KNOWLEDGE_RULES = `\`${KNOWLEDGE}/\` is what you learned that stays true for months: traps, lessons, commands, facts. One file per kind \u2014 \`<kind>.md\`, or \`<kind>-<topic>.md\` once split by topic; a frontmatter with \`kind\` and \`about\` (what is in the file and where the neighbouring files are); entries grouped under \`##\` headings by topic. Kinds and the fields every entry carries:
 ${KNOWLEDGE_KINDS}
 
-No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. After a shift only the map of knowledge comes back \u2014 read a file when its topic comes up.`;
+No dates, no more than ${KNOWLEDGE_MAX_LINES} lines per file. Freshness is checked when an entry is used, not by age: an entry that lied is fixed or removed right away; a trap met a third time is rewritten as a rule. Writing into a section, clear out what is dead there: a trap about code that is gone, an entry a later one covers, a one-off case with no conclusion, a copy of the project's docs. The session map in \`${SHIFT_FILE}\` lists the files and their ## topics. When a symptom looks familiar, use \`${READ_TOOL}\` to open the topic or a single ### entry before investigating it again.`;
 var GLOSSARY_RULES = `\`${GLOSSARY}\` holds the project's own words, one article each \u2014 names, codes, abbreviations, terms that mean something particular here:
 
 \`\`\`
@@ -2913,7 +2988,7 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 When continuing a tracked issue, include its ID in the letter. Under Goal, use an unordered list of stage outcomes by default. Under Current focus, describe the work underway and any temporary condition other chats need. Update the board when that shared picture changes. On return, check whether the letter's Next still fits the current board. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
-\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
+\`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Write each decision as a bullet followed by Permanent or Until <observable event>, optionally prefixed with "[tasks ID] \xB7 ". Revisit affected conditions when related work ends. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation, knowledge topics and pinned advice. Use \`${READ_TOOL}\` to read the relevant section. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
 Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
 
@@ -2979,18 +3054,13 @@ function field(raw, name) {
 function replacePassage(text, find, replacement, section) {
   let start = 0, end = text.length;
   if (section !== undefined) {
-    const outline = headings(text);
-    const matches = outline.filter((h) => h.title === section);
-    const heading = matches[0];
-    if (matches.length !== 1 || !heading)
-      throw new Error("Section missing or ambiguous. Read the record and use unique context.");
-    const next = outline.find((h) => h.line > heading.line && h.level <= heading.level);
+    const { first, after } = sectionRange(text, section);
     const lines = text.split(`
 `);
-    const offset = (line) => lines.slice(0, line - 1).reduce((sum, s) => sum + s.length + 1, 0);
-    start = Math.min(text.length, offset(heading.line + 1));
-    if (next)
-      end = offset(next.line);
+    const offset = (index) => lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0);
+    start = Math.min(text.length, offset(first + 1));
+    if (after !== undefined)
+      end = offset(after);
   }
   const body = text.slice(start, end);
   const at = body.indexOf(find);
@@ -3108,7 +3178,7 @@ async function sizeReport(project, counter) {
 `);
       const { start, end } = mapBounds(parts);
       if (end >= 0)
-        sessionRows.push(row("  of which: documentation map", count(parts.slice(start, end + 1).join(`
+        sessionRows.push(row("  of which: documentation and knowledge map", count(parts.slice(start, end + 1).join(`
 `))));
     }
   }
@@ -3126,7 +3196,6 @@ async function sizeReport(project, counter) {
   const back = await handBack(project, dir, project.actor);
   if (back.work) {
     continueRows.push(row(BOARD, count(back.work.board)));
-    continueRows.push(row("Knowledge index", count(knowledgeMap(back.work.knowledge))));
   }
   continueRows.push(row("Recent shifts", count(renderRecent(back.recent))));
   if (back.remarks)
@@ -3208,6 +3277,21 @@ var ROWS = [
         const project = await call.project();
         const stale = await staleLayout(project);
         return stale ? { deny: stale } : { result: await editRecord(project, raw) };
+      } catch (error) {
+        return { deny: String(error) };
+      }
+    }
+  },
+  {
+    name: READ_TOOL,
+    run: async (raw, call) => {
+      const path = parsePath(raw, "path");
+      if (!path)
+        return { deny: "Provide a knowledge or document path from the map." };
+      if (raw.section !== undefined && (typeof raw.section !== "string" || !raw.section.trim()))
+        return { deny: "Name a section heading." };
+      try {
+        return { result: await readMapped(await call.project(), path, raw.section) };
       } catch (error) {
         return { deny: String(error) };
       }
@@ -4602,7 +4686,7 @@ class Session {
       const tool = shownTools(project.settings).find((tool) => tool.name === name);
       if (!tool)
         throw new Error(`Unknown tool: ${name}`);
-      const file = name === "doc_outline" ? raw.path : name === "shift" ? raw.letter : undefined;
+      const file = name === "shift_read" && typeof raw.path === "string" ? readingPath(raw.path.trim(), project.settings.docs.dirs) : name === "doc_outline" ? raw.path : name === "shift" ? raw.letter : undefined;
       if (typeof file === "string" && file) {
         const root = await realpath2(this.root);
         const path = resolve3(root, file);

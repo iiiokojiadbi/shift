@@ -20,7 +20,7 @@ export function boardWith(focus: string[] = ['none']): string {
 }
 
 export const BOARD = boardWith()
-export const OWNER = '# Owner decisions\n\n## How to work\n\n- «тесты зеленые перед коммитом»'
+export const OWNER = '# Owner decisions\n\n## How to work\n\n- «тесты зеленые перед коммитом»\n  Permanent'
 export const TRAPS = [
   '---',
   'kind: traps',

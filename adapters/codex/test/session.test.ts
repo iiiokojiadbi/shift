@@ -36,6 +36,9 @@ test('a scripted edit refreshes the configured map on the next owner turn, inclu
   expect(context).toContain('Verify')
   expect(await readFile(join(root, 'MAP.md'), 'utf8')).toContain('Inspect the produced binary.')
   expect(await session.tool('doc_outline', { path: 'docs/build.md' }, 'turn')).toContain('Verify')
+  expect(await session.tool('shift_read', { path: 'docs/build.md', section: 'Verify' }, 'turn')).toBe(
+    '## Verify\n\n> [!IMPORTANT]\n> Inspect the produced binary.',
+  )
   await expect(session.tool('shift', { letter: '../outside' }, 'turn')).rejects.toThrow('inside this project')
   await writeFile(join(records, 'settings.toml'), 'enabled = false')
   await session.ownerRequest('turn/start', { input: [] })

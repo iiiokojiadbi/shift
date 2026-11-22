@@ -1,4 +1,4 @@
-import { DIR, NAMES } from './layout'
+import { DIR, KNOWLEDGE, NAMES } from './layout'
 import type { Project } from './project'
 import { NEXT_SAVED, savedEntries } from './saved'
 import type { KnowledgeFile, Recent, Work } from './types'
@@ -22,6 +22,14 @@ export type Store = {
   git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string } | null>
 }
 
+export async function readKnowledge({ store, root }: Project): Promise<KnowledgeFile[]> {
+  return Promise.all(
+    (await store.list(`${root}/${KNOWLEDGE}`, 'file'))
+      .filter(name => name.endsWith('.md'))
+      .map(async name => ({ name, text: (await store.read(`${root}/${KNOWLEDGE}/${name}`)) ?? '' })),
+  )
+}
+
 // Read only the current records selected by this project's settings.
 export async function readRecords(project: Project): Promise<Work | null> {
   const {
@@ -32,14 +40,9 @@ export async function readRecords(project: Project): Promise<Work | null> {
   const base = `${root}/${DIR}`
   const board = await store.read(`${base}/${NAMES.board}`)
   if (board === null) return null
-  const knowledge: KnowledgeFile[] = await Promise.all(
-    (await store.list(`${base}/${NAMES.knowledge}`, 'file'))
-      .filter(name => name.endsWith('.md'))
-      .map(async name => ({ name, text: (await store.read(`${base}/${NAMES.knowledge}/${name}`)) ?? '' })),
-  )
   return {
     board,
-    knowledge,
+    knowledge: await readKnowledge(project),
     owner: await store.read(`${root}/${files.owner}`),
     glossary: await store.read(`${root}/${files.glossary}`),
     shift: await store.read(`${root}/${files.shift}`),

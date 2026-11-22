@@ -3,11 +3,11 @@ import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
 import { installTaskCommand, taskInstructions } from './beads'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary } from './history'
-import { ABOUT_MAX, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
+import { ABOUT_MAX, atPlaces, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
 import { formatK, frontmatter, openingParagraph, sections } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
-import { checkLetter, checkWork, checkWritten } from './records'
+import { checkLetter, checkOwner, checkWork, checkWritten } from './records'
 import { archiveCall, readSaved, savedEntries, savedFiles } from './saved'
 import { lastShifts, readRecords, recentShifts } from './store'
 import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
@@ -170,6 +170,12 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const about = renderAbout({ ...shift, result: OUTCOME.pending })
   const files = savedFiles(work, letter, project.settingsText)
   const entries = await savedEntries(project)
+  // A legacy file may cross its first shift untouched. Once a snapshot exists, a changed
+  // file-backed owner record must pass the same edit check as a database-backed one.
+  const ownerFormat = checkOwner(work.owner)
+  const latest = entries.at(-1)
+  if (ownerFormat && latest && (await readSaved(project, latest.id, NAMES.owner)).files[NAMES.owner] !== work.owner)
+    return { deny: atPlaces(ownerFormat, settings.files) }
   const previous = entries.toReversed().find(e => e.state === 'complete' && readAbout(e.about).session === call.sessionId)
   shift.dir = await archiveCall<string>(project, {
     action: 'begin',
@@ -337,7 +343,7 @@ export async function keepRecordsOut(project: Project): Promise<{ excluded: stri
 }
 
 // Version of the rendered file block retained across a host restart. Earlier blocks contain a live task list.
-export const SESSION_FILES_VERSION = 4
+export const SESSION_FILES_VERSION = 5
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md, with
 // paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
