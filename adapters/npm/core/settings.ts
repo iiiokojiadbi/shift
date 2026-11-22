@@ -14,7 +14,7 @@ export type Settings = {
   commit: boolean
   // Where the files loaded into every session live, relative to the project's root; `always` are the project's own
   // files the owner wants whole in every session too.
-  files: { shift: string; owner: string; glossary: string; always: string[] }
+  files: { legacyMap?: string; shift: string; owner: string; glossary: string; always: string[] }
   docs: DocsSettings
 }
 
@@ -33,10 +33,12 @@ export type DocsSettings = {
 export const PLACEMENTS = ['local', 'project', 'split'] as const
 export type Placement = (typeof PLACEMENTS)[number]
 
+export const HISTORY_CAPACITY = 10
+
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
   knowledge: null,
-  historyLimit: 30,
+  historyLimit: HISTORY_CAPACITY,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
   docs: {
@@ -72,7 +74,7 @@ export const SETTING_KEYS: readonly Key[] = [
     since: 'storage roadmap',
     kind: 'limit',
     at: ['historyLimit'],
-    about: 'completed shifts to retain and maximum earlier descriptions in the restored preamble; pending letters are protected',
+    about: `completed shifts to retain, up to ${HISTORY_CAPACITY} including the current shift; earlier descriptions use the remaining slots`,
   },
   {
     key: 'enabled',
@@ -95,7 +97,13 @@ export const SETTING_KEYS: readonly Key[] = [
     at: ['commit'],
     about: "true lets the project's git take the records in; false — the mod keeps them out by the local exclude file",
   },
-  { key: 'files.shift', since: '0.3.0', kind: 'path', at: ['files', 'shift'], about: "where SHIFT.md lives, from the project's root" },
+  {
+    key: 'files.shift',
+    since: '0.3.0',
+    kind: 'path',
+    at: ['files', 'legacyMap'],
+    about: 'legacy source of owner-authored map rules, read once when creating .shift/SHIFT.md',
+  },
   { key: 'files.owner', since: '0.3.0', kind: 'path', at: ['files', 'owner'], about: "where OWNER.md lives, from the project's root" },
   {
     key: 'files.glossary',
@@ -198,7 +206,7 @@ export function parseSettings(text: string): ParsedSettings | string {
     const wanted = KINDS[key.kind](given)
     if (wanted !== null) return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(value)}.`
     const [holder, field] = slot(settings, key)
-    holder[field] = given
+    holder[field] = name === 'history_limit' && typeof given === 'number' ? Math.min(given, HISTORY_CAPACITY) : given
     set.add(name)
   }
 

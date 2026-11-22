@@ -53,10 +53,10 @@ export async function readRecords(project: Project): Promise<Work | null> {
 export async function lastShifts(project: Project, count: number, exclude?: string, session?: string, preview = true): Promise<Recent> {
   const saved = await savedEntries(project, preview ? exclude : undefined, session)
   const entries = saved.filter(entry => !exclude || exclude === NEXT_SAVED || entry.id < exclude)
-  return { total: entries.length, entries: entries.slice(-count).map(e => ({ name: e.id, about: e.about })) }
+  return { total: entries.length, entries: entries.slice(Math.max(0, entries.length - count)).map(e => ({ name: e.id, about: e.about })) }
 }
 
 // The shifts the message after a shift recalls.
 export function recentShifts(project: Project, current?: string, session?: string, preview = true): Promise<Recent> {
-  return lastShifts(project, project.settings.historyLimit, current, session, preview)
+  return lastShifts(project, project.settings.historyLimit - 1, current, session, preview)
 }

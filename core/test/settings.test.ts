@@ -16,6 +16,8 @@ test('settings parse the keys, comments and tables; a missing key keeps its defa
     set: new Set(['enabled']),
   })
   expect(parseSettings("knowledge = 'split'")).toMatchObject({ settings: { ...DEFAULT_SETTINGS, knowledge: 'split' } })
+  expect(DEFAULT_SETTINGS.historyLimit).toBe(10)
+  expect(parseSettings('history_limit = 40')).toMatchObject({ settings: { historyLimit: 10 } })
   expect(parseSettings('commit = true')).toMatchObject({ settings: { ...DEFAULT_SETTINGS, commit: true } })
   expect(parseSettings('knowledge = "a # b"')).toContain('`knowledge` is one of')
 })

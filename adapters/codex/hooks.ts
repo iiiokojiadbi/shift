@@ -261,6 +261,17 @@ const pickerCommands = new Map([
 // Hook processes for one thread can overlap. A SQLite writer transaction covers the observation,
 // the decision to deliver and its checkpoint. The OS releases the lock if the hook is killed.
 export async function runHook(input: Fields, dir: string, file: string) {
+  if (typeof input.agent_id === 'string' && input.agent_id) {
+    if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'mcp__shift__shift')
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'Only the main session can make a shift.',
+        },
+      }
+    return {}
+  }
   const project = await projectAt(String(input.cwd), typeof input.session_id === 'string' ? input.session_id : undefined)
   const prompt = input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' ? input.prompt.trim() : ''
   const token = prompt.split(/\s/, 1)[0] ?? ''

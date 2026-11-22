@@ -65,7 +65,7 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
-The session map includes the paths, descriptions and topics of local knowledge. If the owner configures a tracked map, those details are visible to readers of that file. Full entries remain in their configured storage.
+The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. The owner can retire the old copy after checking the rules.
 
 ## Settings
 
@@ -81,7 +81,7 @@ An explicit restore picks the letter waiting for that chat, even if another chat
 
 `shift_history` lists retained IDs. Use `action="read"` with an ID and record name, `compare` with two retained IDs in either order, `export` to retrieve a complete snapshot as JSON, or `search` with text to find saved shift records. `delete` removes an eligible shift. Use `shift-task history <id>` for issue revisions.
 
-Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The default `history_limit` is 30. The same setting caps the earlier shift descriptions included when a letter is restored. Pending, unsettled and undelivered letters remain recoverable. A completed continue stays protected from rotation until its host accepts the message or records it in replacement history. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.
+Acceptance saves the letter and records before the harness lets go. A single transaction records completion, protects waiting letters and rotates the oldest completed shifts. The history window holds ten completed shifts by default. When shift 11 completes, the window contains shifts 2 through 11. The agent receives letter 11 in full and short descriptions of shifts 2 through 10, oldest first. Their full records can be opened by ID. An explicit smaller `history_limit` reserves one slot for the current letter and uses the remaining slots for descriptions. Older configurations above ten use ten. Pending, unsettled and undelivered letters remain recoverable. A completed continue stays protected from rotation until its host accepts the message or records it in replacement history. Identical record contents share a SHA-256 key. Every retained snapshot names all its contents, so deleting a shift leaves the others independently readable. Rotation reclaims unused database pages for future writes.
 
 To transfer a project, stop writers and copy the whole `.shift/` directory along with any project files selected by settings. The next session restores the saved letter. Use the project launcher to open issues in the transferred task database. Diverged copies have independent histories.
 

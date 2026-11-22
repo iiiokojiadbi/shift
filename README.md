@@ -108,10 +108,10 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | Key | Meaning |
 |---|---|
 | `enabled` | `false` turns the mod off in this project |
-| `history_limit` | completed shifts to retain and maximum earlier descriptions in a restore, default 30. Pending and waiting letters are protected |
+| `history_limit` | rolling history window, default and maximum 10. The current letter takes one slot and up to nine earlier descriptions return with it. Pending and waiting letters are protected |
 | `knowledge` | where knowledge goes: `local` (`.shift/knowledge/`), `project` (the project's docs) or `split` |
 | `commit` | `true` lets the project's git take `.shift/` in; by default the mod keeps it out through the local exclude file |
-| `[files]` `shift`, `owner`, `glossary` | where `SHIFT.md`, `OWNER.md` and `GLOSSARY.md` live |
+| `[files]` `owner`, `glossary` | where the owner record and glossary live. The map stays inside `.shift`. A previous `[files] shift` path can seed its rules once |
 | `[files]` `always` | the project's own files loaded whole into every session |
 | `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
 | `[docs]` `toc`, `max_pinned`, `max_description`, `max_lines` | document tocs and checks for pins, descriptions and file length |

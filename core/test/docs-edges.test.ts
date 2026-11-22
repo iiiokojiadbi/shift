@@ -272,7 +272,8 @@ test("the map is the mod's own, not a script's change; a map that cannot be read
     ROOT,
   )
   await refreshDocs(project)
-  expect(await project.store.read(`${ROOT}/docs/map.md`)).toContain(MAP_START)
+  expect(await project.store.read(`${ROOT}/docs/map.md`)).toBeNull()
+  expect(await project.store.read(`${R}/SHIFT.md`)).toContain(MAP_START)
   expect(Object.keys(await docStamps(project))).toEqual(['docs/d.md'])
 
   const owned = await memoryProject({ [`${R}/settings.toml`]: '[docs]\ndirs = ["docs"]', [`${ROOT}/docs/d.md`]: '# D\n' }, ROOT)

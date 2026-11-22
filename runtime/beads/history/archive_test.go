@@ -53,11 +53,11 @@ func TestRetentionAndRecovery(t *testing.T) {
 		must[string](t, db, ack)
 	}
 	list := must[[]Entry](t, db, Request{Action: "list"})
-	if len(list) != 31 || list[0].ID != pending {
+	if len(list) != 11 || list[0].ID != pending {
 		t.Fatal("rotation removed the pending shift or exceeded the bound")
 	}
 	read := func(id string) Entry { return must[Entry](t, db, Request{Action: "read", ID: id}) }
-	if read(list[1].ID).Files["letter.md"] != "letter 2" {
+	if read(list[1].ID).Files["letter.md"] != "letter 22" {
 		t.Fatal("wrong oldest completed letter")
 	}
 	if _, err := call(db, Request{Action: "delete", ID: pending}); err == nil {
@@ -68,7 +68,7 @@ func TestRetentionAndRecovery(t *testing.T) {
 	if _, err := call(db, invalid); err == nil {
 		t.Fatal("accepted invalid completion")
 	}
-	if read(pending).State != "pending" || len(must[[]Entry](t, db, Request{Action: "list"})) != 31 {
+	if read(pending).State != "pending" || len(must[[]Entry](t, db, Request{Action: "list"})) != 11 {
 		t.Fatal("failed completion changed history")
 	}
 	must[string](t, db, finish(pending, 2))

@@ -9,10 +9,9 @@ import type { Store } from './store'
 export type CurrentRecord = { revision: string; text: string }
 type Current = Record<string, CurrentRecord>
 const names: string[] = [BOARD, LETTER, OWNER, GLOSSARY, SHIFT_FILE]
-const fileKeys: Record<string, 'owner' | 'glossary' | 'shift'> = {
+const fileKeys: Record<string, 'owner' | 'glossary'> = {
   [OWNER]: 'owner',
   [GLOSSARY]: 'glossary',
-  [SHIFT_FILE]: 'shift',
 } as const
 
 // A project object lives for one operation. Its first record read takes a
@@ -39,7 +38,7 @@ export class WorkingRecords {
   key(path: string) {
     const p = fromRoot(this.project.root, path)
     if (this.project.settings.commit || this.project.settings.files.always.includes(p)) return null
-    for (const key of ['shift', 'owner', 'glossary'] as const) {
+    for (const key of ['owner', 'glossary'] as const) {
       if (this.project.set.has(`files.${key}`) && this.project.settings.files[key] === p) return null
     }
     const key = fileKeys[p]

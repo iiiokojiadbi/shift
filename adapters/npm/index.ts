@@ -67,6 +67,10 @@ const hashText = (text: string) => createHash('sha256').update(text).digest('hex
 const WAIT_ENTRY = `${MOD}:wait`
 
 export default function shift(pi: ExtensionAPI): void {
+  // Pi workers run in child processes and inherit the main process environment.
+  const inherited = process.env.SHIFT_PI_MAIN
+  const binding = (cwd: string) => `${process.pid}:${resolve(cwd)}`
+  if (inherited && inherited !== binding(process.cwd()) && inherited.slice(inherited.indexOf(':') + 1) === resolve(process.cwd())) return
   let loop: LoopState = FRESH_LOOP
   let gauge: Gauge = FRESH_GAUGE
   // Set by the owner's own input, consumed by the run it starts.
@@ -216,6 +220,8 @@ export default function shift(pi: ExtensionAPI): void {
     const start = await startSession(await branchProject(ctx))
     command = start.command
     enabled = start.enabled
+    if (enabled) process.env.SHIFT_PI_MAIN = binding(ctx.cwd)
+    else if (process.env.SHIFT_PI_MAIN === binding(ctx.cwd)) delete process.env.SHIFT_PI_MAIN
     restoreBranch(ctx)
     for (const row of start.rows) tell(ctx, row.text, row.level)
     const shown = start.tools.map(tool => tool.name)
@@ -226,6 +232,10 @@ export default function shift(pi: ExtensionAPI): void {
 
   // Another branch has its own wait note, or none: a letter of the branch left behind never goes with this one.
   // Its history too: the gauge is counted anew from the branch.
+  pi.on('session_shutdown', (_event, ctx) => {
+    if (process.env.SHIFT_PI_MAIN === binding(ctx.cwd)) delete process.env.SHIFT_PI_MAIN
+  })
+
   pi.on('session_tree', async (event, ctx) => {
     if (!enabled) return
     // Returning to an existing tip keeps its working letter. Continuing from

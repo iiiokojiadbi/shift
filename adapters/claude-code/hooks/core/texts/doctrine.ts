@@ -22,6 +22,7 @@ import {
   STATUS_TOOL,
   TOOL,
 } from '../layout'
+import { HISTORY_CAPACITY } from '../settings'
 import { TOOL_TEXTS } from './tools'
 
 // A list of sections in their order, each with what goes in it: a section without its text does not compile.
@@ -97,13 +98,13 @@ const LETTER_OPENING = `Open "Where I am" with one paragraph of 2–3 short sent
 export function doctrineBody(tools: readonly string[], command?: TaskCommandPath | null): string {
   return `# Shift
 
-You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
+The project's main session owns the shift. Delegated agents return their work to that session. You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change — only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
 ## Board and letter
 
 \`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The map stays in ${SHIFT_FILE}. The settings can place the owner record and glossary elsewhere in the project.
 
 When continuing a tracked issue, include its ID in the letter. Under Goal, use an unordered list of stage outcomes by default. Under Current focus, describe the work underway and any temporary condition other chats need. Update the board when that shared picture changes. On return, check whether the letter's Next still fits the current board. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
@@ -161,6 +162,6 @@ Use shift_record(action="checkout", name="letter.md"), edit its returned path an
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. history_limit controls both retention and the maximum number of earlier descriptions in the restored preamble, default 30. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window holds up to ${HISTORY_CAPACITY} shifts. Your current letter takes one slot. The preamble carries up to ${HISTORY_CAPACITY - 1} earlier descriptions in order. Use their IDs to read the full letters. A smaller history_limit reduces this window. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
 
 export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`

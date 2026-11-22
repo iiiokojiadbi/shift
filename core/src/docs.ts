@@ -108,7 +108,7 @@ export async function followWrite(project: Project, file: string): Promise<strin
   const { root, settings } = project
   if (!settings.enabled || settings.docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
   const path = file.slice(root.length + 1)
-  if (path.startsWith(`${DIR}/`)) return null
+  if (path.startsWith(`${DIR}/`) || path === settings.files.legacyMap) return null
   if (isDoc(path, settings.docs.dirs)) await refreshDocs(project, { tocs: false })
 
   return path
@@ -140,6 +140,7 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
   const remarked: string[] = []
   let pins = false
   for (const path of paths) {
+    if (path === settings.files.legacyMap) continue
     let text = await store.read(`${root}/${path}`)
     if (text === null) continue
     read.set(path, text)
@@ -190,6 +191,7 @@ export async function docsReport(project: Project): Promise<string | null> {
   const lines: string[] = []
   const kept: Doc[] = []
   for (const path of paths) {
+    if (path === settings.files.legacyMap || path === settings.files.shift) continue
     const text = (await store.read(`${root}/${path}`)) ?? ''
     if (isDoc(path, docs.dirs)) kept.push(readDoc(path, text))
     const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
@@ -333,6 +335,7 @@ export async function docStamps(project: Project): Promise<Record<string, string
     }
   }
 
+  if (settings.files.legacyMap) delete found[settings.files.legacyMap]
   for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${KNOWLEDGE}`))) {
     if (name.endsWith('.md')) found[`${KNOWLEDGE}/${name}`] = stamp
   }
@@ -454,6 +457,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const settings = project.settings.docs
   const docs: Doc[] = []
   for (const path of await docPaths(store, root, settings.dirs)) {
+    if (path === project.settings.files.shift || path === project.settings.files.legacyMap) continue
     let text = (await store.read(`${root}/${path}`)) ?? ''
     const next = tocs && settings.toc ? withToc(text) : null
     if (next !== null && next !== text) {
@@ -470,8 +474,15 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const current = await store.read(shift)
   // A file there that cannot be read is not written over: the owner's text in it would be lost.
   const knowledge = knowledgeMap(await readKnowledge(project))
-  if (current === null && ((!docs.length && !knowledge) || (await store.exists(shift)))) return docs
-  const map = withMap(current, renderMap(docs, settings, missing, knowledge))
+  if (current === null && (await store.exists(shift))) return docs
+  let source = current
+  const legacy = project.settings.files.legacyMap
+  if (source === null && legacy && legacy !== project.settings.files.shift && (await store.exists(`${root}/${legacy}`))) {
+    source = await store.read(`${root}/${legacy}`)
+    if (source === null) throw new Error(`Cannot read the former map at ${legacy} to preserve its knowledge rules.`)
+  }
+  if (source === null && !docs.length && !knowledge) return docs
+  const map = withMap(source, renderMap(docs, settings, missing, knowledge))
   if (map !== current) await store.write(shift, map)
 
   return docs

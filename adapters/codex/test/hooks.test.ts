@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { DEFAULT_SETTINGS } from '../../../core/src/settings'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
@@ -543,4 +544,61 @@ test('a queued transition belongs to its project across a root switch with match
   expect((await rawHook('UserPromptSubmit', { cwd: other.root, prompt })).continue).toBe(false)
   expect(await hook('UserPromptSubmit', { cwd: root, prompt })).toContain(LETTER.trim())
   expect(await hook('UserPromptSubmit', { cwd: other.root, prompt: 'Resume here' })).toContain('second project')
+})
+
+test('shift eleven restores its letter and nine descriptions with the ten full records available by ID', async () => {
+  const { root, hook } = await fixture()
+  const ids: string[] = []
+  for (let i = 1; i <= 11; i++) {
+    const about = `---\ndescription: Result ${i}.\nresult: shifted\nafter: wait\n---`
+    const files = { 'board.md': BOARD, 'letter.md': `${LETTER}\nFull detail ${i}.` }
+    const id = archive.query<string>(root, { action: 'begin', key: String(i), about, files })
+    archive.query(root, {
+      action: 'finish',
+      session: 'scope',
+      id,
+      state: 'complete',
+      wait: true,
+      about,
+      limit: DEFAULT_SETTINGS.historyLimit,
+    })
+    ids.push(id)
+  }
+  const restored = await hook('UserPromptSubmit', { prompt: '$shift:unshift' })
+  const rows = [...(restored.match(/^- s-[a-f0-9]+ · .*$/gm) ?? [])]
+  expect(rows).toEqual(ids.slice(1, -1).map((id, i) => `- ${id} · Result ${i + 2}.`))
+  expect(restored.match(/Full detail \d+\./g)).toEqual(['Full detail 11.'])
+  expect(archive.query<{ id: string }[]>(root, { action: 'list' }).map(e => e.id)).toEqual(ids.slice(1))
+  for (const [i, id] of ids.slice(1).entries()) {
+    expect(archive.query<{ files: Record<string, string> }>(root, { action: 'read', id, file: 'letter.md' }).files['letter.md']).toContain(
+      `Full detail ${i + 2}.`,
+    )
+  }
+})
+
+test('subagent hooks cannot restore the main letter or initiate a shift', async () => {
+  const { rawHook, root } = await fixture()
+  archive.seed(root, LETTER, BOARD)
+  expect(await rawHook('UserPromptSubmit', { agent_id: 'child', prompt: '$shift:unshift' })).toEqual({})
+  expect((await rawHook('PreToolUse', { agent_id: 'child', tool_name: 'mcp__shift__shift' })).hookSpecificOutput.permissionDecision).toBe(
+    'deny',
+  )
+})
+
+test('a former public map seeds internal rules once and receives no further writes', async () => {
+  const { root, hook } = await fixture()
+  const path = join(root, 'docs', 'old-map.md')
+  const source = '# Rules\nKeep private knowledge local.\n'
+  await writeFile(path, source)
+  await writeFile(join(root, '.shift/settings.toml'), '[files]\nshift = "docs/old-map.md"\n[docs]\ndirs = ["docs"]\ntoc = true\n')
+  const first = await hook('SessionStart')
+  expect(first).toContain('<file path=".shift/SHIFT.md">')
+  const current = () => archive.query<Record<string, { text: string }>>(root, { action: 'working-list' })['SHIFT.md']?.text
+  expect(current()).toContain('Keep private knowledge local.')
+  expect(current()).toContain('A fixture')
+  expect(await readFile(path, 'utf8')).toBe(source)
+  await writeFile(path, 'Stale external rule.')
+  await hook('SessionStart')
+  expect(current()).toContain('Keep private knowledge local.')
+  expect(await Bun.file(join(root, '.shift/SHIFT.md')).exists()).toBe(false)
 })

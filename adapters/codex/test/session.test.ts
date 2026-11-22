@@ -12,7 +12,7 @@ test('a scripted edit refreshes the configured map on the next owner turn, inclu
   const docs = join(root, 'docs')
   const records = join(root, '.shift')
   await Promise.all([mkdir(docs), mkdir(records)])
-  await writeFile(join(records, 'settings.toml'), '[files]\nshift = "MAP.md"\n[docs]\ndirs = ["docs"]\ntoc = true\n')
+  await writeFile(join(records, 'settings.toml'), 'commit = true\n[files]\nshift = "MAP.md"\n[docs]\ndirs = ["docs"]\ntoc = true\n')
   await writeFile(join(root, 'MAP.md'), '# Rules\nKeep knowledge in project docs.\n')
   const file = join(docs, 'build.md')
   await writeFile(file, '---\ndescription: Build procedure\n---\n# Build\n\n## Start\n')
@@ -34,7 +34,10 @@ test('a scripted edit refreshes the configured map on the next owner turn, inclu
   expect(context).not.toContain('Keep knowledge in project docs.')
   expect(context).toContain('Inspect the produced binary.')
   expect(context).toContain('Verify')
-  expect(await readFile(join(root, 'MAP.md'), 'utf8')).toContain('Inspect the produced binary.')
+  expect(await readFile(join(root, 'MAP.md'), 'utf8')).toBe('# Rules\nKeep knowledge in project docs.\n')
+  const local = await readFile(join(records, 'SHIFT.md'), 'utf8')
+  expect(local).toContain('Inspect the produced binary.')
+  expect(local).toContain('Keep knowledge in project docs.')
   expect(await session.tool('doc_outline', { path: 'docs/build.md' }, 'turn')).toContain('Verify')
   expect(await session.tool('shift_read', { path: 'docs/build.md', section: 'Verify' }, 'turn')).toBe(
     '## Verify\n\n> [!IMPORTANT]\n> Inspect the produced binary.',

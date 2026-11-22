@@ -101,7 +101,7 @@ func expiredEntries(entries *bolt.Bucket, limit int, releaseSession string) ([]E
 		if err != nil {
 			return err
 		}
-		if e.State == "complete" && !protected[e.ID] {
+		if e.State == "complete" {
 			completed = append(completed, e)
 		}
 		return nil
@@ -109,7 +109,13 @@ func expiredEntries(entries *bolt.Bucket, limit int, releaseSession string) ([]E
 		return nil, err
 	}
 	sort.Slice(completed, func(i, j int) bool { return completed[i].Completion < completed[j].Completion })
-	return completed[:max(0, len(completed)-limit)], nil
+	var expired []Entry
+	for _, e := range completed[:max(0, len(completed)-limit)] {
+		if !protected[e.ID] {
+			expired = append(expired, e)
+		}
+	}
+	return expired, nil
 }
 
 func rotate(entries, blobs *bolt.Bucket, limit int) error {
@@ -152,7 +158,14 @@ func rotate(entries, blobs *bolt.Bucket, limit int) error {
 	return nil
 }
 
+const historyCapacity = 10
+
 func transact(tx *bolt.Tx, r Request) (any, error) {
+	// Older clients may still send their former, larger window.
+	switch r.Action {
+	case "finish", "received", "list":
+		r.Limit = min(r.Limit, historyCapacity)
+	}
 	if r.Action == "waiting" || r.Action == "received" {
 		if r.Session == "" {
 			return nil, errors.New("session is required")

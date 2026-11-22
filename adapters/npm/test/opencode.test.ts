@@ -56,6 +56,7 @@ async function setup(root: string, storage: Map<string, unknown>) {
     model: { default: async () => undefined },
     event: { subscribe: () => events.readable },
     tool: { transform: collect, hook },
+    agent: { transform },
     command: { transform },
   } as never)
   const send = async (name: string, event: object) => {

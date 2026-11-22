@@ -437,3 +437,14 @@ test('branch checkpoints keep a stable map for two observers, a resumed observer
   await resumed.on('session_compact', { reason: 'manual' })
   expect((await run(resumed)).block).toContain('Slots · Revised')
 })
+
+test('a pi worker under the main project process registers no shift tool', () => {
+  const saved = process.env.SHIFT_PI_MAIN
+  try {
+    process.env.SHIFT_PI_MAIN = `parent:${process.cwd()}`
+    expect(load(process.cwd()).tools.has('shift')).toBe(false)
+  } finally {
+    if (saved === undefined) delete process.env.SHIFT_PI_MAIN
+    else process.env.SHIFT_PI_MAIN = saved
+  }
+})

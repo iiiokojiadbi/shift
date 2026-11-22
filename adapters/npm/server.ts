@@ -174,11 +174,15 @@ const plugin: Definition = {
       return (await child(sessionID)) || !(await state(sessionID, project)).enabled
     }
 
-    async function parentOf(sessionID: string): Promise<string | null> {
+    async function parentOf(sessionID: string, requireIdentity = false): Promise<string | null> {
       const known = parents.get(sessionID)
       if (known !== undefined) return known
       const info = await ctx.session.get({ sessionID }).catch(() => undefined)
-      const parent = info?.parentID ?? null
+      if (!info) {
+        if (requireIdentity) throw new Error('Cannot verify the main session for this shift.')
+        return null
+      }
+      const parent = info.parentID ?? null
       parents.set(sessionID, parent)
 
       return parent
@@ -432,6 +436,15 @@ const plugin: Definition = {
       if (event.status === 'completed') event.result = { ...done, content: [...content, ...blocks] }
     })
 
+    await ctx.agent.transform(agents => {
+      for (const agent of agents.list()) {
+        if (agent.mode === 'subagent')
+          agents.update(agent.id, role => {
+            role.permissions.push({ action: 'shift', resource: '*', effect: 'deny' })
+          })
+      }
+    })
+
     await ctx.tool.transform(tools => {
       for (const tool of start.tools) {
         tools.add({
@@ -450,7 +463,7 @@ const plugin: Definition = {
               project: () => projectAt(root, call.sessionID),
               sessionId: async () => call.sessionID,
               now: async () => Date.now(),
-              subagent: await child(call.sessionID),
+              subagent: (await parentOf(call.sessionID, tool.name === TOOL)) !== null,
               loop: loopOf(call.sessionID),
               // The session's files as this session read them: shift_setup tells which changed since.
               loaded: async () => (await state(call.sessionID)).block?.files ?? null,

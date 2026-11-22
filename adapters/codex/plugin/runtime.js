@@ -683,10 +683,10 @@ async function readRecords(project) {
 async function lastShifts(project, count, exclude, session, preview = true) {
   const saved = await savedEntries(project, preview ? exclude : undefined, session);
   const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
-  return { total: entries.length, entries: entries.slice(-count).map((e) => ({ name: e.id, about: e.about })) };
+  return { total: entries.length, entries: entries.slice(Math.max(0, entries.length - count)).map((e) => ({ name: e.id, about: e.about })) };
 }
 function recentShifts(project, current, session, preview = true) {
-  return lastShifts(project, project.settings.historyLimit, current, session, preview);
+  return lastShifts(project, project.settings.historyLimit - 1, current, session, preview);
 }
 
 // core/src/docs.ts
@@ -765,7 +765,7 @@ async function followWrite(project, file) {
   if (!settings.enabled || settings.docs.dirs.length === 0 || !file.startsWith(`${root}/`))
     return null;
   const path = file.slice(root.length + 1);
-  if (path.startsWith(`${DIR}/`))
+  if (path.startsWith(`${DIR}/`) || path === settings.files.legacyMap)
     return null;
   if (isDoc(path, settings.docs.dirs))
     await refreshDocs(project, { tocs: false });
@@ -792,6 +792,8 @@ async function settleDocs(project, paths) {
   const remarked = [];
   let pins = false;
   for (const path of paths) {
+    if (path === settings.files.legacyMap)
+      continue;
     let text = await store.read(`${root}/${path}`);
     if (text === null)
       continue;
@@ -836,6 +838,8 @@ async function docsReport(project) {
   const lines = [];
   const kept = [];
   for (const path of paths) {
+    if (path === settings.files.legacyMap || path === settings.files.shift)
+      continue;
     const text = await store.read(`${root}/${path}`) ?? "";
     if (isDoc(path, docs.dirs))
       kept.push(readDoc(path, text));
@@ -962,6 +966,8 @@ async function docStamps(project) {
         found[entry] = stamp;
     }
   }
+  if (settings.files.legacyMap)
+    delete found[settings.files.legacyMap];
   for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${KNOWLEDGE}`))) {
     if (name.endsWith(".md"))
       found[`${KNOWLEDGE}/${name}`] = stamp;
@@ -1080,6 +1086,8 @@ async function refreshDocs(project, { tocs = true } = {}) {
   const settings = project.settings.docs;
   const docs = [];
   for (const path of await docPaths(store, root, settings.dirs)) {
+    if (path === project.settings.files.shift || path === project.settings.files.legacyMap)
+      continue;
     let text = await store.read(`${root}/${path}`) ?? "";
     const next = tocs && settings.toc ? withToc(text) : null;
     if (next !== null && next !== text) {
@@ -1096,9 +1104,18 @@ async function refreshDocs(project, { tocs = true } = {}) {
   const shift = `${root}/${project.settings.files.shift}`;
   const current = await store.read(shift);
   const knowledge = knowledgeMap(await readKnowledge(project));
-  if (current === null && (!docs.length && !knowledge || await store.exists(shift)))
+  if (current === null && await store.exists(shift))
     return docs;
-  const map = withMap(current, renderMap(docs, settings, missing, knowledge));
+  let source = current;
+  const legacy = project.settings.files.legacyMap;
+  if (source === null && legacy && legacy !== project.settings.files.shift && await store.exists(`${root}/${legacy}`)) {
+    source = await store.read(`${root}/${legacy}`);
+    if (source === null)
+      throw new Error(`Cannot read the former map at ${legacy} to preserve its knowledge rules.`);
+  }
+  if (source === null && !docs.length && !knowledge)
+    return docs;
+  const map = withMap(source, renderMap(docs, settings, missing, knowledge));
   if (map !== current)
     await store.write(shift, map);
   return docs;
@@ -2459,10 +2476,11 @@ function parsePath(raw, key) {
 }
 // core/src/settings.ts
 var PLACEMENTS = ["local", "project", "split"];
+var HISTORY_CAPACITY = 10;
 var DEFAULT_SETTINGS = {
   enabled: true,
   knowledge: null,
-  historyLimit: 30,
+  historyLimit: HISTORY_CAPACITY,
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
   docs: {
@@ -2488,7 +2506,7 @@ var SETTING_KEYS = [
     since: "storage roadmap",
     kind: "limit",
     at: ["historyLimit"],
-    about: "completed shifts to retain and maximum earlier descriptions in the restored preamble; pending letters are protected"
+    about: `completed shifts to retain, up to ${HISTORY_CAPACITY} including the current shift; earlier descriptions use the remaining slots`
   },
   {
     key: "enabled",
@@ -2511,7 +2529,13 @@ var SETTING_KEYS = [
     at: ["commit"],
     about: "true lets the project's git take the records in; false \u2014 the mod keeps them out by the local exclude file"
   },
-  { key: "files.shift", since: "0.3.0", kind: "path", at: ["files", "shift"], about: "where SHIFT.md lives, from the project's root" },
+  {
+    key: "files.shift",
+    since: "0.3.0",
+    kind: "path",
+    at: ["files", "legacyMap"],
+    about: "legacy source of owner-authored map rules, read once when creating .shift/SHIFT.md"
+  },
   { key: "files.owner", since: "0.3.0", kind: "path", at: ["files", "owner"], about: "where OWNER.md lives, from the project's root" },
   {
     key: "files.glossary",
@@ -2609,7 +2633,7 @@ function parseSettings(text) {
     if (wanted !== null)
       return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(value)}.`;
     const [holder, field] = slot(settings, key);
-    holder[field] = given;
+    holder[field] = name === "history_limit" && typeof given === "number" ? Math.min(given, HISTORY_CAPACITY) : given;
     set.add(name);
   }
   return { settings, set };
@@ -2683,8 +2707,7 @@ function quoted(value) {
 var names = [BOARD, LETTER, OWNER, GLOSSARY, SHIFT_FILE];
 var fileKeys = {
   [OWNER]: "owner",
-  [GLOSSARY]: "glossary",
-  [SHIFT_FILE]: "shift"
+  [GLOSSARY]: "glossary"
 };
 
 class WorkingRecords {
@@ -2708,7 +2731,7 @@ class WorkingRecords {
     const p = fromRoot(this.project.root, path);
     if (this.project.settings.commit || this.project.settings.files.always.includes(p))
       return null;
-    for (const key of ["shift", "owner", "glossary"]) {
+    for (const key of ["owner", "glossary"]) {
       if (this.project.set.has(`files.${key}`) && this.project.settings.files[key] === p)
         return null;
     }
@@ -3008,13 +3031,13 @@ var LETTER_OPENING = `Open "Where I am" with one paragraph of 2\u20133 short sen
 function doctrineBody(tools, command) {
   return `# Shift
 
-You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change \u2014 only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
+The project's main session owns the shift. Delegated agents return their work to that session. You work in stretches and decide yourself when to shift: the stretch's history is let go, and you continue from where you stopped. You do not change \u2014 only what is in front of you does. So everything you need next must be in your records, and a thought you have not written down yet goes into a letter to yourself.
 
 ## Board and letter
 
 \`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
-\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
+\`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The map stays in ${SHIFT_FILE}. The settings can place the owner record and glossary elsewhere in the project.
 
 When continuing a tracked issue, include its ID in the letter. Under Goal, use an unordered list of stage outcomes by default. Under Current focus, describe the work underway and any temporary condition other chats need. Update the board when that shared picture changes. On return, check whether the letter's Next still fits the current board. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
@@ -3069,7 +3092,7 @@ Use shift_record(action="checkout", name="letter.md"), edit its returned path an
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. history_limit controls both retention and the maximum number of earlier descriptions in the restored preamble, default 30. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window holds up to ${HISTORY_CAPACITY} shifts. Your current letter takes one slot. The preamble carries up to ${HISTORY_CAPACITY - 1} earlier descriptions in order. Use their IDs to read the full letters. A smaller history_limit reduces this window. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
@@ -4422,6 +4445,17 @@ var pickerCommands = new Map([
   ["$shift:tasks", TASKS_COMMAND]
 ]);
 async function runHook(input, dir, file) {
+  if (typeof input.agent_id === "string" && input.agent_id) {
+    if (input.hook_event_name === "PreToolUse" && input.tool_name === "mcp__shift__shift")
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "Only the main session can make a shift."
+        }
+      };
+    return {};
+  }
   const project = await projectAt(String(input.cwd), typeof input.session_id === "string" ? input.session_id : undefined);
   const prompt = input.hook_event_name === "UserPromptSubmit" && typeof input.prompt === "string" ? input.prompt.trim() : "";
   const token = prompt.split(/\s/, 1)[0] ?? "";
