@@ -38,6 +38,7 @@ export const nodeStore: Store = {
     return (await child).stdout
   },
   read: path => readFile(path, 'utf8').catch(() => null),
+  directoryIdentity: path => realpath(path).catch(() => null),
   list: async (path, kind) => {
     const entries = await kinds(path)
 

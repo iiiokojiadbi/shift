@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { acceptShift } from '../src/flows'
+import { acceptShift, sessionFiles } from '../src/flows'
 import { atPlaces } from '../src/layout'
 import { loadProject } from '../src/project'
 import { readSaved } from '../src/saved'
@@ -176,6 +176,11 @@ test('a failed map import retries from the original schema and an existing inter
   const read = store.read
   store.read = path => (path === former ? Promise.resolve(null) : read(path))
   expect((await open(store)).problem).toContain('Cannot read the former map')
+  store.files.set(settingsPath, `enabled = false\n${source}`)
+  const disabled = await open(store)
+  expect(disabled.problem).toContain('Cannot read the former map')
+  expect((await startSession(disabled)).enabled).toBe(false)
+  store.files.set(settingsPath, source)
   expect(store.files.get(settingsPath)).toBe(source)
   store.read = read
   store.files.set(`${R}/SHIFT.md`, 'current rules')
@@ -195,4 +200,52 @@ test.each([1, 4, 40])('schema 1 migrates the effective history limit %i and anno
   expect(started.settingsText?.match(/^# knowledge =/gm)).toHaveLength(1)
   expect(started.settingsText?.match(/^# owner =/gm)).toHaveLength(1)
   expect((await open(store)).settingsText).toBe(started.settingsText)
+})
+
+test('a failed map upgrade can retry after a full session start with project documents', async () => {
+  const store = memoryStore({
+    [settingsPath]: '[files]\nshift = "docs/old.md"',
+    [`${ROOT}/docs/old.md`]: '# Local owner rules',
+    [`${ROOT}/docs/topic.md`]: '# Topic',
+  })
+  const read = store.read
+  store.read = path => (path.endsWith('/docs/old.md') ? Promise.resolve(null) : read(path))
+  const failed = await open(store)
+  expect(failed.problem).toContain('Cannot read the former map')
+  await startSession(failed)
+  await sessionFiles(failed)
+  expect(store.files.has(`${R}/SHIFT.md`)).toBe(false)
+  store.read = read
+  const retried = await open(store)
+  expect(retried.problem).toBeNull()
+  expect((await sessionFiles(retried)).find(f => f.path.endsWith('/SHIFT.md'))?.text).toContain('# Local owner rules')
+})
+
+test('settings migration keeps owner comments, including notes on removed keys', async () => {
+  const store = memoryStore({
+    [settingsPath]:
+      '# Shift: team convention\nschema_version = 1 # owned by team 1\nretired = true # former option\n[unused] # table note\n# additional note\nold = 1 # trailing note',
+  })
+  const text = (await open(store)).settingsText
+  for (const comment of [
+    '# Shift: team convention',
+    'schema_version = 2 # owned by team 1',
+    '# former option',
+    '# table note',
+    '# additional note',
+    '# trailing note',
+  ])
+    expect(text).toContain(comment)
+  expect((await open(store)).settingsText).toBe(text)
+})
+
+test('a project note inserted next to generated help survives once with the help at its setting', async () => {
+  const store = memoryStore()
+  const first = (await open(store)).settingsText ?? ''
+  const help = first.split('\n').find(line => line.startsWith('# Shift: true enables Shift'))
+  store.files.set(settingsPath, first.replace('enabled = true', '# Shift: needed for delivery\nenabled = true'))
+  const next = (await open(store)).settingsText ?? ''
+  expect(next).toContain(`# Shift: needed for delivery\n${help}\nenabled = true`)
+  expect(next.split(help ?? 'unexpected')).toHaveLength(2)
+  expect((await open(store)).settingsText).toBe(next)
 })

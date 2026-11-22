@@ -147,6 +147,9 @@ test('the history reads the last shifts, oldest first', async () => {
   expect(text).toContain('2 of 3')
   expect(text).not.toContain('s-0000000000000001')
   expect(text.indexOf('two')).toBeLessThan(text.indexOf('three'))
+  expect(text).toContain('before="s-0000000000000002"')
+  expect(await shiftHistory(store, 2, 's-0000000000000002')).toContain('1 of 1')
+  expect(await shiftHistory(store, 2, DIR)).toBe('No earlier saved shifts.')
 })
 
 test('resume restores the saved letter last', async () => {

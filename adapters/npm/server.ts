@@ -51,6 +51,7 @@ import {
   sessionFiles,
   shiftBase,
   shiftNow,
+  shownTools,
   staleLayout,
   startSession,
   TASKS_COMMAND,
@@ -113,38 +114,62 @@ const plugin: Definition = {
   id: MOD,
   async setup(ctx) {
     const root = ctx.location.directory
-    const start = await startSession(await projectAt(root, undefined, undefined, 'start'))
-    if (!start.enabled) return
-    // The docs' tocs and map are refreshed once, as the plugin starts: later the notes settle what changed, each with
-    // its note.
-    await sessionFiles(await projectAt(root)).catch(() => [])
-    // The rows of the plugin's start — `.shift/` just kept out of git — go to the first session that comes.
-    const startRows = [...start.rows]
-
-    const sessions = new Map<string, Session>()
+    // Registries are project-wide. Each main chat applies settings before it consumes them.
+    let catalog = shownTools((await projectAt(root)).settings)
+    const sessions = new Map<string, Promise<Session>>()
     const parents = new Map<string, string | null>()
     const windows = new Map<string, { window: number; threshold: number | undefined }>()
     const outside = new Map<string, Note[]>()
     let stopped = false
 
     // A session's state, its waiting letter read back from the plugin's storage the first time: it outlives a restart.
-    async function state(sessionID: string, project: () => Promise<Project> = once(sessionID)): Promise<Session> {
+    function state(sessionID: string): Promise<Session> {
       const known = sessions.get(sessionID)
-      if (known !== undefined) return known
+      if (known) return known
+      const started = openSession(sessionID).catch(error => {
+        sessions.delete(sessionID)
+        throw error
+      })
+      sessions.set(sessionID, started)
+      return started
+    }
+
+    async function openSession(sessionID: string): Promise<Session> {
       const note = ((await ctx.storage.get(waitKey(sessionID))) ?? null) as WaitNote | null
       // A shift accepted before the plugin reloaded lets go at the next run's end.
       const pending = ((await ctx.storage.get(pendingKey(sessionID))) ?? null) as PendingShift | null
       const saved = (await ctx.storage.get(`context:${sessionID}`)) as
         | { version?: number; block: Session['block']; checkpoint: ReturnType<typeof mapCheckpoint> }
         | undefined
-      const current = await project()
-      const begun = await startSession(current)
+      const main = !(await child(sessionID))
+      const current = await projectAt(root, sessionID, undefined, main ? 'start' : undefined)
+      const begun = await startSession(current, main ? undefined : null)
+      if (main) {
+        if (catalog.length !== begun.tools.length) {
+          const previous = catalog
+          catalog = begun.tools
+          try {
+            await ctx.tool.reload()
+            if (!previous.length || !catalog.length) await ctx.command.reload()
+          } catch (error) {
+            catalog = previous
+            throw error
+          }
+        }
+        if (begun.enabled && !(await staleLayout(current))) {
+          try {
+            await refreshDocs(current)
+          } catch (error) {
+            begun.rows.push({ level: 'warning', text: `Could not refresh project documentation: ${String(error)}` })
+          }
+        }
+      }
       const old = !!saved?.block && saved.version !== SESSION_FILES_VERSION
       const files = old ? renderSessionFiles(await sessionFiles(current, { refresh: false })) : saved?.block?.files
       const fresh: Session = {
         command: begun.command,
         enabled: begun.enabled,
-        rows: [...startRows.splice(0), ...begun.rows],
+        rows: begun.rows,
         loop: restoredLoop({ ...FRESH_LOOP, note, pending }),
         updating: Promise.resolve(),
         prompting: Promise.resolve(),
@@ -158,10 +183,8 @@ const plugin: Definition = {
         runs: 0,
         block: saved?.block && { files: files ?? null, doctrine: begun.doctrine },
       }
-      sessions.set(sessionID, sessions.get(sessionID) ?? fresh)
-      if (old && sessions.get(sessionID) === fresh) await saveContext(sessionID, fresh)
-
-      return sessions.get(sessionID) ?? fresh
+      if (old) await saveContext(sessionID, fresh)
+      return fresh
     }
 
     // A subagent runs in a child session: only the main agent shifts and is told.
@@ -170,8 +193,8 @@ const plugin: Definition = {
     }
 
     // A session the mod does not serve: a subagent's, or one the settings turned the mod off for.
-    async function apart(sessionID: string, project?: () => Promise<Project>): Promise<boolean> {
-      return (await child(sessionID)) || !(await state(sessionID, project)).enabled
+    async function apart(sessionID: string): Promise<boolean> {
+      return (await child(sessionID)) || !(await state(sessionID)).enabled
     }
 
     async function parentOf(sessionID: string, requireIdentity = false): Promise<string | null> {
@@ -357,10 +380,10 @@ const plugin: Definition = {
     // A compaction the agent asked for holds what its letter says; any other gets the summarizer's instructions.
     await ctx.session.hook('compaction', async event => {
       if (await apart(event.sessionID)) return
-      const session = sessions.get(event.sessionID)
+      const session = await state(event.sessionID)
       // One opencode makes by itself while a shift is pending holds that shift's Hold too.
-      const pending = session?.loop.pending ?? null
-      const hold = session?.hold ?? (pending === null ? undefined : compactInstructions(pending))
+      const pending = session.loop.pending
+      const hold = session.hold ?? (pending === null ? undefined : compactInstructions(pending))
       const text = hold ?? unassistedInstructions((await projectAt(root)).settings.files)
       event.system.push({ type: 'text', text })
     })
@@ -372,7 +395,7 @@ const plugin: Definition = {
     // before the shift's message, which then takes it as a note and goes first.
     await ctx.session.hook('prompt', async event => {
       const project = once(event.sessionID)
-      if (await apart(event.sessionID, project)) return
+      if (await apart(event.sessionID)) return
       const { sessionID } = event
       const session = await state(sessionID)
       const turn = session.prompting.then(async () => {
@@ -450,7 +473,7 @@ const plugin: Definition = {
     })
 
     await ctx.tool.transform(tools => {
-      for (const tool of start.tools) {
+      for (const tool of catalog) {
         tools.add({
           name: tool.name,
           description: tool.description,
@@ -487,11 +510,13 @@ const plugin: Definition = {
     })
 
     await ctx.command.transform(commands => {
+      if (!catalog.length) return
       // The owner's word to shift: once the run going on is over, a turn of its own.
       commands.add({
         name: SHIFT_COMMAND,
         description: SHIFT_NOW_DESCRIPTION,
         execute: async ({ sessionID, prompt }) => {
+          if (await apart(sessionID)) return
           const now = await shiftNow(loopOf(sessionID), prompt.text.trim(), await projectAt(root, sessionID))
           await ctx.session.synthetic({ sessionID, text: now.text, description: `/${SHIFT_COMMAND}`, delivery: 'queue' })
           await now.delivered()
@@ -502,6 +527,7 @@ const plugin: Definition = {
         name: RESUME_COMMAND,
         description: RESUME_DESCRIPTION,
         execute: async ({ sessionID, prompt }) => {
+          if (await apart(sessionID)) return
           const resumed = await resumeShift(await projectAt(root, sessionID))
           const words = prompt.text.trim()
           if (resumed.prompt === undefined) return tell(sessionID, resumed.text, 'info')
@@ -515,7 +541,9 @@ const plugin: Definition = {
       commands.add({
         name: TASKS_COMMAND,
         description: TASKS_DESCRIPTION,
-        execute: async ({ sessionID }) => tell(sessionID, await tasksView(await projectAt(root, sessionID)), 'info'),
+        execute: async ({ sessionID }) => {
+          if (!(await apart(sessionID))) await tell(sessionID, await tasksView(await projectAt(root, sessionID)), 'info')
+        },
       })
     })
 

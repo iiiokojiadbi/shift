@@ -7,9 +7,8 @@ import { formatK, frontmatter, openingParagraph, sections } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkWork, checkWritten, ownerRevisionProblem } from './records'
-import { archiveCall, readSaved, type SavedEntry, savedEntries, savedFiles } from './saved'
-import { historyWindow } from './settings'
-import { lastShifts, readRecords, recentShifts } from './store'
+import { archiveCall, hasArchive, readSaved, retention, type SavedEntry, savedEntries, savedFiles } from './saved'
+import { readRecords, recentShifts } from './store'
 import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
 import type { HandedBack, PendingShift, SessionFile, Settled, ShiftInput, WaitNote, Work } from './types'
@@ -196,10 +195,15 @@ export async function currentWorkProblem(project: Project, work: Work, entries?:
   return checkWork(work, project) ?? ownerRevisionProblem(project, work.owner, entries)
 }
 
-export async function shiftHistory(project: Project, count: number): Promise<string> {
-  const { entries, total } = await lastShifts(project, count)
-
-  return renderHistory(entries, total)
+export async function shiftHistory(project: Project, count: number, before?: string): Promise<string> {
+  const page = (await hasArchive(project))
+    ? await archiveCall<{ entries: SavedEntry[]; total: number }>(project, { action: 'page', limit: count, before })
+    : { entries: [], total: 0 }
+  if (before && !page.entries.length) return 'No earlier saved shifts.'
+  return renderHistory(
+    page.entries.map(e => ({ name: e.id, about: e.about })),
+    page.total,
+  )
 }
 
 // Prefer the letter waiting for this chat. Otherwise restore the newest saved letter.
@@ -261,7 +265,7 @@ async function recordFailure(project: Project, shift: PendingShift, about: strin
       id: shift.dir,
       state: readAbout(about).result?.startsWith('not shifted') ? 'failed' : 'unsettled',
       about,
-      limit: historyWindow(project.settings),
+      ...retention(project),
     })
 
     return row
@@ -296,7 +300,7 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
       wait: !letGo.carried,
       about,
       files: { [NAMES.summary]: summary },
-      limit: historyWindow(project.settings),
+      ...retention(project),
     })
   }
   const handed = back ?? (await handBack(project, shift.dir, shift.sessionId))

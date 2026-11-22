@@ -148,7 +148,7 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
 
     return skipped
   }
-  if (!settings.enabled || docs.dirs.length === 0) return { lines: [], write }
+  if (project.problem || !settings.enabled || docs.dirs.length === 0) return { lines: [], write }
   const remarked: string[] = []
   let pins = false
   for (const path of paths) {
@@ -310,17 +310,38 @@ export const MAP_END = `<!-- /${MOD}:docs -->`
 
 export type Doc = { path: string; description: string | null; archived?: boolean; sections: string[]; pins: Pin[] }
 
+// A directory link can lead back to an ancestor. Track physical paths on this branch
+// so an independently listed alias can still appear under its configured name.
+async function walkDocDirs(
+  store: Store,
+  root: string,
+  dir: string,
+  remaining: number,
+  visit: (dir: string) => Promise<void>,
+  ancestors = new Set<string>(),
+): Promise<void> {
+  const path = `${root}/${dir}`
+  const identity = store.directoryIdentity ? await store.directoryIdentity(path) : path
+  if (identity === null || ancestors.has(identity)) return
+  ancestors.add(identity)
+  await visit(dir)
+  if (remaining > 0) {
+    for (const name of await store.list(path, 'dir')) {
+      if (!name.startsWith('.')) await walkDocDirs(store, root, `${dir}/${name}`, remaining - 1, visit, ancestors)
+    }
+  }
+  ancestors.delete(identity)
+}
+
 // Every document the settings name, from the project's root, sorted: each .md file under a folder — a missing folder
 // has none, a hidden one is skipped — and a named document that is there.
 export async function docPaths(store: Store, root: string, dirs: readonly string[], maxDepth = DOCS_MAX_DEPTH): Promise<string[]> {
   const paths = new Set<string>()
-  const walk = async (dir: string, depth = 0): Promise<void> => {
+  const visit = async (dir: string): Promise<void> => {
     for (const name of await store.list(`${root}/${dir}`, 'file')) if (name.endsWith('.md')) paths.add(`${dir}/${name}`)
-    if (depth >= maxDepth) return
-    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of dirs.map(trimDir)) {
-    if (!isFile(entry)) await walk(entry)
+    if (!isFile(entry)) await walkDocDirs(store, root, entry, maxDepth, visit)
     else if ((await store.read(`${root}/${entry}`)) !== null) paths.add(entry)
   }
 
@@ -333,14 +354,12 @@ export async function docStamps(project: Project): Promise<Record<string, string
   const { store, root, settings } = project
   const found: Record<string, string> = {}
   if (!settings.enabled) return found
-  const walk = async (dir: string, depth = 0): Promise<void> => {
+  const visit = async (dir: string): Promise<void> => {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
       if (name.endsWith('.md') && `${dir}/${name}` !== settings.files.shift) found[`${dir}/${name}`] = stamp
-    if (depth >= settings.docs.maxDepth) return
-    for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of settings.docs.dirs.map(trimDir)) {
-    if (!isFile(entry)) await walk(entry)
+    if (!isFile(entry)) await walkDocDirs(store, root, entry, settings.docs.maxDepth, visit)
     else {
       const folder = dirname(entry)
       const stamp = (await store.stamps(folder === '.' ? root : `${root}/${folder}`))[basename(entry)]
@@ -469,6 +488,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const { store, root } = project
   const settings = project.settings.docs
   const docs: Doc[] = []
+  if (project.problem) return docs
   for (const path of await docPaths(store, root, settings.dirs, settings.maxDepth)) {
     if (path === project.settings.files.shift || excludedDoc(project.settings, path)) continue
     let text = (await store.read(`${root}/${path}`)) ?? ''

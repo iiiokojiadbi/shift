@@ -231,23 +231,31 @@ const EXAMPLES: Record<string, string> = {
   'docs.max_lines': '150',
 }
 
+const SCHEMA_HELP = 'Settings format version, maintained by Shift during migration.'
+const GENERATED_HELP = new Set([SCHEMA_HELP, ...SETTING_KEYS.map(key => key.about)].map(help => `# Shift: ${help}`))
+
 type Row = { raw: string; name?: string; value?: Value }
 type Sections = Map<string, Row[]>
 type Document = ParsedSettings & { next: string }
+
+function commentsOf(row: Row): Row[] {
+  const comment = row.raw.slice(withoutComment(row.raw).length)
+  return comment ? [{ raw: comment }] : []
+}
 
 function migrateUnversioned(sections: Sections): { legacyMap?: string } | string {
   const documents = sections.get('docs')
   if (documents)
     sections.set(
       'docs',
-      documents.filter(row => row.name !== 'max_chars'),
+      documents.flatMap(row => (row.name === 'max_chars' ? commentsOf(row) : [row])),
     )
   const files = sections.get('files') ?? []
   const old = files.find(row => row.name === 'shift')
   if (!old) return {}
   const former = old.value === undefined ? null : asPaths(old.value)
   if (typeof former !== 'string' || !isInside(former)) return `${SETTINGS}: \`files.shift\` must be a path inside the project.`
-  files.splice(files.indexOf(old), 1)
+  files.splice(files.indexOf(old), 1, ...commentsOf(old))
   if (former === SHIFT_FILE) return {}
   const docs = sections.get('docs') ?? [{ raw: '[docs]' }]
   const exclude = docs.find(row => row.name === 'exclude')
@@ -279,8 +287,7 @@ function migrateHistoryWindow(sections: Sections): Record<string, never> | strin
   ] as const) {
     if (!history.some(row => row.name === name)) history.push({ name, value, raw: `${name} = ${value}` })
   }
-  const comment = old.raw.slice(withoutComment(old.raw).length)
-  root.splice(root.indexOf(old), 1, ...(comment ? [{ raw: comment }] : []))
+  root.splice(root.indexOf(old), 1, ...commentsOf(old))
   sections.set('history', history)
   return {}
 }
@@ -348,6 +355,7 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
   for (const [table, rows] of sections) {
     if (table && !TABLES.has(table)) {
       if (!upgrade) return `${SETTINGS}: unknown table \`[${table}]\`.`
+      sections.get('')?.push(...rows.flatMap(commentsOf))
       sections.delete(table)
       changed = true
       continue
@@ -356,12 +364,15 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
     for (const row of rows) {
       if (row.name && row.value !== undefined) {
         const name = table ? `${table}.${row.name}` : row.name
-        if (name === 'schema_version' && version < SETTINGS_SCHEMA) continue
+        if (name === 'schema_version' && version < SETTINGS_SCHEMA) {
+          row.raw = row.raw.replace(/\d+(?=\s*(?:#|$))/, String(SETTINGS_SCHEMA))
+        }
         if (name !== 'schema_version') {
           const key = SETTING_KEYS.find(each => each.key === name)
           if (!key) {
             if (!upgrade)
               return `${SETTINGS}: unknown key \`${name}\`; the keys are ${SETTING_KEYS.map(each => `\`${each.key}\``).join(', ')}.`
+            kept.push(...commentsOf(row))
             changed = true
             continue
           }
@@ -380,7 +391,9 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
   if (!Number.isSafeInteger(historyWindow(settings))) return `${SETTINGS}: history.full + history.brief must be a safe whole number.`
   if (!upgrade) return { settings, set, next: text }
   if (version < SETTINGS_SCHEMA) {
-    sections.get('')?.unshift({ name: 'schema_version', raw: `schema_version = ${SETTINGS_SCHEMA}` })
+    const root = sections.get('') ?? []
+    if (!root.some(row => row.name === 'schema_version'))
+      root.unshift({ name: 'schema_version', raw: `schema_version = ${SETTINGS_SCHEMA}` })
     for (const { key } of SETTING_KEYS) {
       if (set.has(key)) continue
       const [group, name] = key.includes('.') ? key.split('.') : ['', key]
@@ -398,13 +411,10 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
   for (const [table, rows] of sections) {
     const annotated: Row[] = []
     for (const row of rows) {
-      if (row.raw.startsWith('# Shift: ')) continue
+      if (GENERATED_HELP.has(row.raw)) continue
       const name = exampleName(row)
       const key = table ? `${table}.${name}` : name
-      const about =
-        key === 'schema_version'
-          ? 'Settings format version, maintained by Shift during migration.'
-          : SETTING_KEYS.find(setting => setting.key === key)?.about
+      const about = key === 'schema_version' ? SCHEMA_HELP : SETTING_KEYS.find(setting => setting.key === key)?.about
       if (about) annotated.push({ raw: `# Shift: ${about}` })
       annotated.push(row)
     }

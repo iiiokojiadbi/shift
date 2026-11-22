@@ -45,8 +45,17 @@ export function archiveFixture(state: ArchiveFixture, stdin: string): string {
         else delete state.waiting[query.session]
       }
       return JSON.stringify(entry.id)
+    case 'page': {
+      const older = state.entries.filter(entry => !query.before || entry.id < query.before)
+      return JSON.stringify({
+        total: older.length,
+        entries: older.slice(-query.limit).map(({ id, about, state }) => ({ id, about, state })),
+      })
+    }
     case 'list': {
-      const preceding = state.entries.filter(entry => !query.before || entry.id < query.before)
+      const preceding = state.entries.filter(
+        entry => (!query.before || entry.id < query.before) && (!query.completedOnly || entry.state === 'complete'),
+      )
       return JSON.stringify(
         preceding.map(({ id, about, state, files }, index) => ({
           id,

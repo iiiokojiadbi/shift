@@ -21,7 +21,7 @@ import {
 } from './layout'
 import { holdShift, type Loop } from './loop'
 import type { Project } from './project'
-import { historyAction } from './saved'
+import { historyAction, isSaved } from './saved'
 import type { Settings } from './settings'
 import { setupReport } from './setup'
 import { sizeReport } from './sizes'
@@ -103,9 +103,11 @@ const ROWS: readonly Row[] = [
           return { deny: String(error) }
         }
       }
+      const before = raw.before
+      if (before !== undefined && (typeof before !== 'string' || !isSaved(before))) return { deny: 'before must be a saved shift ID.' }
       const count = parseHistoryCount(raw)
 
-      return typeof count === 'string' ? { deny: count } : { result: await shiftHistory(await call.project(), count) }
+      return typeof count === 'string' ? { deny: count } : { result: await shiftHistory(await call.project(), count, before) }
     },
   },
   {
@@ -224,7 +226,7 @@ export function sessionDoctrine(settings: Settings, command?: TaskCommandPath | 
 export async function startSession(project: Project, knownCommand?: TaskCommandPath | null): Promise<SessionStart> {
   const { settings, problem } = project
   const rows: SessionStart['rows'] = []
-  if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: 'warning' })
+  if (problem !== null) rows.push({ text: `${MOD}: ${problem} The mod stays ${settings.enabled ? 'on' : 'off'}.`, level: 'warning' })
   let command = knownCommand ?? null
   const result = (): SessionStart => ({
     enabled: settings.enabled,
@@ -237,7 +239,7 @@ export async function startSession(project: Project, knownCommand?: TaskCommandP
 
   const stale = await staleLayout(project)
   if (stale !== null) rows.push({ text: `${MOD}: ${stale}`, level: 'warning' })
-  else if (settings.tasks.prepare === 'on_start' && knownCommand === undefined && project.store.beads) {
+  else if (!problem && settings.tasks.prepare === 'on_start' && knownCommand === undefined && project.store.beads) {
     try {
       command = await installTaskCommand(project)
     } catch (error) {

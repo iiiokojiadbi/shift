@@ -1,7 +1,8 @@
 import { afterAll, expect, test } from 'bun:test'
 import { mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { nodeStore } from '../store'
+import { docPaths, docStamps } from '../core/index'
+import { nodeStore, projectAt } from '../store'
 import { cleanup, scratch } from './scratch'
 
 afterAll(cleanup)
@@ -51,4 +52,16 @@ test('settings initialization preserves a file another writer has created or edi
   expect(await readFile(file, 'utf8')).toBe(saved)
   await nodeStore.write(file, 'migration', saved)
   expect(await readFile(file, 'utf8')).toBe('migration')
+})
+
+test('map and edit observation skip ancestor links and preserve an independent directory alias', async () => {
+  const root = await scratch('document-links')
+  await mkdir(join(root, 'docs/guide'), { recursive: true })
+  await writeFile(join(root, 'docs/guide/guide.md'), '# Guide')
+  await symlink('guide', join(root, 'docs/alias'))
+  await symlink('..', join(root, 'docs/guide/back'))
+  await symlink('.', join(root, 'docs/again'))
+  const expected = ['docs/alias/guide.md', 'docs/guide/guide.md']
+  expect(await docPaths(nodeStore, root, ['docs'], 50)).toEqual(expected)
+  expect(Object.keys(await docStamps(await projectAt(root))).sort()).toEqual(expected)
 })

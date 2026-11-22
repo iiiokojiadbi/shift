@@ -80,6 +80,7 @@ export async function loadProject(
   } catch (error) {
     // Two starts may have prepared the same upgrade. The first writer already completed it.
     if ((await store.read(path)) === document.next) return project(document.next, updated)
-    return project(source, `Could not initialize ${SETTINGS}: ${String(error)}`)
+    current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`
+    return current
   }
 }

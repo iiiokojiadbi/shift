@@ -27,9 +27,15 @@ export async function savedEntries(
     action: 'list',
     before,
     letters,
-    ...(preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, limit: historyWindow(p.settings) } : {}),
+    completedOnly: true,
+    ...(preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, ...retention(p) } : {}),
   })
 }
+// Delivery may finish while an edited or newer settings file is unreadable.
+export function retention(project: Project) {
+  return project.problem ? { deferRotation: true } : { limit: historyWindow(project.settings) }
+}
+
 export function readSaved(p: Project, id: string, file?: string): Promise<SavedEntry> {
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')
   return archiveCall(p, { action: 'read', id, file })

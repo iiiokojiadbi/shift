@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import plugin from '../server'
 import { nodeStore } from '../store'
@@ -28,12 +28,18 @@ async function setup(root: string, storage: Map<string, unknown>) {
   }
   type Tool = { name: string; execute: (input: object, call: { sessionID: string }) => Promise<{ content: string }> }
   const tools = new Map<string, Tool>()
-  const collect = (fn: (registry: { add: (tool: Tool) => void }) => void) =>
-    fn({
-      add: t => {
-        tools.set(t.name, t)
-      },
-    })
+  let reloadTools = () => {}
+  const collect = (fn: (registry: { add: (tool: Tool) => void }) => void) => {
+    reloadTools = () => {
+      tools.clear()
+      fn({
+        add: t => {
+          tools.set(t.name, t)
+        },
+      })
+    }
+    reloadTools()
+  }
   const transform = async () => {}
   const compacted: string[] = []
   await plugin.setup({
@@ -55,9 +61,9 @@ async function setup(root: string, storage: Map<string, unknown>) {
     },
     model: { default: async () => undefined },
     event: { subscribe: () => events.readable },
-    tool: { transform: collect, hook },
+    tool: { transform: collect, reload: () => reloadTools(), hook },
     agent: { transform },
-    command: { transform },
+    command: { transform, reload: async () => {} },
   } as never)
   const send = async (name: string, event: object) => {
     const fn = hooks.get(name)
@@ -159,5 +165,26 @@ test('a restarted plugin ignores former folder receipts and passes each owner me
     } finally {
       await restarted.close()
     }
+  }
+})
+
+test('each main chat upgrades settings and refreshes the shared catalog in a running server', async () => {
+  const root = await scratch('new-chat-settings')
+  const path = join(root, '.shift/settings.toml')
+  const server = await setup(root, new Map())
+  try {
+    expect(await server.context('first')).toContain('<shift')
+    await writeFile(path, 'schema_version = 1\nenabled = false\nretired = true\n')
+    expect(await server.context('second')).toBe('')
+    const migrated = await readFile(path, 'utf8')
+    expect(migrated).toContain('schema_version = 2')
+    expect(migrated).not.toContain('retired')
+    expect(server.tools.size).toBe(0)
+    await writeFile(path, 'enabled = true\n[docs]\ndirs = []')
+    expect(await server.context('third')).toContain('<shift')
+    expect(server.tools.has('shift')).toBe(true)
+    expect(server.tools.has('doc_outline')).toBe(false)
+  } finally {
+    await server.close()
   }
 })

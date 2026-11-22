@@ -19,26 +19,33 @@ import (
 )
 
 type Request struct {
-	Before   string                   `json:"before"`
-	Letters  int                      `json:"letters"`
-	Text     string                   `json:"text"`
-	Revision string                   `json:"revision"`
-	Changes  map[string]WorkingChange `json:"changes"`
-	Expected map[string]string        `json:"expected"`
-	Upcoming bool                     `json:"upcoming"`
-	File     string                   `json:"file"`
-	Compare  string                   `json:"compare"`
-	Session  string                   `json:"session"`
-	Wait     bool                     `json:"wait"`
-	Query    string                   `json:"query"`
-	Action   string                   `json:"action"`
-	ID       string                   `json:"id"`
-	Key      string                   `json:"key"`
-	About    string                   `json:"about"`
-	Files    map[string]string        `json:"files"`
-	Limit    int                      `json:"limit"`
-	State    string                   `json:"state"`
+	DeferRotation bool                     `json:"deferRotation"`
+	CompletedOnly bool                     `json:"completedOnly"`
+	Before        string                   `json:"before"`
+	Letters       int                      `json:"letters"`
+	Text          string                   `json:"text"`
+	Revision      string                   `json:"revision"`
+	Changes       map[string]WorkingChange `json:"changes"`
+	Expected      map[string]string        `json:"expected"`
+	Upcoming      bool                     `json:"upcoming"`
+	File          string                   `json:"file"`
+	Compare       string                   `json:"compare"`
+	Session       string                   `json:"session"`
+	Wait          bool                     `json:"wait"`
+	Query         string                   `json:"query"`
+	Action        string                   `json:"action"`
+	ID            string                   `json:"id"`
+	Key           string                   `json:"key"`
+	About         string                   `json:"about"`
+	Files         map[string]string        `json:"files"`
+	Limit         int                      `json:"limit"`
+	State         string                   `json:"state"`
 }
+type Page struct {
+	Entries []Entry `json:"entries"`
+	Total   int     `json:"total"`
+}
+
 type Entry struct {
 	Initial    string            `json:"initial,omitempty"`
 	Completion uint64            `json:"completion,omitempty"`
@@ -180,11 +187,14 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		}
 		current := string(queue.Get([]byte(r.Session)))
 		if r.Action == "received" && current == r.ID {
-			if r.Limit < 1 {
+			if !r.DeferRotation && r.Limit < 1 {
 				return nil, errors.New("missing retention limit")
 			}
 			if err := queue.Delete([]byte(r.Session)); err != nil {
 				return nil, err
+			}
+			if r.DeferRotation {
+				return current, nil
 			}
 			return current, rotate(tx.Bucket(shifts), tx.Bucket(contents), r.Limit)
 		}
@@ -198,6 +208,9 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		}
 		if r.Action == "working-list" {
 			return map[string]WorkingRecord{}, nil
+		}
+		if r.Action == "page" {
+			return Page{Entries: []Entry{}}, nil
 		}
 		if r.Action == "list" {
 			return []Entry{}, nil
@@ -287,7 +300,7 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		e := Entry{ID: id, Key: r.Key, Initial: initial, State: "pending", About: r.About, Files: map[string]string{}}
 		return id, save(b, blobs, e, r.Files)
 	case "finish":
-		if r.Limit < 1 || (r.State != "complete" && r.State != "failed" && r.State != "unsettled") || r.About == "" {
+		if (!r.DeferRotation && r.Limit < 1) || (r.State != "complete" && r.State != "failed" && r.State != "unsettled") || r.About == "" {
 			return nil, errors.New("invalid shift outcome")
 		}
 		e, err := load(b.Get([]byte(r.ID)))
@@ -340,9 +353,40 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 					return nil, err
 				}
 			}
-			err = rotate(b, blobs, r.Limit)
+			if !r.DeferRotation {
+				err = rotate(b, blobs, r.Limit)
+			}
 		}
 		return e.ID, err
+	case "page":
+		if r.Limit < 1 || r.Limit > 50 {
+			return nil, errors.New("page size must be between 1 and 50")
+		}
+		page := Page{Entries: []Entry{}}
+		cursor := b.Cursor()
+		k, v := cursor.Last()
+		if r.Before != "" {
+			k, v = cursor.Seek([]byte(r.Before))
+			if k == nil {
+				k, v = cursor.Last()
+			} else {
+				k, v = cursor.Prev()
+			}
+		}
+		for ; k != nil; k, v = cursor.Prev() {
+			page.Total++
+			if len(page.Entries) >= r.Limit {
+				continue
+			}
+			e, err := load(v)
+			if err != nil {
+				return nil, err
+			}
+			e.Files, e.Key, e.Initial = nil, "", ""
+			page.Entries = append(page.Entries, e)
+		}
+		slices.Reverse(page.Entries)
+		return page, nil
 	case "search":
 		query := strings.ToLower(strings.TrimSpace(r.Query))
 		if query == "" || r.Limit < 1 || r.Limit > 50 {
@@ -418,6 +462,9 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 			if err != nil {
 				return nil, err
 			}
+			if r.CompletedOnly && e.State != "complete" {
+				continue
+			}
 			if len(result) < r.Letters {
 				letter, err := readContent(blobs, "letter.md", e.Files["letter.md"])
 				if err != nil {
@@ -487,7 +534,7 @@ func Run(path string, in io.Reader, out io.Writer) error {
 		}
 		return json.NewEncoder(out).Encode(result)
 	}
-	readOnly := r.Action == "working-list" || r.Action == "list" || r.Action == "read" || r.Action == "waiting" || r.Action == "search"
+	readOnly := r.Action == "page" || r.Action == "working-list" || r.Action == "list" || r.Action == "read" || r.Action == "waiting" || r.Action == "search"
 	st, err := os.Lstat(path)
 	if err == nil && !st.Mode().IsRegular() {
 		return errors.New("expected a regular shift archive")
@@ -495,6 +542,9 @@ func Run(path string, in io.Reader, out io.Writer) error {
 	if errors.Is(err, os.ErrNotExist) && readOnly {
 		if r.Action == "working-list" {
 			return json.NewEncoder(out).Encode(map[string]WorkingRecord{})
+		}
+		if r.Action == "page" {
+			return json.NewEncoder(out).Encode(Page{Entries: []Entry{}})
 		}
 		if r.Action == "list" {
 			return json.NewEncoder(out).Encode([]Entry{})

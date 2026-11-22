@@ -16,7 +16,7 @@ export async function setupReport(project: Project, loaded: string | null): Prom
   const { settings } = project
   const state =
     project.problem !== null
-      ? `It does not parse — ${project.problem} The mod stays on with the defaults, and a shift is refused until it is fixed.`
+      ? `${project.problem} A shift is refused until this is fixed.`
       : project.settingsText === null
         ? 'No settings file: every key is at its default.'
         : 'It parses.'

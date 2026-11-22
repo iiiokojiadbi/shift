@@ -570,10 +570,16 @@ var EXAMPLES = {
   "docs.max_description": "200",
   "docs.max_lines": "150"
 };
+var SCHEMA_HELP = "Settings format version, maintained by Shift during migration.";
+var GENERATED_HELP = new Set([SCHEMA_HELP, ...SETTING_KEYS.map((key) => key.about)].map((help) => `# Shift: ${help}`));
+function commentsOf(row) {
+  const comment = row.raw.slice(withoutComment(row.raw).length);
+  return comment ? [{ raw: comment }] : [];
+}
 function migrateUnversioned(sections) {
   const documents = sections.get("docs");
   if (documents)
-    sections.set("docs", documents.filter((row) => row.name !== "max_chars"));
+    sections.set("docs", documents.flatMap((row) => row.name === "max_chars" ? commentsOf(row) : [row]));
   const files = sections.get("files") ?? [];
   const old = files.find((row) => row.name === "shift");
   if (!old)
@@ -581,7 +587,7 @@ function migrateUnversioned(sections) {
   const former = old.value === undefined ? null : asPaths(old.value);
   if (typeof former !== "string" || !isInside(former))
     return `${SETTINGS}: \`files.shift\` must be a path inside the project.`;
-  files.splice(files.indexOf(old), 1);
+  files.splice(files.indexOf(old), 1, ...commentsOf(old));
   if (former === SHIFT_FILE)
     return {};
   const docs = sections.get("docs") ?? [{ raw: "[docs]" }];
@@ -617,8 +623,7 @@ function migrateHistoryWindow(sections) {
     if (!history.some((row) => row.name === name))
       history.push({ name, value, raw: `${name} = ${value}` });
   }
-  const comment = old.raw.slice(withoutComment(old.raw).length);
-  root.splice(root.indexOf(old), 1, ...comment ? [{ raw: comment }] : []);
+  root.splice(root.indexOf(old), 1, ...commentsOf(old));
   sections.set("history", history);
   return {};
 }
@@ -689,6 +694,7 @@ function settingsDocument(text, upgrade) {
     if (table && !TABLES.has(table)) {
       if (!upgrade)
         return `${SETTINGS}: unknown table \`[${table}]\`.`;
+      sections.get("")?.push(...rows.flatMap(commentsOf));
       sections.delete(table);
       changed = true;
       continue;
@@ -697,13 +703,15 @@ function settingsDocument(text, upgrade) {
     for (const row of rows) {
       if (row.name && row.value !== undefined) {
         const name = table ? `${table}.${row.name}` : row.name;
-        if (name === "schema_version" && version < SETTINGS_SCHEMA)
-          continue;
+        if (name === "schema_version" && version < SETTINGS_SCHEMA) {
+          row.raw = row.raw.replace(/\d+(?=\s*(?:#|$))/, String(SETTINGS_SCHEMA));
+        }
         if (name !== "schema_version") {
           const key = SETTING_KEYS.find((each) => each.key === name);
           if (!key) {
             if (!upgrade)
               return `${SETTINGS}: unknown key \`${name}\`; the keys are ${SETTING_KEYS.map((each) => `\`${each.key}\``).join(", ")}.`;
+            kept.push(...commentsOf(row));
             changed = true;
             continue;
           }
@@ -725,7 +733,9 @@ function settingsDocument(text, upgrade) {
   if (!upgrade)
     return { settings, set, next: text };
   if (version < SETTINGS_SCHEMA) {
-    sections.get("")?.unshift({ name: "schema_version", raw: `schema_version = ${SETTINGS_SCHEMA}` });
+    const root = sections.get("") ?? [];
+    if (!root.some((row) => row.name === "schema_version"))
+      root.unshift({ name: "schema_version", raw: `schema_version = ${SETTINGS_SCHEMA}` });
     for (const { key } of SETTING_KEYS) {
       if (set.has(key))
         continue;
@@ -745,11 +755,11 @@ function settingsDocument(text, upgrade) {
   for (const [table, rows] of sections) {
     const annotated = [];
     for (const row of rows) {
-      if (row.raw.startsWith("# Shift: "))
+      if (GENERATED_HELP.has(row.raw))
         continue;
       const name = exampleName(row);
       const key = table ? `${table}.${name}` : name;
-      const about = key === "schema_version" ? "Settings format version, maintained by Shift during migration." : SETTING_KEYS.find((setting) => setting.key === key)?.about;
+      const about = key === "schema_version" ? SCHEMA_HELP : SETTING_KEYS.find((setting) => setting.key === key)?.about;
       if (about)
         annotated.push({ raw: `# Shift: ${about}` });
       annotated.push(row);
@@ -857,8 +867,12 @@ async function savedEntries(p, selection) {
     action: "list",
     before,
     letters,
-    ...preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, limit: historyWindow(p.settings) } : {}
+    completedOnly: true,
+    ...preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, ...retention(p) } : {}
   });
+}
+function retention(project) {
+  return project.problem ? { deferRotation: true } : { limit: historyWindow(project.settings) };
 }
 function readSaved(p, id, file) {
   if (!isSaved(id))
@@ -1241,7 +1255,7 @@ async function settleDocs(project, paths) {
     }
     return skipped;
   };
-  if (!settings.enabled || docs.dirs.length === 0)
+  if (project.problem || !settings.enabled || docs.dirs.length === 0)
     return { lines: [], write };
   const remarked = [];
   let pins = false;
@@ -1375,21 +1389,31 @@ function escapeRegExp2(text) {
 }
 var MAP_START = `<!-- ${MOD}:docs \u2014 written by the mod from each document's description and ## headings; edit those, not this -->`;
 var MAP_END = `<!-- /${MOD}:docs -->`;
+async function walkDocDirs(store, root, dir, remaining, visit, ancestors = new Set) {
+  const path = `${root}/${dir}`;
+  const identity = store.directoryIdentity ? await store.directoryIdentity(path) : path;
+  if (identity === null || ancestors.has(identity))
+    return;
+  ancestors.add(identity);
+  await visit(dir);
+  if (remaining > 0) {
+    for (const name of await store.list(path, "dir")) {
+      if (!name.startsWith("."))
+        await walkDocDirs(store, root, `${dir}/${name}`, remaining - 1, visit, ancestors);
+    }
+  }
+  ancestors.delete(identity);
+}
 async function docPaths(store, root, dirs, maxDepth = DOCS_MAX_DEPTH) {
   const paths = new Set;
-  const walk = async (dir, depth = 0) => {
+  const visit = async (dir) => {
     for (const name of await store.list(`${root}/${dir}`, "file"))
       if (name.endsWith(".md"))
         paths.add(`${dir}/${name}`);
-    if (depth >= maxDepth)
-      return;
-    for (const name of await store.list(`${root}/${dir}`, "dir"))
-      if (!name.startsWith("."))
-        await walk(`${dir}/${name}`, depth + 1);
   };
   for (const entry of dirs.map(trimDir)) {
     if (!isFile(entry))
-      await walk(entry);
+      await walkDocDirs(store, root, entry, maxDepth, visit);
     else if (await store.read(`${root}/${entry}`) !== null)
       paths.add(entry);
   }
@@ -1400,19 +1424,14 @@ async function docStamps(project) {
   const found = {};
   if (!settings.enabled)
     return found;
-  const walk = async (dir, depth = 0) => {
+  const visit = async (dir) => {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
       if (name.endsWith(".md") && `${dir}/${name}` !== settings.files.shift)
         found[`${dir}/${name}`] = stamp;
-    if (depth >= settings.docs.maxDepth)
-      return;
-    for (const name of await store.list(`${root}/${dir}`, "dir"))
-      if (!name.startsWith("."))
-        await walk(`${dir}/${name}`, depth + 1);
   };
   for (const entry of settings.docs.dirs.map(trimDir)) {
     if (!isFile(entry))
-      await walk(entry);
+      await walkDocDirs(store, root, entry, settings.docs.maxDepth, visit);
     else {
       const folder = dirname(entry);
       const stamp = (await store.stamps(folder === "." ? root : `${root}/${folder}`))[basename(entry)];
@@ -1540,6 +1559,8 @@ async function refreshDocs(project, { tocs = true } = {}) {
   const { store, root } = project;
   const settings = project.settings.docs;
   const docs = [];
+  if (project.problem)
+    return docs;
   for (const path of await docPaths(store, root, settings.dirs, settings.maxDepth)) {
     if (path === project.settings.files.shift || excludedDoc(project.settings, path))
       continue;
@@ -1620,7 +1641,8 @@ No about.md.`;
 ${about.description ?? ""}`;
   });
   const head = `Saved shifts, oldest first: ${entries.length} of ${total}.`;
-  return [head, ...blocks].join(`
+  const older = entries.length < total ? [`For earlier shifts, call shift_history with before="${entries[0]?.name}".`] : [];
+  return [head, ...blocks, ...older].join(`
 
 `);
 }
@@ -1928,9 +1950,11 @@ ${accepted}` };
 async function currentWorkProblem(project, work, entries) {
   return checkWork(work, project) ?? ownerRevisionProblem(project, work.owner, entries);
 }
-async function shiftHistory(project, count) {
-  const { entries, total } = await lastShifts(project, count);
-  return renderHistory(entries, total);
+async function shiftHistory(project, count, before) {
+  const page = await hasArchive(project) ? await archiveCall(project, { action: "page", limit: count, before }) : { entries: [], total: 0 };
+  if (before && !page.entries.length)
+    return "No earlier saved shifts.";
+  return renderHistory(page.entries.map((e) => ({ name: e.id, about: e.about })), page.total);
 }
 async function resumeShift(project, actor = project.actor) {
   const entries = await savedEntries(project);
@@ -1975,7 +1999,7 @@ async function recordFailure(project, shift, about, row) {
       id: shift.dir,
       state: readAbout(about).result?.startsWith("not shifted") ? "failed" : "unsettled",
       about,
-      limit: historyWindow(project.settings)
+      ...retention(project)
     });
     return row;
   } catch (error) {
@@ -1996,7 +2020,7 @@ async function settleShift(project, letGo, back) {
       wait: !letGo.carried,
       about,
       files: { [NAMES.summary]: summary },
-      limit: historyWindow(project.settings)
+      ...retention(project)
     });
   };
   const handed = back ?? await handBack(project, shift.dir, shift.sessionId);
@@ -2419,7 +2443,7 @@ async function acknowledgeWait(project, id) {
     action: "received",
     session: project.deliveryKey ?? project.actor,
     id,
-    limit: historyWindow(project.settings)
+    ...retention(project)
   });
 }
 async function waitingNote(loop, project) {
@@ -3100,7 +3124,8 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
   } catch (error) {
     if (await store.read(path) === document.next)
       return project(document.next, updated);
-    return project(source, `Could not initialize ${SETTINGS}: ${String(error)}`);
+    current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`;
+    return current;
   }
 }
 // core/src/texts/tools.ts
@@ -3136,6 +3161,7 @@ var HISTORY_SCHEMA = {
     action: { type: "string", enum: ["list", "read", "compare", "export", "delete", "search"] },
     id: { type: "string", description: "Saved shift ID." },
     query: { type: "string", description: "Local search across saved shift records." },
+    before: { type: "string", description: "List shifts older than this saved ID (exclusive)." },
     other: { type: "string", description: "Second ID to compare against." },
     file: { type: "string", description: "Record to read, default letter.md." },
     count: {
@@ -3358,7 +3384,7 @@ Use shift_record(action="checkout", name="letter.md"), edit its returned path an
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Earlier descriptions come first, then earlier full letters. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
+List saved shifts with shift_history. For an older page, pass the oldest listed ID as before. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Completed shifts supply the earlier descriptions and full letters, in that order. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
@@ -3576,8 +3602,11 @@ var ROWS = [
           return { deny: String(error) };
         }
       }
+      const before = raw.before;
+      if (before !== undefined && (typeof before !== "string" || !isSaved(before)))
+        return { deny: "before must be a saved shift ID." };
       const count = parseHistoryCount(raw);
-      return typeof count === "string" ? { deny: count } : { result: await shiftHistory(await call.project(), count) };
+      return typeof count === "string" ? { deny: count } : { result: await shiftHistory(await call.project(), count, before) };
     }
   },
   {
@@ -3675,7 +3704,7 @@ async function startSession(project, knownCommand) {
   const { settings, problem } = project;
   const rows = [];
   if (problem !== null)
-    rows.push({ text: `${MOD}: ${problem} The mod stays on.`, level: "warning" });
+    rows.push({ text: `${MOD}: ${problem} The mod stays ${settings.enabled ? "on" : "off"}.`, level: "warning" });
   let command = knownCommand ?? null;
   const result = () => ({
     enabled: settings.enabled,
@@ -3689,7 +3718,7 @@ async function startSession(project, knownCommand) {
   const stale = await staleLayout(project);
   if (stale !== null)
     rows.push({ text: `${MOD}: ${stale}`, level: "warning" });
-  else if (settings.tasks.prepare === "on_start" && knownCommand === undefined && project.store.beads) {
+  else if (!problem && settings.tasks.prepare === "on_start" && knownCommand === undefined && project.store.beads) {
     try {
       command = await installTaskCommand(project);
     } catch (error) {
@@ -3707,7 +3736,7 @@ async function startSession(project, knownCommand) {
 // core/src/setup.ts
 async function setupReport(project, loaded) {
   const { settings } = project;
-  const state = project.problem !== null ? `It does not parse \u2014 ${project.problem} The mod stays on with the defaults, and a shift is refused until it is fixed.` : project.settingsText === null ? "No settings file: every key is at its default." : "It parses.";
+  const state = project.problem !== null ? `${project.problem} A shift is refused until this is fixed.` : project.settingsText === null ? "No settings file: every key is at its default." : "It parses.";
   const keys = SETTING_KEYS.map(({ key, since, about }) => {
     const value = settingValue(settings, key);
     const where = project.set.has(key) ? `set here, default ${settingValue(DEFAULT_SETTINGS, key) ?? "unset"}` : "default";
@@ -3808,6 +3837,7 @@ var nodeStore = {
     return (await child).stdout;
   },
   read: (path) => readFile(path, "utf8").catch(() => null),
+  directoryIdentity: (path) => realpath(path).catch(() => null),
   list: async (path, kind) => {
     const entries = await kinds(path);
     return entries.filter((entry) => entry.kind === kind).map((entry) => entry.name).sort();

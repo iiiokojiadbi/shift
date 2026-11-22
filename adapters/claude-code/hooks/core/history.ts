@@ -15,5 +15,6 @@ export function renderHistory(entries: HistoryEntry[], total: number): string {
     return `### ${entry.name} · ${about.after ?? '?'} · ${about.result ?? '?'}\n\n${about.description ?? ''}`
   })
   const head = `Saved shifts, oldest first: ${entries.length} of ${total}.`
-  return [head, ...blocks].join('\n\n')
+  const older = entries.length < total ? [`For earlier shifts, call shift_history with before="${entries[0]?.name}".`] : []
+  return [head, ...blocks, ...older].join('\n\n')
 }

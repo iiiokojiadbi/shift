@@ -205,3 +205,39 @@ func TestChangedLetterCountsAsProgress(t *testing.T) {
 		t.Fatal("updated letter refused")
 	}
 }
+
+func TestDeferredRotationAndCompletedLetters(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "history.db")
+	var ids []string
+	for i := 0; i < 52; i++ {
+		id := must[string](t, db, begin(fmt.Sprint(i)))
+		ids = append(ids, id)
+		must[string](t, db, finish(id, 52))
+	}
+	failed := must[string](t, db, begin("failed"))
+	must[string](t, db, Request{Action: "finish", ID: failed, State: "failed", About: "busy", Limit: 52})
+	last := must[string](t, db, begin("last"))
+	done := finish(last, 0)
+	done.Session, done.Wait, done.DeferRotation = "chat", true, true
+	must[string](t, db, done)
+	must[string](t, db, Request{Action: "received", ID: last, Session: "chat", DeferRotation: true})
+	if waiting := must[string](t, db, Request{Action: "waiting", Session: "chat"}); waiting != "" {
+		t.Fatal("receipt was not acknowledged")
+	}
+	page := must[Page](t, db, Request{Action: "page", Limit: 50})
+	if page.Total != 54 || len(page.Entries) != 50 {
+		t.Fatal("delivery rotated the archive or the page exceeded its limit")
+	}
+	older := must[Page](t, db, Request{Action: "page", Before: page.Entries[0].ID, Limit: 50})
+	if older.Total != 4 || len(older.Entries) != 4 || older.Entries[0].ID != ids[0] || older.Entries[3].ID != ids[3] {
+		t.Fatal("missing or repeated entry at the page boundary")
+	}
+	back := must[[]Entry](t, db, Request{Action: "list", CompletedOnly: true, Before: last, Letters: 1})
+	if len(back) != 52 || back[len(back)-1].Files["letter.md"] != "letter 51" {
+		t.Fatal("a failed attempt displaced the previous full letter")
+	}
+	must[string](t, db, finish(must[string](t, db, begin("recovered")), 2))
+	if n := len(must[[]Entry](t, db, Request{Action: "list", CompletedOnly: true})); n != 2 {
+		t.Fatalf("expected rotation to resume, got %d shifts", n)
+	}
+}

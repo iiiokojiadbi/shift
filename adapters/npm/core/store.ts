@@ -12,6 +12,8 @@ export type Store = {
   beads?(root: string, args: readonly string[], stdin?: string): Promise<string>
   // The file's text; null when it is missing or unreadable.
   read(path: string): Promise<string | null>
+  // Stores that follow directory links supply their physical identity for recursive walks.
+  directoryIdentity?(path: string): Promise<string | null>
   // Names of the folders or files right under `path`, sorted; none when it is missing.
   list(path: string, kind: 'dir' | 'file'): Promise<string[]>
   // The files right under `path`, each with a stamp that changes when the file does (its time and size), from one

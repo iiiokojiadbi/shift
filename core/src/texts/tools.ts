@@ -68,6 +68,7 @@ export const HISTORY_SCHEMA = {
     action: { type: 'string', enum: ['list', 'read', 'compare', 'export', 'delete', 'search'] },
     id: { type: 'string', description: 'Saved shift ID.' },
     query: { type: 'string', description: 'Local search across saved shift records.' },
+    before: { type: 'string', description: 'List shifts older than this saved ID (exclusive).' },
     other: { type: 'string', description: 'Second ID to compare against.' },
     file: { type: 'string', description: 'Record to read, default letter.md.' },
     count: {

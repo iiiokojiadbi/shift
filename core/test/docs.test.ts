@@ -157,7 +157,7 @@ test('the setup report: every key with its value here and its version, and which
     '## Records\n\nThey pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself.',
   )
   store.files.set(SETTINGS, 'enabled = maybe')
-  expect(await setupReport(await at(store), null)).toContain('It does not parse')
+  expect(await setupReport(await at(store), null)).toContain('got "enabled = maybe"')
 })
 
 test('the report after a shift folds the undescribed documents into one line and names at most ten others', async () => {
