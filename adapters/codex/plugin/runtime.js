@@ -293,6 +293,193 @@ function shiftFill(text, sessionId) {
   const about = readAbout(text);
   return about.session === sessionId && about.shifted ? about.tokensAfter : null;
 }
+// core/src/texts/prompts.ts
+var NOTE_KINDS = {
+  hint: "a hint from the mod, not part of what it came with",
+  records: "the mod's check of the records just changed",
+  map: "changes to the documentation map",
+  docs: "the mod's check of the files written in the last run"
+};
+function compactInstructions(shift) {
+  return [
+    "The agent is shifting: it continues this same work right after, from its own letter.",
+    `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.`,
+    "Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.",
+    "Do not write next steps or a plan.",
+    "",
+    "What the agent asked to hold:",
+    shift.hold
+  ].join(`
+`);
+}
+function renderWork(work, knowledge, owner) {
+  if (work === null)
+    return `There is no board at ${BOARD}.`;
+  return [`**Board**
+
+${fileBlock(BOARD, work.board)}`, `Knowledge placement: ${placement(knowledge, owner)}.`].join(`
+
+---
+
+`);
+}
+function placement(knowledge, owner) {
+  if (knowledge === "local")
+    return 'here: the owner set knowledge = "local"';
+  if (knowledge === "project")
+    return `to the project's docs: the owner set knowledge = "project"`;
+  if (knowledge === "split")
+    return `split by the boundary in ${owner}: the owner set knowledge = "split"`;
+  return `here until the owner sets knowledge in ${SETTINGS}; ask them once`;
+}
+function renderSessionFiles(files) {
+  if (files.length === 0)
+    return null;
+  return [
+    `<${MOD} note="loaded at the session's start and after each shift; read current records if they have changed since">`,
+    ...files.map((each) => fileBlock(each.path, each.text)),
+    `</${MOD}>`
+  ].join(`
+
+`);
+}
+function fileBlock(path, text) {
+  return `<file path="${path}">
+${text.trim()}
+</file>`;
+}
+function deliveredFiles(work) {
+  if (work === null)
+    return [NAMES.letter];
+  return [NAMES.letter, NAMES.board];
+}
+function renderRecent(recent) {
+  if (recent.entries.length === 0)
+    return "No earlier shifts.";
+  const earlier = recent.total - recent.entries.length;
+  const shifts = (n) => n === 1 ? "1 shift" : `${n} shifts`;
+  const lines = recent.entries.map((entry) => entry.letter === undefined ? `- ${entry.name} \xB7 ${readAbout(entry.about ?? "").description ?? "no about.md"}` : `<previous_letter shift="${entry.name}">
+${entry.letter.trim()}
+</previous_letter>`);
+  return [
+    `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
+    ...earlier > 0 ? [
+      `${shifts(earlier)} before them ${earlier === 1 ? "is" : "are"} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`
+    ] : [],
+    ...recent.entries.some((entry) => entry.letter !== undefined) ? ["Earlier letters describe past work. Continue from the current letter below."] : [],
+    "<shifts>",
+    ...lines,
+    "</shifts>"
+  ].join(`
+`);
+}
+function shiftMessage(opening, letter, back, closing = []) {
+  const { work, recent, dir, remarks } = back;
+  return [
+    `<${MOD} id="${dir}">`,
+    opening,
+    "",
+    "Your current board follows. The session files were read again after this shift.",
+    "",
+    renderWork(work, back.knowledge, back.owner),
+    "",
+    renderRecent(recent),
+    "",
+    ...remarks === null ? [] : ["Documents with remarks from the mod \u2014 fix them as the work passes by them:", "", remarks, ""],
+    "Your letter to yourself, written right before the shift:",
+    "",
+    `<letter shift="${dir}">`,
+    letter.trim(),
+    "</letter>",
+    "",
+    `Read saved records with shift_history using ID ${dir}.`,
+    ...closing,
+    `</${MOD}>`
+  ].join(`
+`);
+}
+var GUIDE_KNOWN = `You have shifted here before: use ${GUIDE_TOOL} for a specific record format or refusal.`;
+function continuePrompt(letter, back) {
+  return shiftMessage("Shift done. You continue from where you stopped.", letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`]);
+}
+var WAKE = `The shift is done and your letter is above. Continue from "${NEXT}".`;
+function waitContext(letter, back) {
+  return shiftMessage("You shifted and waited for the owner; the owner's message comes with this one.", letter, back, [GUIDE_KNOWN]);
+}
+function resumePrompt(letter, back, outcome = null) {
+  return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
+    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 the project Beads command in your session instructions; how a shift works \u2014 ${GUIDE_TOOL}.`,
+    `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
+  ]);
+}
+var RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`;
+var SHIFT_NOW = (words) => `<${MOD} note="from the owner's /${SHIFT_COMMAND}">The owner asks you to shift now, whether a hint has come or not. Bring the step in hand to a point the letter can name, keep your records, write the letter and call ${TOOL}; choose after as the work needs.${words === "" ? "" : ` The owner's words: ${words}`}</${MOD}>`;
+var TURN_END = {
+  continue: "End the turn with one line and do nothing more",
+  wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
+};
+var ACCEPTED = (dir, after) => `Shift accepted, read its records with shift_history ID ${dir}. ${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
+var NOT_IGNORED = `${DIR}/ could not be excluded from this project's git. Check the local exclude file and any overriding rules. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
+var EXCLUDED = (file) => `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`;
+var SHIFT_TOO_EARLY = (why) => `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown \u2014 after the first hint.`;
+var OUTSIDE_NAME = (word) => new RegExp(`(?<![\\w./-])(?:${word})(?![\\w/-]|\\.\\w)`, "gi");
+function ourWords(why) {
+  return why.replace(OUTSIDE_NAME("compaction|summarization|compression"), "let-go").replace(OUTSIDE_NAME("(?:compact|summari[sz]e|compress)(?:s|ed|ing)?"), "let go").replace(OUTSIDE_NAME("summary"), "digest");
+}
+var NOT_MADE_NOTE = (name, why) => `<${MOD} note="from the mod: the shift was not made">
+Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; its saved records remain in history. Go on from where you stopped, and shift again later.
+</${MOD}>`;
+var UNSETTLED_NOTE = (name, why, dir) => `<${MOD} note="from the mod: the history was let go, the records were not handed back">
+Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, shift_history(action="read", id="${dir}") \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD}, and continue from "${NEXT}".
+</${MOD}>`;
+var HELD_NOTE = (texts) => `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? "this message" : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? "it" : "them"} back to reach you after your letter. ${texts.length === 1 ? "It goes" : "They go"} first, before "${NEXT}".</${MOD}>
+
+${texts.join(`
+
+`)}`;
+var FAILURE_NOTE = "the note that the shift failed";
+
+// core/src/privacy.ts
+async function keepRecordsOut(project) {
+  const { store, root } = project;
+  if (project.settings.commit)
+    return { excluded: null };
+  const check = () => store.git(root, ["check-ignore", "-q", `${DIR}/`]);
+  const ignored = await check();
+  if (ignored === null || ignored.code === 0)
+    return { excluded: null };
+  if (ignored.code !== 1) {
+    const repo = await store.git(root, ["rev-parse", "--is-inside-work-tree"]);
+    if (repo?.code === 0 && repo.stdout.trim() === "false")
+      return { excluded: null };
+    if (repo?.stderr?.startsWith("fatal: not a git repository (or any "))
+      return { excluded: null };
+    return { deny: NOT_IGNORED };
+  }
+  const found = await store.git(root, ["rev-parse", "--git-path", "info/exclude"]);
+  const path = found === null || found.code !== 0 ? "" : found.stdout.trim();
+  if (path === "")
+    return { deny: NOT_IGNORED };
+  const file = path.startsWith("/") ? path : `${root}/${path}`;
+  const existing = await store.read(file);
+  if (existing === null && await store.exists(file, "checked").catch(() => true))
+    return { deny: NOT_IGNORED };
+  const text = existing ?? "";
+  if (text.split(/\r?\n/).includes(`${DIR}/`))
+    return { deny: NOT_IGNORED };
+  try {
+    await store.write(file, `${text}${text === "" || text.endsWith(`
+`) ? "" : `
+`}${DIR}/
+`, existing);
+  } catch (error) {
+    if ((await check())?.code === 0)
+      return { excluded: null };
+    return { deny: `${NOT_IGNORED} ${String(error)}` };
+  }
+  return (await check())?.code === 0 ? { excluded: file } : { deny: NOT_IGNORED };
+}
+
 // core/src/beads.ts
 function beadsExecutable(platform, arch) {
   const system = platform.toLowerCase();
@@ -306,6 +493,9 @@ function beadsExecutable(platform, arch) {
 async function installTaskCommand(project) {
   if (!project.store.beads)
     throw new Error("The bundled runtime is unavailable.");
+  const kept = await keepRecordsOut(project);
+  if ("deny" in kept)
+    throw new Error(kept.deny);
   const path = (await project.store.beads(project.root, ["shift-install-task"])).trim();
   if (path !== "./.shift/bin/shift-task" && path !== "./.shift/bin/shift-task.exe")
     throw new Error("The bundled runtime did not confirm the shift-task command.");
@@ -1594,7 +1784,7 @@ async function refreshDocs(project, { tocs = true } = {}) {
   if (current === null && !docs.length && !knowledge)
     return docs;
   const map = withMap(current, renderMap(docs, settings, missing, knowledge));
-  if (map !== current)
+  if (map !== current && !("deny" in await keepRecordsOut(project)))
     await store.write(shift, map);
   return docs;
 }
@@ -1648,152 +1838,6 @@ ${about.description ?? ""}`;
 
 `);
 }
-
-// core/src/texts/prompts.ts
-var NOTE_KINDS = {
-  hint: "a hint from the mod, not part of what it came with",
-  records: "the mod's check of the records just changed",
-  map: "changes to the documentation map",
-  docs: "the mod's check of the files written in the last run"
-};
-function compactInstructions(shift) {
-  return [
-    "The agent is shifting: it continues this same work right after, from its own letter.",
-    `Its board (${shift.board}) and saved letter (${shift.dir}) return after the shift. Preserve the reasoning behind the work without repeating these records.`,
-    "Keep, as precisely as possible, what it asked to hold below, and the reasoning behind its current approach; everything else in this history may be dropped or reduced to one line.",
-    "Do not write next steps or a plan.",
-    "",
-    "What the agent asked to hold:",
-    shift.hold
-  ].join(`
-`);
-}
-function renderWork(work, knowledge, owner) {
-  if (work === null)
-    return `There is no board at ${BOARD}.`;
-  return [`**Board**
-
-${fileBlock(BOARD, work.board)}`, `Knowledge placement: ${placement(knowledge, owner)}.`].join(`
-
----
-
-`);
-}
-function placement(knowledge, owner) {
-  if (knowledge === "local")
-    return 'here: the owner set knowledge = "local"';
-  if (knowledge === "project")
-    return `to the project's docs: the owner set knowledge = "project"`;
-  if (knowledge === "split")
-    return `split by the boundary in ${owner}: the owner set knowledge = "split"`;
-  return `here until the owner sets knowledge in ${SETTINGS}; ask them once`;
-}
-function renderSessionFiles(files) {
-  if (files.length === 0)
-    return null;
-  return [
-    `<${MOD} note="loaded at the session's start and after each shift; read current records if they have changed since">`,
-    ...files.map((each) => fileBlock(each.path, each.text)),
-    `</${MOD}>`
-  ].join(`
-
-`);
-}
-function fileBlock(path, text) {
-  return `<file path="${path}">
-${text.trim()}
-</file>`;
-}
-function deliveredFiles(work) {
-  if (work === null)
-    return [NAMES.letter];
-  return [NAMES.letter, NAMES.board];
-}
-function renderRecent(recent) {
-  if (recent.entries.length === 0)
-    return "No earlier shifts.";
-  const earlier = recent.total - recent.entries.length;
-  const shifts = (n) => n === 1 ? "1 shift" : `${n} shifts`;
-  const lines = recent.entries.map((entry) => entry.letter === undefined ? `- ${entry.name} \xB7 ${readAbout(entry.about ?? "").description ?? "no about.md"}` : `<previous_letter shift="${entry.name}">
-${entry.letter.trim()}
-</previous_letter>`);
-  return [
-    `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
-    ...earlier > 0 ? [
-      `${shifts(earlier)} before them ${earlier === 1 ? "is" : "are"} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`
-    ] : [],
-    ...recent.entries.some((entry) => entry.letter !== undefined) ? ["Earlier letters describe past work. Continue from the current letter below."] : [],
-    "<shifts>",
-    ...lines,
-    "</shifts>"
-  ].join(`
-`);
-}
-function shiftMessage(opening, letter, back, closing = []) {
-  const { work, recent, dir, remarks } = back;
-  return [
-    `<${MOD} id="${dir}">`,
-    opening,
-    "",
-    "Your current board follows. The session files were read again after this shift.",
-    "",
-    renderWork(work, back.knowledge, back.owner),
-    "",
-    renderRecent(recent),
-    "",
-    ...remarks === null ? [] : ["Documents with remarks from the mod \u2014 fix them as the work passes by them:", "", remarks, ""],
-    "Your letter to yourself, written right before the shift:",
-    "",
-    `<letter shift="${dir}">`,
-    letter.trim(),
-    "</letter>",
-    "",
-    `Read saved records with shift_history using ID ${dir}.`,
-    ...closing,
-    `</${MOD}>`
-  ].join(`
-`);
-}
-var GUIDE_KNOWN = `You have shifted here before: use ${GUIDE_TOOL} for a specific record format or refusal.`;
-function continuePrompt(letter, back) {
-  return shiftMessage("Shift done. You continue from where you stopped.", letter, back, [GUIDE_KNOWN, `Continue from "${NEXT}".`]);
-}
-var WAKE = `The shift is done and your letter is above. Continue from "${NEXT}".`;
-function waitContext(letter, back) {
-  return shiftMessage("You shifted and waited for the owner; the owner's message comes with this one.", letter, back, [GUIDE_KNOWN]);
-}
-function resumePrompt(letter, back, outcome = null) {
-  return shiftMessage(`You pick up the work from the last shift: this is a new session, you have no history of the previous one, only the records.${outcome === null ? "" : ` That shift did not finish \u2014 "${outcome}": its letter was written when it was accepted, the records below are as they are now; where they differ, the records are the later state.`}`, letter, back, [
-    `Past shifts \u2014 ${HISTORY_TOOL}; archived tasks \u2014 the project Beads command in your session instructions; how a shift works \u2014 ${GUIDE_TOOL}.`,
-    `Check "${NEXT}" against what is on disk now and continue from the first step not done; the owner's accompanying request takes priority.`
-  ]);
-}
-var RESUME_GO = `<${MOD} note="from the mod after /${RESUME_COMMAND}">Pick up from the shift above: continue from "${NEXT}".</${MOD}>`;
-var SHIFT_NOW = (words) => `<${MOD} note="from the owner's /${SHIFT_COMMAND}">The owner asks you to shift now, whether a hint has come or not. Bring the step in hand to a point the letter can name, keep your records, write the letter and call ${TOOL}; choose after as the work needs.${words === "" ? "" : ` The owner's words: ${words}`}</${MOD}>`;
-var TURN_END = {
-  continue: "End the turn with one line and do nothing more",
-  wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
-};
-var ACCEPTED = (dir, after) => `Shift accepted, read its records with shift_history ID ${dir}. ${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
-var NOT_IGNORED = `${DIR}/ could not be excluded from this project's git. Check the local exclude file and any overriding rules. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
-var EXCLUDED = (file) => `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`;
-var SHIFT_TOO_EARLY = (why) => `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown \u2014 after the first hint.`;
-var OUTSIDE_NAME = (word) => new RegExp(`(?<![\\w./-])(?:${word})(?![\\w/-]|\\.\\w)`, "gi");
-function ourWords(why) {
-  return why.replace(OUTSIDE_NAME("compaction|summarization|compression"), "let-go").replace(OUTSIDE_NAME("(?:compact|summari[sz]e|compress)(?:s|ed|ing)?"), "let go").replace(OUTSIDE_NAME("summary"), "digest");
-}
-var NOT_MADE_NOTE = (name, why) => `<${MOD} note="from the mod: the shift was not made">
-Shift ${name} was not made \u2014 ${why}. Nothing was let go: your history is whole, and your records stay as you wrote them; its saved records remain in history. Go on from where you stopped, and shift again later.
-</${MOD}>`;
-var UNSETTLED_NOTE = (name, why, dir) => `<${MOD} note="from the mod: the history was let go, the records were not handed back">
-Shift ${name}: the history was let go, but the mod could not hand your records back \u2014 ${why}. Read the letter of this shift, shift_history(action="read", id="${dir}") \u2014 the one it accepted, whatever ${LETTER} holds now \u2014 then ${BOARD}, and continue from "${NEXT}".
-</${MOD}>`;
-var HELD_NOTE = (texts) => `<${MOD} note="from the mod: the owner wrote while you shifted">The owner sent ${texts.length === 1 ? "this message" : `these ${texts.length} messages`} while the history was let go; the mod held ${texts.length === 1 ? "it" : "them"} back to reach you after your letter. ${texts.length === 1 ? "It goes" : "They go"} first, before "${NEXT}".</${MOD}>
-
-${texts.join(`
-
-`)}`;
-var FAILURE_NOTE = "the note that the shift failed";
 
 // core/src/texts/rows.ts
 var TOLD = (body) => `to the agent \u2014 ${body.split(`
@@ -1899,6 +1943,9 @@ async function acceptShift(project, call) {
     return { deny: 'Start "Where I am" with a paragraph describing the work and its outcome.' };
   if (description.length > ABOUT_MAX)
     return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` };
+  const kept = await keepRecordsOut(project);
+  if ("deny" in kept)
+    return kept;
   if (settings.enabled)
     await refreshDocs(project);
   const work = await readRecords(project);
@@ -1908,9 +1955,6 @@ async function acceptShift(project, call) {
   const workProblem = await currentWorkProblem(project, work, entries);
   if (workProblem !== null)
     return { deny: workProblem };
-  const kept = await keepRecordsOut(project);
-  if ("deny" in kept)
-    return kept;
   const shift = {
     after: input.after,
     letter,
@@ -2036,41 +2080,6 @@ async function shiftBase(project, sessionId) {
   const entries = await savedEntries(project);
   const last = entries.toReversed().find((e) => e.state === "complete" && readAbout(e.about).session === sessionId);
   return last ? shiftFill(last.about, sessionId) : null;
-}
-async function keepRecordsOut(project) {
-  const { store, root } = project;
-  if (project.settings.commit)
-    return { excluded: null };
-  const check = () => store.git(root, ["check-ignore", "-q", `${DIR}/`]);
-  const ignored = await check();
-  if (ignored === null || ignored.code === 0)
-    return { excluded: null };
-  if (ignored.code !== 1) {
-    const repo = await store.git(root, ["rev-parse", "--is-inside-work-tree"]);
-    return repo?.stdout.trim() === "true" ? { deny: NOT_IGNORED } : { excluded: null };
-  }
-  const found = await store.git(root, ["rev-parse", "--git-path", "info/exclude"]);
-  const path = found === null || found.code !== 0 ? "" : found.stdout.trim();
-  if (path === "")
-    return { deny: NOT_IGNORED };
-  const file = path.startsWith("/") ? path : `${root}/${path}`;
-  const existing = await store.read(file);
-  if (existing === null && await store.exists(file, "checked"))
-    return { deny: NOT_IGNORED };
-  const text = existing ?? "";
-  if (text.split(/\r?\n/).includes(`${DIR}/`))
-    return { deny: NOT_IGNORED };
-  try {
-    await store.write(file, `${text}${text === "" || text.endsWith(`
-`) ? "" : `
-`}${DIR}/
-`, existing);
-  } catch (error) {
-    if ((await check())?.code === 0)
-      return { excluded: null };
-    throw error;
-  }
-  return (await check())?.code === 0 ? { excluded: file } : { deny: NOT_IGNORED };
 }
 async function sessionFiles(project, { refresh = true } = {}) {
   const { store, root, settings } = project;
@@ -3162,8 +3171,14 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
     };
     return p;
   };
-  if (source === null && await store.exists(path))
-    return project(null, `Cannot read ${SETTINGS}.`);
+  if (source === null) {
+    try {
+      if (await store.exists(path, "checked"))
+        return project(null, `Cannot read ${SETTINGS}.`);
+    } catch (error) {
+      return project(null, `Cannot read ${SETTINGS}: ${String(error)}`);
+    }
+  }
   if (!lifecycle) {
     const parsed = parseSettings(source ?? "");
     if (typeof parsed === "string") {
@@ -3197,7 +3212,7 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
     const records = !current.settings.enabled && !current.settings.commit && store.nativeRecords ? new WorkingRecords(current, store, letterSession ?? "").store() : current.working?.store() ?? store;
     const staged = legacy || current.settings.docs.exclude.length ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude) : null;
     if (source !== document.next) {
-      if (await store.read(path) !== source || source === null && await store.exists(path))
+      if (await store.read(path) !== source || source === null && await store.exists(path, "checked"))
         throw new Error("Settings changed during initialization. Retry at the next session start.");
       await store.write(path, document.next, source);
     }
@@ -3501,6 +3516,11 @@ async function editRecord(p, raw) {
   if (!w)
     throw new Error("This project uses file-backed records. Edit its Markdown files directly.");
   const action = field(raw, "action");
+  if (!["list", "read", "drafts"].includes(action)) {
+    const kept = await keepRecordsOut(p);
+    if ("deny" in kept)
+      throw new Error(kept.deny);
+  }
   if (action === "import") {
     const names = await w.importFiles();
     return names.length ? `Imported ${names.join(", ")}. Originals remain on disk.` : "No new internal files to import.";
@@ -3812,7 +3832,9 @@ async function startSession(project, knownCommand) {
   }
   if (await project.store.exists(`${project.root}/${DIR}`)) {
     const kept = await keepRecordsOut(project);
-    if ("excluded" in kept && kept.excluded !== null)
+    if ("deny" in kept)
+      rows.push({ text: kept.deny, level: "warning" });
+    else if (kept.excluded !== null)
       rows.push({ text: EXCLUDED(kept.excluded), level: "info" });
   }
   return result();
@@ -3966,9 +3988,9 @@ var nodeStore = {
     }
   },
   git: (root, args) => new Promise((done) => {
-    execFile("git", ["-C", root, ...args], (error, stdout) => {
+    execFile("git", ["-C", root, ...args], { env: { ...process.env, LC_ALL: "C" } }, (error, stdout, stderr) => {
       const code = error === null ? 0 : error.code;
-      done(typeof code === "number" ? { code, stdout } : null);
+      done(typeof code === "number" ? { code, stdout, stderr } : null);
     });
   })
 };

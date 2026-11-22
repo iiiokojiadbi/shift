@@ -5,11 +5,12 @@ import { renderHistory, renderSummary } from './history'
 import { ABOUT_MAX, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
 import { formatK, frontmatter, openingParagraph, sections, textFingerprint } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
+import { keepRecordsOut } from './privacy'
 import type { Project } from './project'
 import { checkLetter, checkWork, checkWritten, ownerRevisionProblem } from './records'
 import { archiveCall, hasArchive, readSaved, retention, type SavedEntry, savedEntries, savedFiles } from './saved'
 import { readRecords, recentShifts } from './store'
-import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
+import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
 import type { HandedBack, PendingShift, SessionFile, Settled, ShiftInput, WaitNote, Work } from './types'
 
@@ -144,14 +145,14 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if (description.length > ABOUT_MAX)
     return { deny: `Shorten the opening paragraph of "Where I am" to ${ABOUT_MAX} characters. Keep further details in the next paragraph.` }
 
+  const kept = await keepRecordsOut(project)
+  if ('deny' in kept) return kept
   if (settings.enabled) await refreshDocs(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
   const entries = await savedEntries(project)
   const workProblem = await currentWorkProblem(project, work, entries)
   if (workProblem !== null) return { deny: workProblem }
-  const kept = await keepRecordsOut(project)
-  if ('deny' in kept) return kept
 
   const shift: PendingShift = {
     after: input.after,
@@ -322,36 +323,6 @@ export async function shiftBase(project: Project, sessionId: string): Promise<nu
   return last ? shiftFill(last.about, sessionId) : null
 }
 
-// Unless the owner lets the project commit them, the records stay out of its git: when they are not ignored, the mod
-// adds them to the repository's own exclude file. The exclude file's path when it did; null when nothing was needed.
-export async function keepRecordsOut(project: Project): Promise<{ excluded: string | null } | { deny: string }> {
-  const { store, root } = project
-  if (project.settings.commit) return { excluded: null }
-  const check = () => store.git(root, ['check-ignore', '-q', `${DIR}/`])
-  const ignored = await check()
-  if (ignored === null || ignored.code === 0) return { excluded: null }
-  if (ignored.code !== 1) {
-    const repo = await store.git(root, ['rev-parse', '--is-inside-work-tree'])
-    return repo?.stdout.trim() === 'true' ? { deny: NOT_IGNORED } : { excluded: null }
-  }
-  // git names it relative to the root, or absolute in a linked worktree.
-  const found = await store.git(root, ['rev-parse', '--git-path', 'info/exclude'])
-  const path = found === null || found.code !== 0 ? '' : found.stdout.trim()
-  if (path === '') return { deny: NOT_IGNORED }
-  const file = path.startsWith('/') ? path : `${root}/${path}`
-  const existing = await store.read(file)
-  if (existing === null && (await store.exists(file, 'checked'))) return { deny: NOT_IGNORED }
-  const text = existing ?? ''
-  if (text.split(/\r?\n/).includes(`${DIR}/`)) return { deny: NOT_IGNORED }
-  try {
-    await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`, existing)
-  } catch (error) {
-    if ((await check())?.code === 0) return { excluded: null }
-    throw error
-  }
-  return (await check())?.code === 0 ? { excluded: file } : { deny: NOT_IGNORED }
-}
-
 // Rebuild older cached blocks that could contain an unpublished documentation map.
 export const SESSION_FILES_VERSION = 6
 
@@ -383,3 +354,5 @@ export async function tasksView(project: Project): Promise<string> {
     return `${taskInstructions()}\n${String(error)}`
   }
 }
+
+export { keepRecordsOut } from './privacy'

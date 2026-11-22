@@ -248,7 +248,8 @@ export async function startSession(project: Project, knownCommand?: TaskCommandP
   }
   if (await project.store.exists(`${project.root}/${DIR}`)) {
     const kept = await keepRecordsOut(project)
-    if ('excluded' in kept && kept.excluded !== null) rows.push({ text: EXCLUDED(kept.excluded), level: 'info' })
+    if ('deny' in kept) rows.push({ text: kept.deny, level: 'warning' })
+    else if (kept.excluded !== null) rows.push({ text: EXCLUDED(kept.excluded), level: 'info' })
   }
 
   return result()

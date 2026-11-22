@@ -1,3 +1,5 @@
+import { keepRecordsOut } from './privacy'
+
 // Names in the release bundle. Only these upstream builds include the embedded engine.
 export function beadsExecutable(platform: string, arch: string): string | null {
   const system = platform.toLowerCase()
@@ -12,6 +14,8 @@ export type TaskCommandPath = './.shift/bin/shift-task' | './.shift/bin/shift-ta
 
 export async function installTaskCommand(project: import('./project').Project): Promise<TaskCommandPath> {
   if (!project.store.beads) throw new Error('The bundled runtime is unavailable.')
+  const kept = await keepRecordsOut(project)
+  if ('deny' in kept) throw new Error(kept.deny)
   const path = (await project.store.beads(project.root, ['shift-install-task'])).trim()
   if (path !== './.shift/bin/shift-task' && path !== './.shift/bin/shift-task.exe')
     throw new Error('The bundled runtime did not confirm the shift-task command.')

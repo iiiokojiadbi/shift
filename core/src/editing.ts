@@ -1,6 +1,7 @@
 import { DIR, SHIFT_FILE } from './layout'
 import { pendingMap } from './map-import'
 import { sectionRange } from './markdown'
+import { keepRecordsOut } from './privacy'
 import type { Project } from './project'
 import { recordProblem } from './records'
 import { archiveCall } from './saved'
@@ -32,6 +33,10 @@ export async function editRecord(p: Project, raw: Record<string, unknown>) {
   const w = p.working
   if (!w) throw new Error('This project uses file-backed records. Edit its Markdown files directly.')
   const action = field(raw, 'action')
+  if (!['list', 'read', 'drafts'].includes(action)) {
+    const kept = await keepRecordsOut(p)
+    if ('deny' in kept) throw new Error(kept.deny)
+  }
   if (action === 'import') {
     const names = await w.importFiles()
     return names.length ? `Imported ${names.join(', ')}. Originals remain on disk.` : 'No new internal files to import.'

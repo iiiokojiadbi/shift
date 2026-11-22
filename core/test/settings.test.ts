@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { acceptShift, sessionFiles } from '../src/flows'
 import { atPlaces } from '../src/layout'
 import { loadProject } from '../src/project'
-import { readSaved } from '../src/saved'
+import { readSaved, retention } from '../src/saved'
 import { DEFAULT_SETTINGS, parseSettings, SETTING_KEYS } from '../src/settings'
 import { renderWork, unassistedInstructions } from '../src/texts/prompts'
 import { startSession, TOOLS } from '../src/tools'
@@ -167,6 +167,28 @@ test('initialization skips the previous skill layout and preserves unreadable fi
   store.read = async () => null
   expect((await open(store)).problem).toContain('Cannot read')
   expect(store.files.get(settingsPath)).toBe('private')
+})
+
+test('inaccessible settings defer rotation and startup writes until access returns', async () => {
+  const source = 'enabled = false\n[history]\nfull = 2\nbrief = 18'
+  const store = memoryStore({ [settingsPath]: source })
+  const { exists, read } = store
+  store.read = async path => (path === settingsPath ? null : read(path))
+  store.exists = async (path, mode) => {
+    if (path !== settingsPath) return exists(path, mode)
+    if (mode === 'checked') throw new Error('EACCES')
+    return false
+  }
+  for (const project of [await loadProject(store, ROOT), await open(store)]) {
+    expect(project.problem).toContain('EACCES')
+    expect(retention(project)).toEqual({ deferRotation: true })
+  }
+  expect(store.files.get(settingsPath)).toBe(source)
+  store.read = read
+  store.exists = exists
+  const recovered = await open(store)
+  expect(recovered.settings.enabled).toBe(false)
+  expect(retention(recovered)).toEqual({ limit: 20 })
 })
 
 test('a failed map import retries from the original schema and an existing internal map takes priority', async () => {

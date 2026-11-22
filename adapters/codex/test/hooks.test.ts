@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { appendFile, chmod, mkdir, readFile, rmdir, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { settingsDocument } from '../../../core/src/settings'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
@@ -627,6 +628,56 @@ test('disabled startup reports a failed migration and subsequent hooks keep the 
     stopReason: 'Shift is disabled in this project.',
   })
   expect(await rawHook('PreToolUse', { tool_name: 'mcp__other__lookup' })).toEqual({})
+})
+
+test.each(['current', 'unversioned'])('private writes wait for a working Git exclusion with %s settings', async schema => {
+  const { root, hook, rawHook } = await fixture()
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
+  git('init', '-q', '--template=')
+  git('config', 'core.excludesFile', join(root, '.git/empty-excludes'))
+  const input = '[tasks]\nprepare = "on_start"\n[docs]\ndirs = ["docs", "later"]\n'
+  const canonical = settingsDocument(input, true)
+  if (typeof canonical === 'string') throw new Error(canonical)
+  const source = schema === 'current' ? canonical.next : input
+  const settings = join(root, '.shift/settings.toml')
+  const db = join(root, '.shift/history.db')
+  const launcher = join(root, '.shift/bin', process.platform === 'win32' ? 'shift-task.exe' : 'shift-task')
+  await writeFile(settings, source)
+  await writeFile(join(root, '.gitignore'), '!.shift/\n')
+  expect(await hook('SessionStart')).toContain('overriding rules')
+  expect(await Bun.file(db).exists()).toBe(false)
+  expect(await Bun.file(launcher).exists()).toBe(false)
+  await mkdir(join(root, 'later'))
+  await hook('UserPromptSubmit', { prompt: 'Continue.' })
+  expect((await rawHook('UserPromptSubmit', { prompt: '$shift:tasks' })).stopReason).toContain('overriding rules')
+  expect(await Bun.file(db).exists()).toBe(false)
+  expect(await Bun.file(launcher).exists()).toBe(false)
+  expect(await readFile(settings, 'utf8')).toBe(source)
+  await unlink(join(root, '.gitignore'))
+  expect(await hook('SessionStart')).toContain('docs/example.md')
+  expect(await Bun.file(db).exists()).toBe(true)
+  expect(await Bun.file(launcher).exists()).toBe(true)
+  expect(git('check-ignore', '.shift/history.db').trim()).toBe('.shift/history.db')
+})
+
+test('an unreadable Git configuration defers private migration until Git can verify its exclusion', async () => {
+  const { root, hook } = await fixture()
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
+  git('init', '-q', '--template=')
+  git('config', 'core.excludesFile', join(root, '.git/empty-excludes'))
+  const config = join(root, '.git/config')
+  const original = await readFile(config, 'utf8')
+  const settings = join(root, '.shift/settings.toml')
+  const source = '[files]\nshift = "docs/example.md"'
+  await writeFile(settings, source)
+  await writeFile(config, '[core\n')
+  expect(await hook('SessionStart')).toContain('could not be excluded')
+  expect(await readFile(settings, 'utf8')).toBe(source)
+  expect(await Bun.file(join(root, '.shift/history.db')).exists()).toBe(false)
+  await writeFile(config, original)
+  expect(await hook('SessionStart')).toContain('A fixture')
+  expect(await Bun.file(join(root, '.shift/history.db')).exists()).toBe(true)
+  expect(git('check-ignore', '.shift/history.db').trim()).toBe('.shift/history.db')
 })
 
 test('a disabled private migration protects the database before writing and repairs an old missing exclusion', async () => {

@@ -65,7 +65,13 @@ export async function loadProject(
     }
     return p
   }
-  if (source === null && (await store.exists(path))) return project(null, `Cannot read ${SETTINGS}.`)
+  if (source === null) {
+    try {
+      if (await store.exists(path, 'checked')) return project(null, `Cannot read ${SETTINGS}.`)
+    } catch (error) {
+      return project(null, `Cannot read ${SETTINGS}: ${String(error)}`)
+    }
+  }
   if (!lifecycle) {
     const parsed = parseSettings(source ?? '')
     if (typeof parsed === 'string') {
@@ -103,7 +109,7 @@ export async function loadProject(
         ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude)
         : null
     if (source !== document.next) {
-      if ((await store.read(path)) !== source || (source === null && (await store.exists(path))))
+      if ((await store.read(path)) !== source || (source === null && (await store.exists(path, 'checked'))))
         throw new Error('Settings changed during initialization. Retry at the next session start.')
       await store.write(path, document.next, source)
     }

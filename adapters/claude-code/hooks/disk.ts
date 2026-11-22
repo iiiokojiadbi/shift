@@ -68,9 +68,9 @@ export function claudeStore($: EngineInterface): Store {
       }
     },
     git: async (root, args) => {
-      const ran = await $.process.run(['git', '-C', root, ...args]).catch(() => null)
+      const ran = await $.process.run(['git', '-C', root, ...args], { env: { LC_ALL: 'C' } }).catch(() => null)
 
-      return ran === null ? null : { code: ran.exitCode, stdout: ran.stdout }
+      return ran === null ? null : { code: ran.exitCode, stdout: ran.stdout, stderr: ran.stderr }
     },
   }
 }

@@ -12,6 +12,7 @@ import {
   unfenced,
 } from './markdown'
 import { basename, dirname, fromRoot, isInside, normalize, resolvePath } from './paths'
+import { keepRecordsOut } from './privacy'
 import type { Project } from './project'
 import { knowledgeMap } from './records'
 import type { DocsSettings, Settings } from './settings'
@@ -514,7 +515,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   if (legacy && current === null && (await store.exists(`${root}/${legacy}`, 'checked').catch(() => true))) return docs
   if (current === null && !docs.length && !knowledge) return docs
   const map = withMap(current, renderMap(docs, settings, missing, knowledge))
-  if (map !== current) await store.write(shift, map)
+  if (map !== current && !('deny' in (await keepRecordsOut(project)))) await store.write(shift, map)
 
   return docs
 }

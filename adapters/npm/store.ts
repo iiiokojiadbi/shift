@@ -91,10 +91,10 @@ export const nodeStore: Store = {
   },
   git: (root, args) =>
     new Promise(done => {
-      execFile('git', ['-C', root, ...args], (error, stdout) => {
+      execFile('git', ['-C', root, ...args], { env: { ...process.env, LC_ALL: 'C' } }, (error, stdout, stderr) => {
         // A number is git's exit code; a string (ENOENT) means there is no git to run.
         const code = error === null ? 0 : error.code
-        done(typeof code === 'number' ? { code, stdout } : null)
+        done(typeof code === 'number' ? { code, stdout, stderr } : null)
       })
     }),
 }

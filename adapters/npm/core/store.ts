@@ -25,7 +25,7 @@ export type Store = {
   // During migration, distinguish a missing path from a failed filesystem lookup.
   exists(path: string, mode?: 'checked'): Promise<boolean>
   // Runs git with `args` in `root`: its exit code and what it printed; null when there is no git to run.
-  git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string } | null>
+  git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string; stderr?: string } | null>
 }
 
 export async function readKnowledge({ store, root }: Project): Promise<KnowledgeFile[]> {
