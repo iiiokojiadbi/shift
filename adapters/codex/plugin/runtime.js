@@ -3228,7 +3228,8 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
 }
 // core/src/texts/tools.ts
 var TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready \u2014 how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner \u2014 it is all they read. Only the main agent shifts: a subagent's call is refused.`;
-var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`;
+var GUIDE_SECTIONS = ["flow", "records", "migration"];
+var GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for documentation and keeping records. Use "migration" for upgrading an existing project and retiring old files.`;
 var SETUP_DESCRIPTION = "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale.";
 var TASKS_DESCRIPTION = "Show the project-local Beads command for listing tasks";
 var SETUP_SCHEMA = { type: "object", properties: {} };
@@ -3250,7 +3251,7 @@ var MENTIONS_SCHEMA = {
 var GUIDE_SCHEMA = {
   type: "object",
   properties: {
-    section: { type: "string", enum: ["flow", "records"], description: "Optional part to read. Omit for the complete guide." }
+    section: { type: "string", enum: [...GUIDE_SECTIONS], description: "Optional part to read. Omit for the complete guide." }
   }
 };
 var HISTORY_SCHEMA = {
@@ -3358,6 +3359,23 @@ var TOOL_TEXTS = {
   }
 };
 
+// core/src/texts/upgrade-guide.ts
+var UPGRADE_GUIDE = `## Upgrading an existing project
+
+### What startup upgrades
+
+At session start, Shift creates or upgrades \`settings.toml\`. It fills defaults and help comments, preserves supported values including \`enabled = false\`, and drops retired keys. With private records, it checks that Git ignores \`.shift/\` before migrating. An unreadable or invalid settings file, a newer schema or a Git exclusion conflict needs attention before proceeding. A directory with \`.shift/sessions/\` and no board belongs to the separate shift skill. Check the project root and leave that workspace alone.
+
+When the old settings pointed to an external map with \`[files] shift\`, startup copies it into the project's internal map if one does not already exist. It rebuilds the generated section, excludes the former path from automatic documentation updates and keeps the original. If the source is inaccessible, startup keeps the old setting and retries at a later start. An existing internal map takes precedence. For an ordinary loose \`SHIFT.md\` inside \`.shift/\`, use the record import below.
+
+### What the agent does
+
+1. Inventory \`.shift/\`, configured file sources and any pending work. Stop other writers and make a verified private backup outside \`.shift/\` before the upgrade where possible, and always before editing or retiring originals. Check the effective settings and diagnostics with \`shift_setup\`.
+2. Run \`shift_record(action="import")\` for existing internal \`board.md\`, \`letter.md\`, \`OWNER.md\`, \`GLOSSARY.md\`, \`SHIFT.md\` and top-level \`knowledge/*.md\`. The tool validates the missing records as a batch. If it refuses, fix the named source or explicitly archive an obsolete record, then retry. Existing database revisions and loose sources are preserved. A loose letter imported this way seeds chats until they write their own. With \`commit = true\`, edit the configured files directly. In every project, explicit file sources stay in use at their configured paths.
+3. Review the content before cleanup. Keep the board's current goals and focus. Move lasting decisions and lessons to the appropriate records. If a legacy \`knowledge/glossary.md\` blocks import, merge its terms into the configured glossary and move the old file out of \`.shift/\`. If it already exists in the database, retire its loose source first, then use \`shift_record(action="delete", name="knowledge/glossary.md", revision=...)\` with its current revision. Preserve unresolved owner rules and update the record to the current format when editing it. If the board, owner record or letter is missing, use the guide's \`records\` and \`flow\` sections to rebuild it from the project's current evidence.
+4. Read records back with \`shift_record(action="read", name=...)\` and compare with the loose sources, including sources the import skipped because the database already had a record. Reconcile differences before retiring either version. For \`SHIFT.md\`, compare the project-authored rules because Shift regenerates the map. Run \`shift_setup\` again. Move verified loose duplicates into the private archive. Check references to an external map before retiring that copy. Keep \`settings.toml\`, \`history.db\`, recoverable drafts, configured files and the optional \`bin/\` and \`beads/\` directories.
+5. Archive the old \`shifts/\`, \`briefs/\` and \`archive/\` after checking their contents. \`shift_history\` starts with new shifts. Even the most recent loose snapshots remain available only through the private archive. Review \`TASKS.md\` and \`tasks/\` separately. If using Beads, prepare it with \`shift_setup(section="tasks")\`, migrate useful tasks with their status, links and notes, and check them by ID before retiring the old task files. Projects that do not need a tracker can archive the old tasks after reviewing any outstanding work. Keep other files until you know their purpose.`;
+
 // core/src/texts/doctrine.ts
 function described(names, texts) {
   return names.map((name, at) => `- "${name}" \u2014 ${texts[name]}${at === names.length - 1 ? "." : ";"}`).join(`
@@ -3425,7 +3443,9 @@ The project's main session owns the shift. Delegated agents return their work to
 
 ## Board and letter
 
-\`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board \u2014 create it. Before starting the next item, record the outcome of this one. Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
+
+Update project documentation alongside changes to interfaces, workflows or design. When you find stale guidance, verify it against the code and fix it before moving on. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ""}Shift refreshes the documentation map each time you shift. Accurate descriptions and section names help you find what you need and resume work without repeating the investigation.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The map stays in ${SHIFT_FILE}. The settings can place the owner record and glossary elsewhere in the project.
 
@@ -3433,7 +3453,7 @@ When continuing a tracked issue, include its ID in the letter. Under Goal, use a
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Write each decision as a bullet followed by Permanent or Until <observable event>, optionally prefixed with "[tasks ID] \xB7 ". Revisit affected conditions when related work ends. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation, knowledge topics and pinned advice. Use \`${READ_TOOL}\` to read the relevant section. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
-Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
+Read \`${GUIDE_TOOL}\` before your first shift in this project. For documentation and records use section "records". For the letter, a refusal or how to continue, use "flow". When upgrading a project with old .shift files, use "migration".
 
 ## When to shift
 
@@ -3451,7 +3471,7 @@ function doctrine(tools, command) {
 ${doctrineBody(tools, command)}
 </${MOD}>`;
 }
-var DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
+var DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. When you encounter stale guidance, check the implementation and correct it within the project's knowledge rules. Keep descriptions and headings accurate so you can find the details again after a shift.
 
 1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
 2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
@@ -3485,7 +3505,9 @@ Call shift with the letter path and after. Choose continue for autonomous work a
 List saved shifts with shift_history. For an older page, pass the oldest listed ID as before. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Completed shifts supply the earlier descriptions and full letters, in that order. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
-${GUIDE_RECORDS}`;
+${GUIDE_RECORDS}
+
+${UPGRADE_GUIDE}`;
 
 // core/src/editing.ts
 function field(raw, name) {
@@ -3664,14 +3686,16 @@ async function sizeReport(project, counter) {
 }
 
 // core/src/tools.ts
+var guides = { flow: GUIDE_FLOW, records: GUIDE_RECORDS, migration: UPGRADE_GUIDE };
 var ROWS = [
   {
     name: GUIDE_TOOL,
     run: async (raw, call) => {
-      if (raw.section !== undefined && raw.section !== "flow" && raw.section !== "records")
-        return { deny: "section must be flow or records." };
+      const section = GUIDE_SECTIONS.find((candidate) => candidate === raw.section);
+      if (raw.section !== undefined && !section)
+        return { deny: `section must be one of ${GUIDE_SECTIONS.join(", ")}.` };
       const project = await call.project();
-      const guide = raw.section === "flow" ? GUIDE_FLOW : raw.section === "records" ? GUIDE_RECORDS : GUIDE;
+      const guide = section ? guides[section] : GUIDE;
       return { result: atPlaces(guide.trimEnd(), project.settings.files) };
     }
   },

@@ -4,6 +4,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { sectionRange } from '../core/src/markdown'
 
 const ROOT = join(import.meta.dirname, '..')
 const SOURCE = 'core/src'
@@ -19,8 +20,24 @@ const sources = files.list(SOURCE)
 if (sources.length === 0) throw new Error(`no .ts files in ${SOURCE}: nothing to copy, and nothing is removed`)
 const stale: string[] = []
 
+const RECORDS_DOC = 'docs/records.md'
+const GUIDE_FILE = 'texts/upgrade-guide.ts'
+const records = files.read(RECORDS_DOC)?.replaceAll('\r\n', '\n')
+if (records === undefined) throw new Error(`${RECORDS_DOC} is missing`)
+const { first, after } = sectionRange(records, 'Upgrading an existing project')
+const chapter = records.split('\n').slice(first, after).join('\n').trimEnd()
+if (!chapter.includes('\n')) throw new Error(`Missing upgrade instructions in ${RECORDS_DOC}`)
+const escapedChapter = chapter.replaceAll('\\', '\\\\').replaceAll('`', '\\`').replaceAll('${', '\\${')
+const guide = `${header(RECORDS_DOC)}export const UPGRADE_GUIDE = \`${escapedChapter}\`\n`
+const guidePath = join(SOURCE, GUIDE_FILE)
+if (files.read(guidePath) !== guide) {
+  stale.push(guidePath)
+  if (!check) writeFileSync(join(ROOT, guidePath), guide)
+}
+if (!sources.includes(GUIDE_FILE)) sources.push(GUIDE_FILE)
+
 for (const target of TARGETS) {
-  const wanted = new Map(sources.map(name => [name, header(SOURCE) + files.read(join(SOURCE, name))]))
+  const wanted = new Map(sources.map(name => [name, name === GUIDE_FILE ? guide : header(SOURCE) + files.read(join(SOURCE, name))]))
   const present = files.list(target)
 
   for (const [name, text] of wanted) {

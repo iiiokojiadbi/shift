@@ -16,9 +16,9 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 2. **When to shift.** A soft hint invites the agent to shift at a stage boundary. A final hint tells it to check the records, write its letter and shift immediately. Small windows receive only the final hint.
 3. **The letter.** Before a shift the agent edits its working `letter.md` with `shift_record`: where it is, what is next, what is unverified, and what the harness must hold.
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, invalid records or no recorded progress. Then it saves the letter and project records in `.shift/history.db` and has the harness let the history go, steered by the letter's Hold.
-5. **Back to work.** The next message carries the records, the last shifts in brief and the letter, last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.
+5. **Back to work.** The next message carries the project records, earlier shifts according to the history settings, and the current letter last. With `continue` the agent goes on by itself. With `wait` it stops, and the letter arrives with the owner's next message.
 
-The session always starts with `SHIFT.md` (where knowledge goes, and a map of the project's docs and local knowledge topics), `OWNER.md`, `GLOSSARY.md` and instructions for opening project issues with Beads, so the agent knows what is written down before it needs it.
+An enabled project gives the agent its available session records. `SHIFT.md` maps project docs and local knowledge. `OWNER.md` and `GLOSSARY.md` carry standing decisions and project terms. The agent keeps the docs current during the work so it can find the right details after a shift.
 
 ### Project tasks
 
@@ -74,7 +74,7 @@ The same npm package as pi's; opencode 2.x.
 
 | Selected action | Result |
 |---|---|
-| `$shift:unshift review the project` | In a fresh session, the agent receives your request and the latest saved letter with the board in the same turn. Omit the request to continue from the letter. |
+| `$shift:unshift review the project` | Restore a pending letter for this chat or the latest saved shift, with the board and your request in the same turn. Omit the request to continue from the letter. |
 | `$shift:shift` | Asks the agent to prepare its records and letter and perform a shift. You can add instructions such as `continue`. |
 | `$shift:sizes` | Prints estimated token counts by entity and for up to three saved letters. |
 | `$shift:tasks` | Shows the project command for listing tasks. |
@@ -92,18 +92,18 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | Tool | What it does |
 |---|---|
 | `shift` | make a shift: `letter`, `after` (`continue` or `wait`); history uses the opening paragraph of the letter |
-| `shift_guide` | full guide or one section, `flow` or `records` |
+| `shift_guide` | full guide or one section, `flow`, `records` or `migration` |
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |
-| `shift_record` | read and edit current Markdown, check out a temporary file import existing internal records or retire a knowledge record at its revision. [Working records](docs/records.md) |
+| `shift_record` | read or edit current Markdown, check out a temporary file, import existing internal records, or retire a knowledge record at its revision. [Working records](docs/records.md) |
 | `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
-| `shift_setup` | settings, record checks and session files. Use section `tasks` to prepare the task command and see its path |
+| `shift_setup` | settings, record checks and session files. Section `tasks` prepares the task command. Section `runtime` checks the bundled Beads executable |
 | `shift_read` | read a mapped document or knowledge file, optionally by exact heading |
 | `doc_outline` / `docs_mentioning` | a document's sections with line numbers; which documents mention a file |
 
 ## Settings
 
-`.shift/settings.toml` is created with project defaults at session start. Each setting has a comment explaining its accepted values. Shift upgrades older files, preserves supported values and removes retired settings. The top-level `schema_version` identifies the file format. See [settings and migration](docs/records.md#settings). The read-only `shift_setup` report lists the effective values.
+`.shift/settings.toml` is created with project defaults at session start. Each setting has a comment explaining its accepted values. The top-level `schema_version` identifies the file format. The read-only `shift_setup` report lists the effective values. To move an older project to the current layout, use `shift_guide(section="migration")` or follow [the upgrade guide](docs/records.md#upgrading-an-existing-project).
 
 | Key | Meaning |
 |---|---|
@@ -111,9 +111,9 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `[history]` `full`, `brief` | full letters including the current one (default 1), then the number of older descriptions (default 9). The archive keeps their sum. Undelivered letters are protected |
 | `[tasks]` `prepare` | `"on_demand"` (default) prepares the optional project command on explicit request. `"on_start"` prepares it at session start |
 | `[hints]` `soft` | `true` (default) allows the early reminder when the host has room. `false` keeps only the final reminder |
-| `knowledge` | where knowledge goes: `local` (`.shift/knowledge/`), `project` (the project's docs) or `split` |
-| `commit` | `true` lets the project's git take `.shift/` in; by default the mod keeps it out through the local exclude file |
-| `[files]` `owner`, `glossary` | where the owner record and glossary live. The map stays inside `.shift`. A previous `[files] shift` path can seed its rules once |
+| `knowledge` | where knowledge goes: `local`, `project` or `split`. Local records use logical names under `knowledge/` |
+| `commit` | `true` keeps working records file-backed and lets the project track them in Git. With private records Shift checks the local Git exclusion |
+| `[files]` `owner`, `glossary` | explicit file paths for the owner record and glossary. The documentation map has a fixed logical path inside `.shift` |
 | `[files]` `always` | the project's own files loaded whole into every session |
 | `[docs]` `dirs` | the folders and individual files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
 | `[docs]` `max_depth` | levels below each listed directory, default 8. Set 0 for direct children only. Explicit file paths work at any depth |

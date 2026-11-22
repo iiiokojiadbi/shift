@@ -17,8 +17,8 @@ A model rarely shifts by itself: without a hint it does not, and a frequent hint
 
 Use the harness's own let-go threshold as the effective limit L, falling back to its reported window. The base is the first reading after a shift. An adapter can supply reminder targets calibrated for its reported window; the Codex targets are in `docs/adapters.md`.
 
-- **Soft.** Set `[hints] soft = false` to skip this reminder, including calibrated host targets. The final threshold stays in force. By default, offer one optional shift at 60% of L once the stretch has grown by at least 200K tokens. Skip it if the current reading leaves less than 10% of L before the final. This gives the agent time to finish meaningful work between the two signals.
-- **Final.** At 84% of L, tell the agent to shift immediately, using its letter to carry any unfinished thought. A stretch that starts at or above the final milestone must first grow by 5% of L to avoid a shift loop, capped at half the remaining room. A large jump can deliver the final directly. Each stretch gets at most one final reminder.
+- **Soft.** Set `[hints] soft = false` to skip this reminder, including calibrated host targets. By default, offer an optional shift from 60% of L after at least 200K tokens of growth. The reading must still leave 10% of L before the final target.
+- **Final.** The default target is 84% of L. A stretch that starts at or above it waits for 5% of L in new growth, capped at half the remaining room with a minimum of one token. A large jump can deliver the final directly. Each stretch gets at most one final reminder.
 - **Unassisted.** After the harness lets the history go by itself, the agent is told at its next look to read the board.
 - **Rebase.** A fill below the base or the last hint starts a new count there.
 

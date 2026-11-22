@@ -18,7 +18,8 @@ import {
 
 export const TOOL_DESCRIPTION = `Make a shift: the stretch's history is let go, and you continue from your letter to yourself (after: continue) or wait for the owner (after: wait). Before the call the board and the letter must be ready — how is in ${GUIDE_TOOL}, read once per project. After the call, end the turn: one line with continue; with wait, your whole answer to the owner — it is all they read. Only the main agent shifts: a subagent's call is refused.`
 
-export const GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for writing project documentation during work and maintaining the board, owner decisions, knowledge and archive.`
+export const GUIDE_SECTIONS = ['flow', 'records', 'migration'] as const
+export const GUIDE_DESCRIPTION = `Read once before your first shift in a project. Use section "flow" for the shift, letter, refusals and saved history. Use "records" for documentation and keeping records. Use "migration" for upgrading an existing project and retiring old files.`
 
 export const SETUP_DESCRIPTION =
   "How the mod is set up in this project: every key of settings.toml with its value here, its default and the mod's version it came in; the records by every check a shift makes; the files loaded into every session and whether this session's copy is older than them; the documents with remarks; the layout of .shift/. Call it when setting a project up, after the mod or the settings changed, or when the session's files look stale."
@@ -59,7 +60,7 @@ export const MENTIONS_SCHEMA = {
 export const GUIDE_SCHEMA = {
   type: 'object',
   properties: {
-    section: { type: 'string', enum: ['flow', 'records'], description: 'Optional part to read. Omit for the complete guide.' },
+    section: { type: 'string', enum: [...GUIDE_SECTIONS], description: 'Optional part to read. Omit for the complete guide.' },
   },
 }
 

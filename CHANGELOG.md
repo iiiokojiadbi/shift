@@ -4,10 +4,10 @@ The adapters share the project's version number. Newest first.
 
 ## Unreleased
 
-- Edit internal Markdown through `shift_record` in the project archive, with version-checked passage replacement, temporary drafts and isolated working letters for concurrent chats. Existing internal files can be imported.
-
-- Work with tasks through the bundled project command `./.shift/bin/shift-task`. Shift restores its own records independently of Beads. Existing issues retain their IDs, metadata and discussion. Shift ignores old task folders and file-based shift snapshots.
-- Shift history keeps independent snapshots, deduplicates matching records and retains 30 completed shifts by default. Saved IDs support comparison, export and local search.
+- Edit internal Markdown through `shift_record`, with version-checked replacements, drafts and a working letter per chat. Use `shift_guide(section="migration")` to adopt existing internal Markdown and retire older files safely.
+- Use the optional project command `./.shift/bin/shift-task`. Its `prime` shows Shift's conventions and the bundled Beads workflow. Tasks live in a private workspace separate from shift records.
+- Configure how much history to receive. By default Shift retains ten completed shifts. The agent receives one full letter and nine earlier descriptions, with complete snapshots readable by ID. Pending and undelivered shifts remain recoverable.
+- Project settings are created and upgraded at session start. Explicit supported choices and comments carry forward, and retired keys are removed.
 
 ## 0.40.0
 

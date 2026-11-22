@@ -23,11 +23,11 @@ The project is narrow: only this loop. Not a transport between sessions, not orc
 4. **Let-go.** After the turn ends the mod asks the harness to let the history go, with the letter's "Hold" as what to keep, and a direction to preserve reasoning while the board and letter return from disk. No harness lets a model let its own history go in the middle of a turn: it is done by something that outlives the turn.
 5. **Next stretch.** With `continue` the letter and the records start the next turn; with `wait` they ride with the owner's next message. There is no cap on `continue` in a row: the agent goes on through as many stretches as the work takes, each in a history that is not overfull. The owner sees a row for each: done and continuing, waiting, what went with their message, or why a shift was not made.
 
-The digest preserves the thread of thought, the letter explains what comes next, and the board and tasks describe where the work stands. When a letter names an issue, the agent can open it in Beads to read the current state. [Implementation roadmap](beads-roadmap.md)
+The digest carries reasoning, the letter gives the next step and the board sets the shared focus. The agent can open an issue in Beads when the letter names it. See [project records](records.md) for the contents and retention of each shift.
 
 ## How the model sees it
 
-- **Only "shift".** The words "compression", "summary", "compaction" are absent from everything the model reads: some models answer them with an `<analysis>`/`<summary>` text instead of a tool call.
+- **Use "shift" in Shift's instructions.** Harness terms such as "compaction" can prompt a model to write a summary instead of calling the tool. The adapters translate harness outcomes for the agent.
 - **What came from the mod is tagged.** The doctrine is `<shift note="…">`, what a shift hands back is `<shift id="…">` with the letter in `<letter shift="…">`, each record in `<file path="…">`. The knowledge map comes in the session file `SHIFT.md`. Records carry headings and code blocks of their own, so only a tag marks where a file ends, and the agent tells the mod's text from the owner's instructions at once.
 - **In what order.** A model reads the start of a context as a frame, the middle weakest, the end as what to do now. So a shift hands back the records first, then earlier descriptions and any configured historical letters oldest first, then the current letter last, right before the turn. A recent shift's line is its ID and description only: a column of past `wait` pulled the agent towards waiting.
 - **In English.** Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English; the readers are agents.
@@ -40,6 +40,5 @@ The digest preserves the thread of thought, the letter explains what comes next,
 
 ## Open questions
 
-1. **A verbatim tail.** Whether to keep the last turns unfolded. pi keeps `keepRecentTokens` anyway; opencode only through a setting (`tail_turns`); Claude Code would need its `messages` replaced — not checked.
-2. **The owner writes during the let-go.** In pi such a message waits until the continue has started; in Claude Code it may arrive in between — the count of continues is read late for that reason, but what the agent does with the message is not settled.
-3. **A hint that does not settle in the history.** Each hint stays in it; no harness has shown a channel that does not.
+1. **A shared policy for recent turns.** Adapters inherit their harness's retention behavior. See [adapter slots](adapters.md#slots) before trying to standardize it.
+2. **A hint outside the conversation history.** Current hints use the delivery paths in [Hints](hints.md#delivery).

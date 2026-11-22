@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { appendFile, chmod, mkdir, readFile, rmdir, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { sectionRange } from '../../../core/src/markdown'
 import { settingsDocument } from '../../../core/src/settings'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
@@ -492,8 +493,8 @@ test('one MCP connection follows the hook project for import, edit and knowledge
   })
   const replies = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   let id = 0
-  const call = async (args: Record<string, string>) => {
-    const params = { name: 'shift_record', arguments: args, _meta: { threadId: 'scope' } }
+  const call = async (args: Record<string, string>, tool = 'shift_record') => {
+    const params = { name: tool, arguments: args, _meta: { threadId: 'scope' } }
     child.stdin.write(`${JSON.stringify({ id: ++id, method: 'tools/call', params })}\n`)
     const line = await replies.next()
     if (line.done) throw new Error('MCP closed before replying')
@@ -501,6 +502,10 @@ test('one MCP connection follows the hook project for import, edit and knowledge
     return String(reply.result.content[0].text)
   }
   try {
+    const records = await readFile(new URL('../../../docs/records.md', import.meta.url), 'utf8')
+    const migration = sectionRange(records, 'Upgrading an existing project')
+    const chapter = records.split('\n').slice(migration.first, migration.after).join('\n').trimEnd()
+    expect(await call({ section: 'migration' }, 'shift_guide')).toBe(chapter)
     expect(await call({ action: 'import' })).toContain('Imported')
     await hook('SessionStart', { cwd: other })
     expect(await call({ action: 'import' })).toContain('is a glossary')

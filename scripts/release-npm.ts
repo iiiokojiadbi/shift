@@ -19,7 +19,6 @@ const CORE = readdirSync(join(PACKAGE, 'core'), { recursive: true, encoding: 'ut
   .filter(name => name.endsWith('.ts'))
   .map(name => `core/${name}`)
 const REQUIRED = ['LICENSE', 'README.md', 'index.ts', 'package.json', 'server.ts', 'store.ts', ...CORE]
-const ALLOWED = /^(LICENSE|README\.md|package\.json|index\.ts|server\.ts|store\.ts|core\/[a-z/]+\.ts)$/
 const MAX_TARBALL_KB = 150
 
 const args = process.argv.slice(2)
@@ -68,7 +67,7 @@ console.log('\nwhat would be uploaded:')
 for (const path of shipped) console.log(`  ${path}`)
 const kb = (packed.size ?? 0) / 1024
 console.log(`files: ${shipped.length}, tarball: ${kb.toFixed(0)} KB`)
-const unexpected = shipped.filter(path => !ALLOWED.test(path))
+const unexpected = shipped.filter(path => !REQUIRED.includes(path))
 if (unexpected.length > 0) throw new Error(`the package would ship files nobody declared: ${unexpected.join(', ')}`)
 const missing = REQUIRED.filter(path => !shipped.includes(path))
 if (missing.length > 0) throw new Error(`missing from the package: ${missing.join(', ')}`)

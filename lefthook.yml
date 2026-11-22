@@ -11,7 +11,7 @@ pre-commit:
       glob: "{runtime/beads/**,scripts/test-beads.ts}"
       run: bun run test:beads
     - name: core copies
-      glob: "{core/src/**,core/test/{data,archive-fixture}.ts,adapters/*/hooks/core/**,adapters/npm/core/**,adapters/claude-code/tests/{data,archive-fixture}.ts,scripts/sync-core.ts}"
+      glob: "{core/src/**,core/test/{data,archive-fixture}.ts,adapters/*/hooks/core/**,adapters/npm/core/**,adapters/claude-code/tests/{data,archive-fixture}.ts,docs/records.md,scripts/sync-core.ts}"
       run: bun run sync-core --staged
     - name: biome
       glob: "*.{ts,js,json,jsonc}"

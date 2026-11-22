@@ -1,11 +1,14 @@
 ---
-description: The records the agent keeps in .shift/ and why each is shaped so: editable project records, saved letters, the separate Beads workspace, and what Shift checks. The rules as the model reads them are in shift_guide.
+description: How Shift stores records and tasks, upgrades an existing project, and checks records before a shift. Use shift_guide for the agent's instructions.
 ---
 
 # shift: records
 
 <!-- toc -->
 - Layout
+- Upgrading an existing project
+  - What startup upgrades
+  - What the agent does
 - Board and project tasks
 - OWNER.md, GLOSSARY.md, SHIFT.md
 - Knowledge and where it goes
@@ -14,9 +17,9 @@ description: The records the agent keeps in .shift/ and why each is shaped so: e
 - What the mod refuses
 <!-- /toc -->
 
-A record is a state, not a diary. Agents write dates and append everywhere, and working files turn into long logs nobody cleans; so every record has fixed sections, a line limit and no dates, and the mod refuses a shift that breaks them. Earlier versions are retained in the shift archive, so removing a line is always safe.
+A record describes current state. Its sections, line limit and date check keep it usable between shifts. Earlier versions remain readable in retained snapshots.
 
-The rules as the model reads them live in one place, `core/src/texts/doctrine.ts`: the short doctrine in the system prompt and the full `shift_guide`, read once per project: after a let-go the agent cannot tell its first shift from a later one, so the message after a shift says the guide is known. Its `records` section also explains how to choose and revise the document for a behavior change, with examples of what belongs on the board and in an owner rule.
+The short doctrine comes in the system prompt. Read `shift_guide` once per project before the first shift. Its `records` section explains where knowledge goes and how to revise project records. Its `migration` section contains the upgrade instructions below.
 
 ## Layout
 
@@ -33,9 +36,23 @@ Internal records are Markdown stored in `.shift/history.db`. Logical names such 
 
 Use `shift_record(action="read", name="board.md")` to get the revision and text. Pass that revision, a unique literal `find` and its `replacement` to `replace`. An optional section title limits the match to that heading's body. For a long edit or the first version of a record, use `checkout`, edit the returned file, then `apply` with its base revision. `drafts` finds interrupted edits for that name in this chat. A conflict or validation failure keeps the draft. Read the current revision, reconcile in a new checkout, then discard the superseded draft. Successful application removes the applied draft. If an editor replaces it during cleanup, the replacement stays at its path. An interrupted cleanup can also leave a recovery file listed by drafts. Compare its text with the current record and remove it after reconciliation. The shift tool still accepts the logical letter path `.shift/letter.md`.
 
-On upgrade, existing loose files remain usable until adoption. With writers stopped, back up the project and invoke `shift_record(action="import")`. It validates every missing internal record before saving the batch together and leaves existing revisions and source files intact. An imported letter seeds chats until each edits its own. Compare each imported record to its source before retiring the originals. A refused batch leaves every candidate on disk for correction. For an obsolete knowledge glossary, move its terms to GLOSSARY.md and retire the loose source. If a previous import already saved it, read its revision and use `shift_record(action="delete", name="knowledge/glossary.md", revision=...)` after retiring the source. Deletion affects only the current knowledge record. Repeating the import skips adopted records. Import does not read the task store. The project can be transferred offline by copying the database, settings and configured files with writers stopped.
-
 Project documentation, settings and explicit file sources stay on disk. With `commit = true` working records stay file-backed for version control. Before switching an existing database-backed project to file sources, copy its current records to the desired paths and verify their contents. The archive preserves earlier versions.
+
+## Upgrading an existing project
+
+### What startup upgrades
+
+At session start, Shift creates or upgrades `settings.toml`. It fills defaults and help comments, preserves supported values including `enabled = false`, and drops retired keys. With private records, it checks that Git ignores `.shift/` before migrating. An unreadable or invalid settings file, a newer schema or a Git exclusion conflict needs attention before proceeding. A directory with `.shift/sessions/` and no board belongs to the separate shift skill. Check the project root and leave that workspace alone.
+
+When the old settings pointed to an external map with `[files] shift`, startup copies it into the project's internal map if one does not already exist. It rebuilds the generated section, excludes the former path from automatic documentation updates and keeps the original. If the source is inaccessible, startup keeps the old setting and retries at a later start. An existing internal map takes precedence. For an ordinary loose `SHIFT.md` inside `.shift/`, use the record import below.
+
+### What the agent does
+
+1. Inventory `.shift/`, configured file sources and any pending work. Stop other writers and make a verified private backup outside `.shift/` before the upgrade where possible, and always before editing or retiring originals. Check the effective settings and diagnostics with `shift_setup`.
+2. Run `shift_record(action="import")` for existing internal `board.md`, `letter.md`, `OWNER.md`, `GLOSSARY.md`, `SHIFT.md` and top-level `knowledge/*.md`. The tool validates the missing records as a batch. If it refuses, fix the named source or explicitly archive an obsolete record, then retry. Existing database revisions and loose sources are preserved. A loose letter imported this way seeds chats until they write their own. With `commit = true`, edit the configured files directly. In every project, explicit file sources stay in use at their configured paths.
+3. Review the content before cleanup. Keep the board's current goals and focus. Move lasting decisions and lessons to the appropriate records. If a legacy `knowledge/glossary.md` blocks import, merge its terms into the configured glossary and move the old file out of `.shift/`. If it already exists in the database, retire its loose source first, then use `shift_record(action="delete", name="knowledge/glossary.md", revision=...)` with its current revision. Preserve unresolved owner rules and update the record to the current format when editing it. If the board, owner record or letter is missing, use the guide's `records` and `flow` sections to rebuild it from the project's current evidence.
+4. Read records back with `shift_record(action="read", name=...)` and compare with the loose sources, including sources the import skipped because the database already had a record. Reconcile differences before retiring either version. For `SHIFT.md`, compare the project-authored rules because Shift regenerates the map. Run `shift_setup` again. Move verified loose duplicates into the private archive. Check references to an external map before retiring that copy. Keep `settings.toml`, `history.db`, recoverable drafts, configured files and the optional `bin/` and `beads/` directories.
+5. Archive the old `shifts/`, `briefs/` and `archive/` after checking their contents. `shift_history` starts with new shifts. Even the most recent loose snapshots remain available only through the private archive. Review `TASKS.md` and `tasks/` separately. If using Beads, prepare it with `shift_setup(section="tasks")`, migrate useful tasks with their status, links and notes, and check them by ID before retiring the old task files. Projects that do not need a tracker can archive the old tasks after reviewing any outstanding work. Keep other files until you know their purpose.
 
 ## Board and project tasks
 
@@ -65,7 +82,7 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
-The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. During import a temporary marker identifies the copied rules until the settings write succeeds. A retry reads the currently selected source and preserves independent edits to the internal map. While an import is pending, session context and snapshots omit uncommitted rules. If the source directory is inaccessible, the settings retain its path and startup retries after access returns. Before writing private records, migration verifies that Git actually ignores `.shift/`. A broken repository configuration, a broken exclude file or an overriding project rule pauses the migration. While the conflict persists, later hooks skip writing the map, and record edits and tracker setup report the exclusion problem. The migration adds the former path to `[docs] exclude` so automatic tocs and the map leave the original alone. The owner can retire the old copy after checking the rules.
+The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. During an [upgrade](#upgrading-an-existing-project), a temporary marker identifies map rules staged for migration until the settings write succeeds. A retry preserves independent edits to the internal map. While an import is pending, session context and snapshots omit uncommitted rules.
 
 ## Settings
 
@@ -81,7 +98,7 @@ A future schema change with a rename or a change in meaning must translate the p
 
 ## Saved shifts
 
-The opening paragraph of “Where I am” supplies the history description. Put the essential work and result in two or three sentences (400 characters total). Following paragraphs and block elements stay in the full letter. Older clients can still supply an explicit description through `about`. A restore includes the current opening once in that letter and preceding history according to the project settings. A waiting chat can therefore restore an older letter after another chat has shifted.
+The opening paragraph of “Where I am” supplies the history description. Put the essential work and result in two or three sentences (up to 400 characters). Following paragraphs and block elements stay in the full letter. Older clients can still supply an explicit description through `about`. A restore includes the current opening once in that letter and preceding history according to the project settings.
 
 An explicit restore picks the letter waiting for that chat, even if another chat saved a newer shift. With no waiting letter it picks the latest saved shift in the project.
 

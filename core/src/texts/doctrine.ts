@@ -22,6 +22,7 @@ import {
   TOOL,
 } from '../layout'
 import { TOOL_TEXTS } from './tools'
+import { UPGRADE_GUIDE } from './upgrade-guide'
 
 // A list of sections in their order, each with what goes in it: a section without its text does not compile.
 function described<Name extends string>(names: readonly Name[], texts: Record<Name, string>): string {
@@ -100,7 +101,9 @@ The project's main session owns the shift. Delegated agents return their work to
 
 ## Board and letter
 
-\`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Import validates all candidate records before saving them together. To retire a current knowledge record, move any loose original first, then use delete with its revision. At shift time, check the records and write the letter. ${LETTER_OPENING}
+
+Update project documentation alongside changes to interfaces, workflows or design. When you find stale guidance, verify it against the code and fix it before moving on. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Shift refreshes the documentation map each time you shift. Accurate descriptions and section names help you find what you need and resume work without repeating the investigation.
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The map stays in ${SHIFT_FILE}. The settings can place the owner record and glossary elsewhere in the project.
 
@@ -108,7 +111,7 @@ When continuing a tracked issue, include its ID in the letter. Under Goal, use a
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Write each decision as a bullet followed by Permanent or Until <observable event>, optionally prefixed with "[tasks ID] · ". Revisit affected conditions when related work ends. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation, knowledge topics and pinned advice. Use \`${READ_TOOL}\` to read the relevant section. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
-Read \`${GUIDE_TOOL}\` before your first shift in this project. For writing project documentation or keeping records, ask for section "records"; for the letter, a refusal or how to continue, use "flow".
+Read \`${GUIDE_TOOL}\` before your first shift in this project. For documentation and records use section "records". For the letter, a refusal or how to continue, use "flow". When upgrading a project with old .shift files, use "migration".
 
 ## When to shift
 
@@ -128,7 +131,7 @@ ${doctrineBody(tools, command)}
 </${MOD}>`
 }
 
-const DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. Do this on your own initiative within the knowledge rules in \`${SHIFT_FILE}\`. A refactor that leaves the documented behavior accurate needs no new entry.
+const DOC_WRITING = `When you change what someone using or maintaining the project needs to know, update the relevant document in the same change, before taking the next item. When you encounter stale guidance, check the implementation and correct it within the project's knowledge rules. Keep descriptions and headings accurate so you can find the details again after a shift.
 
 1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
 2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
@@ -162,4 +165,4 @@ Call shift with the letter path and after. Choose continue for autonomous work a
 
 List saved shifts with shift_history. For an older page, pass the oldest listed ID as before. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Completed shifts supply the earlier descriptions and full letters, in that order. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
 
-export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`
+export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}\n\n${UPGRADE_GUIDE}`

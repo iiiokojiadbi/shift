@@ -26,7 +26,8 @@ import { setupReport } from './setup'
 import { sizeReport } from './sizes'
 import { doctrine, doctrineBody, GUIDE, GUIDE_FLOW, GUIDE_RECORDS } from './texts/doctrine'
 import { EXCLUDED, SHIFT_TOO_EARLY } from './texts/prompts'
-import { TOOL_TEXTS, type ToolText } from './texts/tools'
+import { GUIDE_SECTIONS, TOOL_TEXTS, type ToolText } from './texts/tools'
+import { UPGRADE_GUIDE } from './texts/upgrade-guide'
 
 // The mod's tools as one table: an adapter registers every row the project shows and hands each call to its `run`.
 // A new tool is a name in layout, its texts and a row here; no adapter changes.
@@ -63,14 +64,16 @@ export type Tool = ToolText & {
 
 type Row = Omit<Tool, keyof ToolText | 'writes' | 'docs'> & { writes?: boolean; docs?: boolean }
 
+const guides: Record<(typeof GUIDE_SECTIONS)[number], string> = { flow: GUIDE_FLOW, records: GUIDE_RECORDS, migration: UPGRADE_GUIDE }
+
 const ROWS: readonly Row[] = [
   {
     name: GUIDE_TOOL,
     run: async (raw, call) => {
-      if (raw.section !== undefined && raw.section !== 'flow' && raw.section !== 'records')
-        return { deny: 'section must be flow or records.' }
+      const section = GUIDE_SECTIONS.find(candidate => candidate === raw.section)
+      if (raw.section !== undefined && !section) return { deny: `section must be one of ${GUIDE_SECTIONS.join(', ')}.` }
       const project = await call.project()
-      const guide = raw.section === 'flow' ? GUIDE_FLOW : raw.section === 'records' ? GUIDE_RECORDS : GUIDE
+      const guide = section ? guides[section] : GUIDE
       return { result: atPlaces(guide.trimEnd(), project.settings.files) }
     },
   },
