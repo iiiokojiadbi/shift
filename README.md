@@ -22,7 +22,7 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 
 ### Project tasks
 
-Write the next step in the shift letter. Use the built-in tracker when work needs its own status, dependencies or discussion. To continue a tracked issue, include its ID in the letter. Prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`. From the project root, run `./.shift/bin/shift-task prime` (Windows: `./.shift/bin/shift-task.exe prime`). This displays the same optional task workflow across projects and supported agents. Use `ready` to find work and `show <id>` to read an issue. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
+Write the next step in the shift letter. Use the built-in tracker when work needs its own status, dependencies or discussion. To continue a tracked issue, include its ID in the letter. Prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`. From the project root, run `./.shift/bin/shift-task prime` (Windows: `./.shift/bin/shift-task.exe prime`). This shows the Shift task conventions followed by the original Beads workflow. Use `ready` to find work and `show <id>` to read an issue. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
 
 ## Install
 

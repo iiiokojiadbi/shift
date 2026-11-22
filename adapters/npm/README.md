@@ -21,4 +21,4 @@ The records live in the project's `.shift/` folder and stay out of its git unles
 
 How it works and why: [github.com/iiiokojiadbi/shift](https://github.com/iiiokojiadbi/shift).
 
-Write the next step in the letter. For work that needs its own status, dependencies or discussion, prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`, then run `./.shift/bin/shift-task prime` from the project root for the shared Shift task workflow. Use `./.shift/bin/shift-task.exe` on Windows.
+Write the next step in the letter. For work that needs its own status, dependencies or discussion, prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`, then run `./.shift/bin/shift-task prime` from the project root for the Shift task conventions followed by the original Beads workflow. Use `./.shift/bin/shift-task.exe` on Windows.

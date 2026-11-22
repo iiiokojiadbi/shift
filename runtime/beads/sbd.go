@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"debug/buildinfo"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -117,14 +120,15 @@ exec ` + shellLiteral(installed) + ` "$root" shift-sbd "$@"
 //go:embed PRIME.md
 var taskGuide string
 
+func guideFooter(body string) string {
+	return fmt.Sprintf("<!-- shift-task guide %x -->\n", sha256.Sum256([]byte(body)))
+}
+
 // Fingerprint the shipped body so upgrades can refresh a previous default while
 // preserving a project guide, including local edits to a generated copy.
 func prepareTaskGuide(data string) error {
 	path := filepath.Join(data, "PRIME.md")
-	footer := func(body string) string {
-		return fmt.Sprintf("<!-- shift-task guide %x -->\n", sha256.Sum256([]byte(body)))
-	}
-	guide := taskGuide + footer(taskGuide)
+	guide := taskGuide + guideFooter(taskGuide)
 	info, err := os.Lstat(path)
 	missing := errors.Is(err, os.ErrNotExist)
 	if !missing {
@@ -140,7 +144,7 @@ func prepareTaskGuide(data string) error {
 		}
 		old := string(contents)
 		i := strings.LastIndex(old, "<!-- shift-task guide ")
-		if old == guide || i < 0 || old[i:] != footer(old[:i]) {
+		if old == guide || i < 0 || old[i:] != guideFooter(old[:i]) {
 			return nil
 		}
 	}
@@ -157,6 +161,79 @@ func prepareTaskGuide(data string) error {
 		return renameExclusive(tmp.Name(), path)
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Prime can also be requested as a machine-readable hook, an upstream export,
+// or a memory-only view. Keep those output contracts when adding the preface.
+func runPrime(bd, workspace string, args []string) error {
+	data := filepath.Join(workspace, ".beads")
+	flags := map[string]bool{}
+	end := len(args)
+	for i := 0; i < len(args); i++ {
+		key, value, assigned := strings.Cut(args[i], "=")
+		// Cobra permits grouped boolean shorthands such as -qh and -vh.
+		if strings.HasPrefix(key, "-") && !strings.HasPrefix(key, "--") {
+			key = "-" + strings.Trim(key[1:], "qv")
+		}
+		switch key {
+		case "--":
+			end = i
+			i = len(args)
+		case "--actor", "-C", "--directory", "--cpu-profile", "--mem-profile", "--dolt-auto-commit", "--max-memories", "--max-memory-chars":
+			if !assigned {
+				i++
+			}
+		case "--export", "--memories-only", "--hook-json", "--help", "-h", "--version", "-V":
+			enabled := true
+			if assigned {
+				enabled, _ = strconv.ParseBool(value)
+			}
+			flags[key] = enabled
+		}
+	}
+	if flags["--export"] || flags["--memories-only"] || flags["--help"] || flags["-h"] || flags["--version"] || flags["-V"] {
+		cmd := taskCommand(bd, workspace, args)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		return runChild(cmd)
+	}
+	if err := prepareTaskGuide(data); err != nil {
+		return err
+	}
+	prefix, err := os.ReadFile(filepath.Join(data, "PRIME.md"))
+	if err != nil {
+		return err
+	}
+	if string(prefix) == taskGuide+guideFooter(taskGuide) {
+		prefix = []byte(taskGuide)
+	}
+	if err := prepareChildren(); err != nil {
+		return err
+	}
+	cmd := taskCommand(bd, workspace, slices.Insert(args, end, "--export"))
+	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	lead := strings.TrimRight(string(prefix), "\r\n")
+	if lead != "" {
+		lead += "\n\n"
+	}
+	if !flags["--hook-json"] {
+		_, err = fmt.Fprintf(os.Stdout, "%s%s", lead, out)
+		return err
+	}
+	var envelope struct {
+		Output struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &envelope); err != nil {
+		return err
+	}
+	envelope.Output.Context = lead + envelope.Output.Context
+	return json.NewEncoder(os.Stdout).Encode(envelope)
 }
 
 func runSBD(bd, workspace string, args []string) error {
@@ -181,15 +258,12 @@ func runSBD(bd, workspace string, args []string) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if command == "prime" {
+		return runPrime(bd, workspace, args)
+	}
 	cmd := taskCommand(bd, workspace, args)
 	// Native paths (e.g. --body-file) are relative to the agent's shell.
-	if command == "prime" {
-		// Upstream checks .beads/PRIME.md in cwd before the selected database.
-		// Resolve the guide in our private workspace, also for existing projects.
-		if err := prepareTaskGuide(filepath.Join(workspace, ".beads")); err != nil {
-			return err
-		}
-	} else if !explicitInit {
+	if !explicitInit {
 		cmd.Dir = ""
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
