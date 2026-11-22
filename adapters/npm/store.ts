@@ -80,11 +80,15 @@ export const nodeStore: Store = {
       throw error
     }
   },
-  exists: path =>
-    access(path).then(
-      () => true,
-      () => false,
-    ),
+  exists: async (path, mode) => {
+    try {
+      await access(path)
+      return true
+    } catch (error) {
+      if (mode === 'checked' && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      return false
+    }
+  },
   git: (root, args) =>
     new Promise(done => {
       execFile('git', ['-C', root, ...args], (error, stdout) => {

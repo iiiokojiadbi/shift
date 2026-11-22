@@ -65,7 +65,7 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
-The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. During import a temporary marker identifies the copied rules until the settings write succeeds. A retry reads the currently selected source and preserves independent edits to the internal map. If import fails, automatic map writes pause so the next startup can retry with the original rules. The migration adds the former path to `[docs] exclude` so automatic tocs and the map leave the original alone. The owner can retire the old copy after checking the rules.
+The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. During import a temporary marker identifies the copied rules until the settings write succeeds. A retry reads the currently selected source and preserves independent edits to the internal map. While an import is pending, session context and snapshots omit uncommitted rules. If the source directory is inaccessible, the settings retain its path and startup retries after access returns. Before writing private records, migration verifies that Git actually ignores `.shift/`. A broken exclude file or an overriding project rule pauses the migration. The migration adds the former path to `[docs] exclude` so automatic tocs and the map leave the original alone. The owner can retire the old copy after checking the rules.
 
 ## Settings
 
@@ -77,7 +77,7 @@ An already current file may omit defaults. At the next session start unknown set
 
 A future schema change with a rename or a change in meaning must translate the previous schema before removing retired keys. Apply each missing version in order, validate the resulting document and write its final version only after its storage changes succeed. Never infer a file version from the installed release.
 
-`.shift/` is the agent's own, with no git of its own. Whether the project's git takes it in is the owner's choice (`commit`); by default the mod adds it to the repository's local exclude file.
+`.shift/` is the agent's own, with no git of its own. Whether the project's git takes it in is the owner's choice (`commit`); by default the mod adds it to the repository's local exclude file. This also covers migrations in disabled projects.
 
 ## Saved shifts
 

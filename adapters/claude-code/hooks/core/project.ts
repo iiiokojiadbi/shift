@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
-import { staleLayout } from './flows'
+import { keepRecordsOut, staleLayout } from './flows'
 import { SETTINGS } from './layout'
-import { prepareMapImport } from './map-import'
+import { pendingMap, prepareMapImport } from './map-import'
 import { DEFAULT_SETTINGS, type ParsedSettings, parseSettings, type Settings, settingsDocument } from './settings'
 import type { Store } from './store'
 import { WorkingRecords } from './working'
@@ -49,6 +49,21 @@ export async function loadProject(
       p.working = new WorkingRecords(p, store, letterSession ?? '')
       p.store = p.working.store()
     }
+    const records = p.store
+    const map = `${root}/${p.settings.files.shift}`
+    p.store = {
+      ...records,
+      read: async path => {
+        const text = await records.read(path)
+        if (path !== map) return text
+        const pending = pendingMap(text)
+        if (!pending) return text
+        // An interrupted import is private to startup. Once settings commit, its
+        // selected rules can be read even before startup removes the marker.
+        if (p.problem || p.settings.files.legacyMap) return null
+        return p.settings.docs.exclude.includes(pending.path) ? pending.rules : ''
+      },
+    }
     return p
   }
   if (source === null && (await store.exists(path))) return project(null, `Cannot read ${SETTINGS}.`)
@@ -68,17 +83,22 @@ export async function loadProject(
   const document = settingsDocument(source ?? '', true)
   if (typeof document === 'string') return project(source, document)
   const current = project(source, document)
-  if ((source === document.next && !current.settings.docs.exclude.length) || (await staleLayout(current))) return current
+  const initialize = source !== document.next || current.settings.docs.exclude.length > 0
+  if ((!initialize && current.settings.enabled) || (await staleLayout(current))) return current
   const updated = parseSettings(document.next)
   if (typeof updated === 'string') return project(source, updated)
   const legacy = current.settings.files.legacyMap
   const map = `${root}/${current.settings.files.shift}`
   try {
-    // A private disabled project also imports its map into the working database.
+    // Migration may create private records even when the project is disabled.
+    const kept = await keepRecordsOut(current)
+    if ('deny' in kept) throw new Error(kept.deny)
+    if (!initialize) return current
+    // Migration alone reads the raw staging marker.
     const records =
       !current.settings.enabled && !current.settings.commit && store.nativeRecords
         ? new WorkingRecords(current, store, letterSession ?? '').store()
-        : current.store
+        : (current.working?.store() ?? store)
     const staged =
       legacy || current.settings.docs.exclude.length
         ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude)
@@ -91,7 +111,7 @@ export async function loadProject(
     if (staged) await records.write(map, staged.rules, staged.text)
     return project(document.next, updated)
   } catch (error) {
-    if (!legacy && !current.settings.docs.exclude.length && (await store.read(path)) === document.next)
+    if (source !== document.next && !legacy && !current.settings.docs.exclude.length && (await store.read(path)) === document.next)
       return project(document.next, updated)
     current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`
     return current

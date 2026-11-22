@@ -253,7 +253,14 @@ test('a project note inserted next to generated help survives once with the help
 
 test('a retry imports the newly selected source after settings change during the map write', async () => {
   const source = '[files]\nshift = "docs/a.md"'
-  const store = memoryStore({ [settingsPath]: source, [`${ROOT}/docs/a.md`]: 'rules A', [`${ROOT}/docs/b.md`]: 'rules B' })
+  const store = memoryStore({
+    [settingsPath]: source,
+    [`${ROOT}/docs/a.md`]: 'rules A',
+    [`${ROOT}/docs/b.md`]: 'rules B',
+    [`${R}/board.md`]: BOARD,
+    [`${R}/letter.md`]: LETTER,
+    [`${R}/OWNER.md`]: '# Owner decisions\n\nnone',
+  })
   const write = store.write
   store.write = async (path, text, expected) => {
     await write(path, text, expected)
@@ -261,7 +268,11 @@ test('a retry imports the newly selected source after settings change during the
   }
   expect((await open(store)).problem).toContain('Settings changed')
   store.write = write
-  await sessionFiles(await loadProject(store, ROOT))
+  const between = await loadProject(store, ROOT)
+  expect((await sessionFiles(between)).map(file => file.path)).not.toContain('.shift/SHIFT.md')
+  const accepted = await acceptShift(between, { input: { letter: '.shift/letter.md', after: 'wait' }, sessionId: 'session', at: 0 })
+  if ('deny' in accepted) throw new Error(accepted.deny)
+  expect((await readSaved(between, accepted.shift.dir)).files['SHIFT.md']).toBeUndefined()
   expect((await open(store)).problem).toBeNull()
   expect(store.files.get(`${R}/SHIFT.md`)).toBe('rules B')
   expect(store.files.get(settingsPath)).toContain('docs/b.md')

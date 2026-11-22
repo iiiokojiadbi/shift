@@ -96,9 +96,9 @@ export class WorkingRecords {
         const key = this.key(path)
         return (key && (await this.all())[key]?.text) ?? disk.read(path)
       },
-      exists: async path => {
+      exists: async (path, mode) => {
         const key = this.key(path)
-        return !!(key && (await this.all())[key]) || (await disk.exists(path))
+        return !!(key && (await this.all())[key]) || (await disk.exists(path, mode))
       },
       write: async (path, text, expected) => {
         const key = this.key(path)

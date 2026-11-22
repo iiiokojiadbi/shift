@@ -33,6 +33,12 @@ function stubSession(
     if (text === undefined) throw new Error(`ENOENT ${e.path}`)
     return { value: text }
   })
+  on('fs.stat', (_$, { path }) => {
+    const text = files.get(path)
+    if (text !== undefined) return { value: { kind: 'file', size: text.length, mtimeMs: 0, isLink: false } }
+    if ([...files.keys()].some(file => file.startsWith(`${path}/`))) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    return { deny: `ENOENT: ${path}` }
+  })
   on('fs.exists', (_$: unknown, e: { path: string }) => ({
     value: [...files.keys()].some(path => path === e.path || path.startsWith(`${e.path}/`)),
   }))
@@ -73,7 +79,15 @@ function stubSession(
       return { value: { exitCode: 0, stdout: '.git/info/exclude\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (command === 'git') {
-      return { value: { exitCode: ignored, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      return {
+        value: {
+          exitCode: files.get('/proj/.git/info/exclude')?.includes('.shift/') ? 0 : ignored,
+          stdout: '',
+          stderr: '',
+          isStdoutTruncated: false,
+          isStderrTruncated: false,
+        },
+      }
     }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })

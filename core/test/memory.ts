@@ -44,7 +44,9 @@ export function memoryStore(seed: Record<string, string> = {}, ignored = true): 
     exists: async path => files.has(path) || under(path).length > 0,
     // check-ignore answers 0 when ignored and 1 when not; rev-parse names the exclude file from the root.
     git: async (_root, args) =>
-      args[0] === 'check-ignore' ? { code: ignored ? 0 : 1, stdout: '' } : { code: 0, stdout: '.git/info/exclude\n' },
+      args[0] === 'check-ignore'
+        ? { code: ignored || files.get(`${_root}/.git/info/exclude`)?.split('\n').includes('.shift/') ? 0 : 1, stdout: '' }
+        : { code: 0, stdout: '.git/info/exclude\n' },
   }
 }
 

@@ -193,7 +193,7 @@ const TURN_END: Record<ShiftAfter, string> = {
 export const ACCEPTED = (dir: string, after: ShiftAfter) =>
   `Shift accepted, read its records with shift_history ID ${dir}. ${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === 'wait' ? " with the owner's next message" : ''}.`
 
-export const NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`
+export const NOT_IGNORED = `${DIR}/ could not be excluded from this project's git. Check the local exclude file and any overriding rules. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`
 
 // The records were not ignored and the mod excluded them: told to the agent and to the owner.
 export const EXCLUDED = (file: string) =>

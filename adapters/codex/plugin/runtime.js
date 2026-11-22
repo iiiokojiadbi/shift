@@ -314,47 +314,6 @@ async function installTaskCommand(project) {
 function taskInstructions(command) {
   return command ? `Use \`${command}\` from the project root for all tracker commands. Start with \`show <id>\` for a named issue or \`ready --parent <epic>\` for available work in an epic. Claim with \`update <id> --claim\`. A prerequisite is \`dep add <dependent> <prerequisite>\`. Close with \`close <id> --reason <result>\`. For the Beads reference run \`${command} prime\`; use this executable wherever it shows \`bd\`.` : 'To use the built-in shift-task tracker, call shift_setup(section="tasks") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.';
 }
-// core/src/map-import.ts
-async function prepareMapImport(records, disk, root, map, legacy, excluded) {
-  const existing = await records.read(map);
-  if (existing === null && legacy && await records.exists(map))
-    throw new Error("Cannot read the internal map.");
-  const pending = pendingMap(existing);
-  if (existing !== null && !pending)
-    return null;
-  if (legacy && await disk.exists(`${root}/${legacy}`)) {
-    const rules = await disk.read(`${root}/${legacy}`);
-    if (rules === null)
-      throw new Error(`Cannot read the former map at ${legacy}.`);
-    const text = stageMap(legacy, rules);
-    if (text !== existing)
-      await records.write(map, text, existing);
-    return { text, rules };
-  }
-  if (!pending || existing === null)
-    return null;
-  const selected = legacy ? pending.path === legacy : excluded.includes(pending.path);
-  return { text: existing, rules: selected ? pending.rules : "" };
-}
-function stageMap(path, rules) {
-  return `<!-- shift:map-import ${textFingerprint(rules)} ${JSON.stringify(path)} -->
-${rules}`;
-}
-function pendingMap(text) {
-  const marker = text?.match(/^<!-- shift:map-import (\d+) ("[^\n]*") -->\n/);
-  if (!text || !marker?.[2])
-    return null;
-  const rules = text.slice(marker[0].length);
-  if (textFingerprint(rules) !== Number(marker[1]))
-    return null;
-  try {
-    const path = JSON.parse(marker[2]);
-    return typeof path === "string" ? { path, rules } : null;
-  } catch {
-    return null;
-  }
-}
-
 // core/src/paths.ts
 function dirname(path) {
   const at = path.lastIndexOf("/");
@@ -1630,13 +1589,11 @@ async function refreshDocs(project, { tocs = true } = {}) {
   if (current === null && await store.exists(shift))
     return docs;
   const legacy = project.settings.files.legacyMap;
-  const pending = pendingMap(current);
-  if (legacy && (pending || current === null && await store.exists(`${root}/${legacy}`)))
+  if (legacy && current === null && await store.exists(`${root}/${legacy}`, "checked").catch(() => true))
     return docs;
-  const source = pending ? settings.exclude.includes(pending.path) ? pending.rules : null : current;
   if (current === null && !docs.length && !knowledge)
     return docs;
-  const map = withMap(source, renderMap(docs, settings, missing, knowledge));
+  const map = withMap(current, renderMap(docs, settings, missing, knowledge));
   if (map !== current)
     await store.write(shift, map);
   return docs;
@@ -1818,7 +1775,7 @@ var TURN_END = {
   wait: "End the turn with your answer to the owner, whole \u2014 what you did and found, what you ask them to decide \u2014 and do nothing more: it is all the owner reads before you wait, they see neither your records nor this call"
 };
 var ACCEPTED = (dir, after) => `Shift accepted, read its records with shift_history ID ${dir}. ${TURN_END[after]}. After the turn the stretch's history is let go, and you continue from the letter${after === "wait" ? " with the owner's next message" : ""}.`;
-var NOT_IGNORED = `${DIR}/ is not ignored by this project's git, and the repository's own exclude file was not found. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
+var NOT_IGNORED = `${DIR}/ could not be excluded from this project's git. Check the local exclude file and any overriding rules. Add "${DIR}/" to the project's .gitignore, or ask the owner to set commit = true in ${SETTINGS}, and call again.`;
 var EXCLUDED = (file) => `${DIR}/ was not ignored by this project's git: the mod added "${DIR}/" to ${file}, which stays local. To commit the records with the project, the owner sets commit = true in ${SETTINGS}.`;
 var SHIFT_TOO_EARLY = (why) => `Nothing to shift yet: ${why} Nothing was written. Keep working with the records as they are, and shift once the history has grown \u2014 after the first hint.`;
 var OUTSIDE_NAME = (word) => new RegExp(`(?<![\\w./-])(?:${word})(?![\\w/-]|\\.\\w)`, "gi");
@@ -2084,20 +2041,36 @@ async function keepRecordsOut(project) {
   const { store, root } = project;
   if (project.settings.commit)
     return { excluded: null };
-  const ignored = await store.git(root, ["check-ignore", "-q", DIR]);
-  if (ignored === null || ignored.code !== 1)
+  const check = () => store.git(root, ["check-ignore", "-q", `${DIR}/`]);
+  const ignored = await check();
+  if (ignored === null || ignored.code === 0)
     return { excluded: null };
+  if (ignored.code !== 1) {
+    const repo = await store.git(root, ["rev-parse", "--is-inside-work-tree"]);
+    return repo?.stdout.trim() === "true" ? { deny: NOT_IGNORED } : { excluded: null };
+  }
   const found = await store.git(root, ["rev-parse", "--git-path", "info/exclude"]);
   const path = found === null || found.code !== 0 ? "" : found.stdout.trim();
   if (path === "")
     return { deny: NOT_IGNORED };
   const file = path.startsWith("/") ? path : `${root}/${path}`;
-  const text = await store.read(file) ?? "";
-  await store.write(file, `${text}${text === "" || text.endsWith(`
+  const existing = await store.read(file);
+  if (existing === null && await store.exists(file, "checked"))
+    return { deny: NOT_IGNORED };
+  const text = existing ?? "";
+  if (text.split(/\r?\n/).includes(`${DIR}/`))
+    return { deny: NOT_IGNORED };
+  try {
+    await store.write(file, `${text}${text === "" || text.endsWith(`
 `) ? "" : `
 `}${DIR}/
-`);
-  return { excluded: file };
+`, existing);
+  } catch (error) {
+    if ((await check())?.code === 0)
+      return { excluded: null };
+    throw error;
+  }
+  return (await check())?.code === 0 ? { excluded: file } : { deny: NOT_IGNORED };
 }
 async function sessionFiles(project, { refresh = true } = {}) {
   const { store, root, settings } = project;
@@ -2996,6 +2969,47 @@ function parseHistoryCount(raw) {
 function parsePath(raw, key) {
   return optional(raw, key);
 }
+// core/src/map-import.ts
+async function prepareMapImport(records, disk, root, map, legacy, excluded) {
+  const existing = await records.read(map);
+  if (existing === null && legacy && await records.exists(map, "checked"))
+    throw new Error("Cannot read the internal map.");
+  const pending = pendingMap(existing);
+  if (existing !== null && !pending)
+    return null;
+  if (legacy && await disk.exists(`${root}/${legacy}`, "checked")) {
+    const rules = await disk.read(`${root}/${legacy}`);
+    if (rules === null)
+      throw new Error(`Cannot read the former map at ${legacy}.`);
+    const text = stageMap(legacy, rules);
+    if (text !== existing)
+      await records.write(map, text, existing);
+    return { text, rules };
+  }
+  if (!pending || existing === null)
+    return null;
+  const selected = legacy ? pending.path === legacy : excluded.includes(pending.path);
+  return { text: existing, rules: selected ? pending.rules : "" };
+}
+function stageMap(path, rules) {
+  return `<!-- shift:map-import ${textFingerprint(rules)} ${JSON.stringify(path)} -->
+${rules}`;
+}
+function pendingMap(text) {
+  const marker = text?.match(/^<!-- shift:map-import (\d+) ("[^\n]*") -->\n/);
+  if (!text || !marker?.[2])
+    return null;
+  const rules = text.slice(marker[0].length);
+  if (textFingerprint(rules) !== Number(marker[1]))
+    return null;
+  try {
+    const path = JSON.parse(marker[2]);
+    return typeof path === "string" ? { path, rules } : null;
+  } catch {
+    return null;
+  }
+}
+
 // core/src/working.ts
 var names = [BOARD, LETTER, OWNER, GLOSSARY, SHIFT_FILE];
 var fileKeys = {
@@ -3080,9 +3094,9 @@ class WorkingRecords {
         const key = this.key(path);
         return (key && (await this.all())[key]?.text) ?? disk.read(path);
       },
-      exists: async (path) => {
+      exists: async (path, mode) => {
         const key = this.key(path);
-        return !!(key && (await this.all())[key]) || await disk.exists(path);
+        return !!(key && (await this.all())[key]) || await disk.exists(path, mode);
       },
       write: async (path, text, expected) => {
         const key = this.key(path);
@@ -3130,6 +3144,22 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
       p.working = new WorkingRecords(p, store, letterSession ?? "");
       p.store = p.working.store();
     }
+    const records = p.store;
+    const map = `${root}/${p.settings.files.shift}`;
+    p.store = {
+      ...records,
+      read: async (path) => {
+        const text = await records.read(path);
+        if (path !== map)
+          return text;
+        const pending = pendingMap(text);
+        if (!pending)
+          return text;
+        if (p.problem || p.settings.files.legacyMap)
+          return null;
+        return p.settings.docs.exclude.includes(pending.path) ? pending.rules : "";
+      }
+    };
     return p;
   };
   if (source === null && await store.exists(path))
@@ -3150,7 +3180,8 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
   if (typeof document === "string")
     return project(source, document);
   const current = project(source, document);
-  if (source === document.next && !current.settings.docs.exclude.length || await staleLayout(current))
+  const initialize = source !== document.next || current.settings.docs.exclude.length > 0;
+  if (!initialize && current.settings.enabled || await staleLayout(current))
     return current;
   const updated = parseSettings(document.next);
   if (typeof updated === "string")
@@ -3158,7 +3189,12 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
   const legacy = current.settings.files.legacyMap;
   const map = `${root}/${current.settings.files.shift}`;
   try {
-    const records = !current.settings.enabled && !current.settings.commit && store.nativeRecords ? new WorkingRecords(current, store, letterSession ?? "").store() : current.store;
+    const kept = await keepRecordsOut(current);
+    if ("deny" in kept)
+      throw new Error(kept.deny);
+    if (!initialize)
+      return current;
+    const records = !current.settings.enabled && !current.settings.commit && store.nativeRecords ? new WorkingRecords(current, store, letterSession ?? "").store() : current.working?.store() ?? store;
     const staged = legacy || current.settings.docs.exclude.length ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude) : null;
     if (source !== document.next) {
       if (await store.read(path) !== source || source === null && await store.exists(path))
@@ -3169,7 +3205,7 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
       await records.write(map, staged.rules, staged.text);
     return project(document.next, updated);
   } catch (error) {
-    if (!legacy && !current.settings.docs.exclude.length && await store.read(path) === document.next)
+    if (source !== document.next && !legacy && !current.settings.docs.exclude.length && await store.read(path) === document.next)
       return project(document.next, updated);
     current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`;
     return current;
@@ -3477,6 +3513,8 @@ async function editRecord(p, raw) {
   if (w.key(`${DIR}/${name}`) !== name)
     throw new Error("Unknown or file-backed record. Use a logical name such as board.md or knowledge/traps.md. Edit configured files at their paths.");
   const r = all[name] ?? { revision: "", text: "" };
+  if (`${DIR}/${name}` === SHIFT_FILE && pendingMap(r.text))
+    throw new Error("Map import is pending. Retry at the next session start.");
   if (!r.revision && await w.disk.exists(`${p.root}/${DIR}/${name}`))
     throw new Error("Existing Markdown record. Use import to adopt the internal files, or edit the original file.");
   if (action === "read")
@@ -3917,7 +3955,16 @@ var nodeStore = {
       throw error;
     }
   },
-  exists: (path) => access(path).then(() => true, () => false),
+  exists: async (path, mode) => {
+    try {
+      await access(path);
+      return true;
+    } catch (error) {
+      if (mode === "checked" && error.code !== "ENOENT")
+        throw error;
+      return false;
+    }
+  },
   git: (root, args) => new Promise((done) => {
     execFile("git", ["-C", root, ...args], (error, stdout) => {
       const code = error === null ? 0 : error.code;

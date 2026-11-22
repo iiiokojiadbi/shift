@@ -1,4 +1,5 @@
-import { DIR } from './layout'
+import { DIR, SHIFT_FILE } from './layout'
+import { pendingMap } from './map-import'
 import { sectionRange } from './markdown'
 import type { Project } from './project'
 import { recordProblem } from './records'
@@ -49,6 +50,7 @@ export async function editRecord(p: Project, raw: Record<string, unknown>) {
       'Unknown or file-backed record. Use a logical name such as board.md or knowledge/traps.md. Edit configured files at their paths.',
     )
   const r = all[name] ?? { revision: '', text: '' }
+  if (`${DIR}/${name}` === SHIFT_FILE && pendingMap(r.text)) throw new Error('Map import is pending. Retry at the next session start.')
   if (!r.revision && (await w.disk.exists(`${p.root}/${DIR}/${name}`)))
     throw new Error('Existing Markdown record. Use import to adopt the internal files, or edit the original file.')
   if (action === 'read') return r.revision ? `${r.revision}\n${r.text}` : 'Record missing. Use checkout to create it.'

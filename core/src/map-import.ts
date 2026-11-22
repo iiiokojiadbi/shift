@@ -12,10 +12,10 @@ export async function prepareMapImport(
   excluded: readonly string[],
 ) {
   const existing = await records.read(map)
-  if (existing === null && legacy && (await records.exists(map))) throw new Error('Cannot read the internal map.')
+  if (existing === null && legacy && (await records.exists(map, 'checked'))) throw new Error('Cannot read the internal map.')
   const pending = pendingMap(existing)
   if (existing !== null && !pending) return null
-  if (legacy && (await disk.exists(`${root}/${legacy}`))) {
+  if (legacy && (await disk.exists(`${root}/${legacy}`, 'checked'))) {
     const rules = await disk.read(`${root}/${legacy}`)
     if (rules === null) throw new Error(`Cannot read the former map at ${legacy}.`)
     const text = stageMap(legacy, rules)

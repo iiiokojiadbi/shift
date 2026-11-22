@@ -56,7 +56,17 @@ export function claudeStore($: EngineInterface): Store {
       }
       await $.fs.write(path, text)
     },
-    exists: path => $.fs.exists(path),
+    exists: async (path, mode) => {
+      if (mode !== 'checked') return $.fs.exists(path)
+      try {
+        await $.fs.stat(path)
+        return true
+      } catch (error) {
+        const cause = error as { code?: string; message?: string }
+        if (cause?.code === 'ENOENT' || /^(?:[^:]+: \$\.fs\.stat: )?ENOENT\b/.test(cause?.message ?? '')) return false
+        throw error
+      }
+    },
     git: async (root, args) => {
       const ran = await $.process.run(['git', '-C', root, ...args]).catch(() => null)
 

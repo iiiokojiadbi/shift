@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { afterAll, beforeAll, expect, test } from 'bun:test'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, readFile, rmdir, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { BOARD, LETTER } from '../../../core/test/data'
@@ -628,6 +628,57 @@ test('disabled startup reports a failed migration and subsequent hooks keep the 
   })
   expect(await rawHook('PreToolUse', { tool_name: 'mcp__other__lookup' })).toEqual({})
 })
+
+test('a disabled private migration protects the database before writing and repairs an old missing exclusion', async () => {
+  const { root, rawHook } = await fixture()
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
+  git('init', '-q', '--template=')
+  git('config', 'core.excludesFile', join(root, '.git/empty-excludes'))
+  const settingsPath = join(root, '.shift/settings.toml')
+  const source = 'enabled = false\n[files]\nshift = "docs/example.md"'
+  await writeFile(settingsPath, source)
+  const exclude = join(root, '.git/info/exclude')
+  await mkdir(exclude, { recursive: true })
+  expect((await rawHook('SessionStart')).systemMessage).toBeTruthy()
+  expect(await readFile(settingsPath, 'utf8')).toBe(source)
+  expect(await Bun.file(join(root, '.shift/history.db')).exists()).toBe(false)
+  await rmdir(exclude)
+  await writeFile(join(root, '.gitignore'), '!.shift/\n')
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect((await rawHook('SessionStart')).systemMessage).toContain('overriding rules')
+    expect(await readFile(settingsPath, 'utf8')).toBe(source)
+    expect(await Bun.file(join(root, '.shift/history.db')).exists()).toBe(false)
+    expect(await readFile(exclude, 'utf8')).toBe('.shift/\n')
+  }
+  await unlink(join(root, '.gitignore'))
+  expect(await rawHook('SessionStart')).toEqual({})
+  expect(await Bun.file(join(root, '.shift/history.db')).exists()).toBe(true)
+  expect(git('check-ignore', '.shift/history.db').trim()).toBe('.shift/history.db')
+  await unlink(exclude)
+  expect(await rawHook('SessionStart')).toEqual({})
+  expect(git('check-ignore', '.shift/history.db').trim()).toBe('.shift/history.db')
+})
+
+test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'startup retries an inaccessible map source after access returns',
+  async () => {
+    const { root, rawHook } = await fixture()
+    const settings = join(root, '.shift/settings.toml')
+    const source = 'enabled = false\n[files]\nshift = "docs/example.md"'
+    await writeFile(settings, source)
+    await chmod(join(root, 'docs'), 0)
+    try {
+      expect((await rawHook('SessionStart')).systemMessage).toContain('EACCES')
+      expect(await readFile(settings, 'utf8')).toBe(source)
+    } finally {
+      await chmod(join(root, 'docs'), 0o700)
+    }
+    expect(await rawHook('SessionStart')).toEqual({})
+    expect(await readFile(settings, 'utf8')).toContain('schema_version = 2')
+    const records = archive.query<Record<string, { text: string }>>(root, { action: 'working-list', session: '' })
+    expect(records['SHIFT.md']?.text).toBe(await readFile(join(root, 'docs/example.md'), 'utf8'))
+  },
+)
 
 test('a broken Shift checkpoint leaves another plugin in control of its tool', async () => {
   const { home, rawHook } = await fixture()

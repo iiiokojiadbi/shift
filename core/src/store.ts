@@ -21,7 +21,8 @@ export type Store = {
   // Writes the file whole, making its folders.
   // Settings initialization supplies the text it read, or null to create a missing file.
   write(path: string, text: string, expected?: string | null): Promise<void>
-  exists(path: string): Promise<boolean>
+  // During migration, distinguish a missing path from a failed filesystem lookup.
+  exists(path: string, mode?: 'checked'): Promise<boolean>
   // Runs git with `args` in `root`: its exit code and what it printed; null when there is no git to run.
   git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string } | null>
 }

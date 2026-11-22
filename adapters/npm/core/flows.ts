@@ -328,22 +328,33 @@ export async function shiftBase(project: Project, sessionId: string): Promise<nu
 export async function keepRecordsOut(project: Project): Promise<{ excluded: string | null } | { deny: string }> {
   const { store, root } = project
   if (project.settings.commit) return { excluded: null }
-  // 1 — not ignored; any other answer, or no git at all, means nothing to keep the records out of.
-  const ignored = await store.git(root, ['check-ignore', '-q', DIR])
-  if (ignored === null || ignored.code !== 1) return { excluded: null }
+  const check = () => store.git(root, ['check-ignore', '-q', `${DIR}/`])
+  const ignored = await check()
+  if (ignored === null || ignored.code === 0) return { excluded: null }
+  if (ignored.code !== 1) {
+    const repo = await store.git(root, ['rev-parse', '--is-inside-work-tree'])
+    return repo?.stdout.trim() === 'true' ? { deny: NOT_IGNORED } : { excluded: null }
+  }
   // git names it relative to the root, or absolute in a linked worktree.
   const found = await store.git(root, ['rev-parse', '--git-path', 'info/exclude'])
   const path = found === null || found.code !== 0 ? '' : found.stdout.trim()
   if (path === '') return { deny: NOT_IGNORED }
   const file = path.startsWith('/') ? path : `${root}/${path}`
-  const text = (await store.read(file)) ?? ''
-  await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`)
-
-  return { excluded: file }
+  const existing = await store.read(file)
+  if (existing === null && (await store.exists(file, 'checked'))) return { deny: NOT_IGNORED }
+  const text = existing ?? ''
+  if (text.split(/\r?\n/).includes(`${DIR}/`)) return { deny: NOT_IGNORED }
+  try {
+    await store.write(file, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${DIR}/\n`, existing)
+  } catch (error) {
+    if ((await check())?.code === 0) return { excluded: null }
+    throw error
+  }
+  return (await check())?.code === 0 ? { excluded: file } : { deny: NOT_IGNORED }
 }
 
-// Version of the rendered file block retained across a host restart. Earlier blocks contain a live task list.
-export const SESSION_FILES_VERSION = 5
+// Rebuild older cached blocks that could contain an unpublished documentation map.
+export const SESSION_FILES_VERSION = 6
 
 // What comes into every session: SHIFT.md with a fresh map of the docs, OWNER.md, GLOSSARY.md, with
 // paths from the project's root; none when the mod is off here. `refresh: false` reads them as they are, writing nothing.
