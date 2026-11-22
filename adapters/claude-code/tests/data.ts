@@ -16,8 +16,8 @@ export const LETTER = [
   'HOLD-THIS',
 ].join('\n')
 
-export function boardWith(decisions: string[] = ['none']): string {
-  return ['## Goal', 'the mod', '## Decisions', ...decisions, '## Dead ends', 'none'].join('\n')
+export function boardWith(focus: string[] = ['none']): string {
+  return ['## Goal', '- the mod', '## Current focus', ...focus].join('\n')
 }
 
 export const BOARD = boardWith()

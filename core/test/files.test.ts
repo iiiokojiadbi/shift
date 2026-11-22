@@ -92,7 +92,7 @@ test('every session gets SHIFT.md, OWNER.md, GLOSSARY.md and configured files, a
   expect(parseSettings('[docs]\ndirs = ["../out"]')).toContain('folders or documents inside the project')
 })
 
-test('board decisions and knowledge have actionable refusals', async () => {
+test('older boards still shift and knowledge refusals stay actionable', async () => {
   const call = { input: { letter: '.shift/letter.md', after: 'wait' as const, about: 'a' }, at: 0, sessionId: 's' }
   const base = {
     [`${R}/letter.md`]: LETTER,
@@ -104,9 +104,7 @@ test('board decisions and knowledge have actionable refusals', async () => {
     return 'deny' in result ? result.deny : null
   }
   expect(await deny({})).toBeNull()
-  expect(await deny({ [`${R}/board.md`]: BOARD.replace('## Decisions\nnone', '## Decisions\n- A — b; rejected: C') })).toContain(
-    'needs its reason',
-  )
+  expect(await deny({ [`${R}/board.md`]: '## Goal\nold goal\n## Decisions\nold choice\n## Dead ends\nnone' })).toBeNull()
   expect(await deny({ [`${R}/knowledge/glossary.md`]: '---\nkind: glossary\nabout: a\n---' })).toContain('GLOSSARY.md now')
 })
 

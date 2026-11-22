@@ -204,7 +204,7 @@ test("records changed by the agent's tools are told only when broken, by someone
   await put('board.md', '## Goal\nthe mod')
   await put('letter.md', '## Where I am\nhere')
   const broken = await changedRecords(p, whole.seen, 'agent')
-  expect(broken.body).toContain('`.shift/board.md`: The board lacks sections: "## Decisions"')
+  expect(broken.body).toContain('`.shift/board.md`: The board lacks sections: "## Current focus"')
   expect(broken.body).toContain('`.shift/letter.md`: The letter')
   expect(broken.body).toContain('if you are still writing them, go on')
   // Told once: unchanged since, the same broken board says nothing more; another record is not this look's.

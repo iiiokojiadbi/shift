@@ -83,24 +83,23 @@ function checkSettings(project: Pick<Project, 'problem'>): string | null {
 }
 
 export function checkBoard(board: string): string | null {
-  if (sections(board).has(OWNER_SECTION)) {
+  const headings = sections(board)
+  if (headings.has(OWNER_SECTION)) {
     return `The board has an "## ${OWNER_SECTION}" section: owner decisions live in ${OWNER}. Move its lines there as they are, remove the section from the board, and call again.`
   }
-  const boardMissing = missingSections(board, BOARD_SECTIONS, 'The board')
+  // Existing boards stay usable until their next editorial revision.
+  const legacy = headings.has('Decisions') && headings.has('Dead ends')
+  const boardMissing = missingSections(board, legacy ? ['Goal'] : BOARD_SECTIONS, 'The board')
   if (boardMissing !== null) return boardMissing
 
   return (
-    overLimit('The board', board, BOARD_MAX_LINES, 'it has become a diary. Keep decisions in force and put the next step in the letter.') ??
-    dated('the board', board, "The board has no dates — each shift's time is recorded by itself.") ??
-    badRejected(board, 'The board')
+    overLimit(
+      'The board',
+      board,
+      BOARD_MAX_LINES,
+      'it has become a diary. Keep the stage goals and shared focus. Put the next step in the letter.',
+    ) ?? dated('the board', board, "The board has no dates — each shift's time is recorded by itself.")
   )
-}
-
-// A decision may name what it turned down: "rejected: <option> — <why>".
-function badRejected(text: string, where: string): string | null {
-  const bad = (sections(text).get('Decisions') ?? '').split('\n').find(line => /rejected:/.test(line) && !/rejected: .+ — .+/.test(line))
-
-  return bad === undefined ? null : `${where}: "${bad.trim()}" — a rejected option needs its reason: "rejected: <option> — <why>".`
 }
 
 export function checkOwner(owner: string | null): string | null {

@@ -12,7 +12,7 @@ Works in [Claude Code](#claude-code) (as a mod), [pi](#pi) (as an extension) and
 
 ## How it works
 
-1. **Records as you go.** The agent keeps `.shift/` in the project: a board (the goal, decisions with their reasons, dead ends), the owner's decisions, a glossary, and knowledge by kind.
+1. **Records as you go.** The agent keeps `.shift/` in the project: a board (stage goals and the current shared focus), the owner's decisions, a glossary, and knowledge by kind.
 2. **When to shift.** A soft hint invites the agent to shift at a stage boundary. A final hint tells it to check the records, write its letter and shift immediately. Small windows receive only the final hint.
 3. **The letter.** Before a shift the agent edits its working `letter.md` with `shift_record`: where it is, what is next, what is unverified, and what the harness must hold.
 4. **The shift.** The agent calls the `shift` tool with `continue` or `wait`. The mod checks the records and refuses on a date, a missing section, a board over 150 lines, invalid records or no recorded progress. Then it saves the letter and project records in `.shift/history.db` and has the harness let the history go, steered by the letter's Hold.

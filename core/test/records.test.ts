@@ -42,13 +42,13 @@ test('the letter needs every section, none empty', () => {
 
 test('the board is a state, not a diary', () => {
   expect(check(WORK)).toBeNull()
-  expect(check({ ...WORK, board: '## Goal\nmod' })).toContain('"## Decisions"')
+  expect(check({ ...WORK, board: '## Goal\nmod' })).toContain('"## Current focus"')
   expect(check({ ...WORK, board: boardWith(['- tests go first, 2026-10-23']) })).toContain('date')
   const long = boardWith(Array.from({ length: 200 }, (_, i) => `- decision ${i}`))
   expect(check({ ...WORK, board: long })).toContain('diary')
   expect(check({ ...WORK, board: `${BOARD}\n## Owner decisions\nnone` })).toContain('live in .shift/OWNER.md')
-  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies']) })).toContain('needs its reason')
-  expect(check({ ...WORK, board: boardWith(['- one port — two adapters; rejected: copies — they drift']) })).toBeNull()
+  expect(check({ ...WORK, board: '## Goal\n- First outcome\n- Second outcome\n## Current focus\nVerifying both.' })).toBeNull()
+  expect(check({ ...WORK, board: '## Goal\nOne outcome\n## Current focus\nReviewing results.' })).toBeNull()
 })
 
 test("the owner's decisions are a code of rules beside the board", () => {

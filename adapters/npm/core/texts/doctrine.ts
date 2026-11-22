@@ -35,19 +35,20 @@ const BOARD_RULES = `The board is a state, not a diary:
 
 Sections, as \`##\` headings, all required (an empty one says "none"):
 ${described(BOARD_SECTIONS, {
-  Goal: 'who or what the project serves and the outcome it must deliver, in a sentence or two. Rewrite when that outcome changes. Write the next concrete step in the letter',
-  Decisions:
-    'one line per choice later work still depends on. State what to do, when it applies and why. Revise that line when the choice changes. An alternative considered can go on the same line as `rejected: <option> — <why>`',
-  'Dead ends':
-    'one line per failed approach later work might repeat. State what was tried, what happened and under which condition. Revisit when that condition changes',
+  Goal: 'the outcomes this stage should achieve. Default to an unordered list, one outcome per bullet, even for a single goal',
+  'Current focus':
+    'what the project is doing now to reach those goals. Mention concurrent directions and temporary conditions when another chat would act differently. Remove a condition when it expires',
 })}
 
-Example from a stocktaking project:
-- Goal: Let warehouse staff record counts offline and sync them when connectivity returns.
-- Decisions: Assign each count an ID on the device so retrying a sync cannot count it twice.
-- Dead ends: Deduplicating by timestamp merged distinct counts on devices with identical clocks. Keep this warning while old devices send timestamps alone.
+Example board:
+## Goal
+- Let warehouse staff record counts offline.
+- Sync their counts when connectivity returns.
 
-When taking over an existing board or closing a task, ask of each affected line: what would you do differently next time after reading this? Keep that instruction short. Keep issue-specific findings with the issue when tracking it. Keep owner policy in the owner record. Store useful background once according to the project's knowledge rules (local knowledge works without project docs). Check that its destination preserves the reason before removing a still-useful detail. Drop superseded or duplicated lines; earlier boards remain in shift snapshots. Age alone says nothing about whether a rule still applies.`
+## Current focus
+We are checking what happens when a device retries a sync. Keep the original count IDs during the trial so the receiving system can recognize a retry.
+
+When revising an older board, read its Decisions and Dead ends. Keep an active constraint in Current focus. Preserve durable design in the appropriate document and reusable lessons according to the project's knowledge rules. Keep owner policy in the owner record. Earlier boards remain available in saved shifts.`
 
 const OWNER_RULES = `\`${OWNER}\` is the owner's decisions in force for the whole project: a code of rules as it stands now, not a log. Verbatim where the owner's words matter, grouped under \`##\` headings by meaning, no dates, no "revoked" marks, no more than ${OWNER_MAX_LINES} lines; no decisions yet — "none". A new word is checked against what is written: it contradicts a rule — the rule is rewritten; it narrows, widens or refines one — the rule is rewritten to cover both; it is new — a new line. A rule changes or goes only on the owner's word. When tracking an issue, keep decisions specific to it on the issue.`
 
@@ -93,11 +94,11 @@ You work in stretches and decide yourself when to shift: the stretch's history i
 
 ## Board and letter
 
-\`${BOARD}\` keeps the project outcome and decisions that guide later work. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board decision or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Use import for existing loose records. At shift time, check the records and write the letter. ${LETTER_OPENING}
+\`${BOARD}\` holds stage goals and the current shared focus. Read the board when starting work in an existing project. Write the next step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. ${taskInstructions(command)} Update a task, owner rule, board or glossary term when it changes. No board — create it. Before starting the next item, record the outcome of this one. When a change affects a documented interface, workflow or design decision, choose its document by the behavior that changed and update it alongside the change. ${tools.includes(MENTIONS_TOOL) ? `Use \`${MENTIONS_TOOL}\` to find additional filename references. ` : ''}Follow the project's knowledge rules in \`${SHIFT_FILE}\`. For internal records use shift_record (file-backed projects use their paths): read and replace a unique passage, or checkout Markdown, edit the returned path, then apply its revision. Use import for existing loose records. At shift time, check the records and write the letter. ${LETTER_OPENING}
 
 \`${SHIFT_FILE}\`, \`${OWNER}\`, \`${GLOSSARY}\` come into the session. The board and letter return after a shift. The settings may move the first three elsewhere in the project.
 
-When continuing a tracked issue, include its ID in the letter. On the board, Goal names the current outcome, Decisions give cross-task choices and reasons, and Dead ends warn of observed failures others may repeat. When scope changes or a task closes, revise the affected lines in place and retire those that no longer guide other work. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
+When continuing a tracked issue, include its ID in the letter. Under Goal, use an unordered list of stage outcomes by default. Under Current focus, describe the work underway and any temporary condition other chats need. Update the board when that shared picture changes. On return, check whether the letter's Next still fits the current board. For tracked work, keep issue-specific decisions and evidence on the issue. Dates belong to the mod's snapshots.
 
 \`${OWNER}\` is the owner's standing decisions. On the owner's word, find the rule on that subject, check its scope and revise it in place. Add a line for a distinct decision. Quote wording that determines its meaning. Keep project terms in \`${GLOSSARY}\`. Read \`${SHIFT_FILE}\` for the project's knowledge rules, documentation map and pinned advice. Open the mapped document for details. Keep knowledge local in \`${KNOWLEDGE}/\` until the owner chooses its placement.
 
@@ -125,7 +126,7 @@ const DOC_WRITING = `When you change what someone using or maintaining the proje
 
 1. Name the reader's question. If a message can arrive during a shift, for example, the reader needs to know whether the agent receives its letter before answering. Use the map to find the document that explains that behavior. Where enabled, use \`${MENTIONS_TOOL}\` to catch other documents naming a changed file. A document can explain the behavior without naming the file.
 2. Rewrite the affected passage in place. Say what happens, under which conditions, and why the distinction matters. Put exact commands and limits with the interface they belong to. For example, attach a character limit to the specific field and file. Link other mentions to that passage. Create a document when a distinct topic has no home. Give it a short \`description:\` saying what question it answers and when to open it. For example: "Which message reaches the agent first. Read before changing delivery during a shift." Use \`##\` headings a reader can choose from the map, such as "Messages received during a shift". Verify any command, field name or limit you publish against its source.
-3. Keep the board useful at the next shift. A project-wide decision needs the action to preserve and the reason a future agent could get it wrong. For the message example, record the letter-first guarantee and why the answer depends on it. Link to the adapter document for event order and exceptions. Before shortening a long board entry, check that the linked section preserves the reasons worth keeping.
+3. Keep durable behavior in its document. Update Current focus when the change affects what other chats should do during this stage. For example, while two adapters still deliver messages in different orders, say which adapter needs the ordering check. Retire the line once both pass.
 4. When the owner gives a decision, find earlier wording on the same subject. Name the scope (project, harness, task or field), fold refinements into the existing rule, and keep a quote where its wording matters. Recover an ambiguous reference from its source when possible. Ask if the evidence leaves two meanings that would lead to different actions.
 5. When a design is superseded and its rationale is still useful, mark the reference \`archived: true\` and describe when to consult it. Keep current instructions in the active document. Read the resulting map entry as a new agent would: can you find the right document and tell when its instructions apply? Edit its frontmatter or headings to improve the entry.`
 
@@ -134,7 +135,7 @@ export const GRAPH_LAYOUT = `Default internal Markdown records live in .shift/hi
 export const GUIDE_RECORDS = [
   '## What goes where',
   GRAPH_LAYOUT,
-  'Project-wide focus can go in the board Goal. Write the next step in the letter. Use Beads when work needs its own status, dependencies or discussion.',
+  'Write the next step in the letter. Use Beads when work needs its own status, dependencies or discussion.',
   BOARD_RULES,
   OWNER_RULES,
   GLOSSARY_RULES,

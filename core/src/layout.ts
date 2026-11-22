@@ -88,7 +88,7 @@ function escapeRegExp(text: string): string {
 
 export const KNOWLEDGE = `${DIR}/${NAMES.knowledge}`
 
-export const BOARD_SECTIONS = ['Goal', 'Decisions', 'Dead ends'] as const
+export const BOARD_SECTIONS = ['Goal', 'Current focus'] as const
 
 // Owner decisions moved from the board to their own file; a board that still has the section is refused with the move to make.
 export const OWNER_SECTION = 'Owner decisions'

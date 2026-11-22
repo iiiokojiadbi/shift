@@ -41,7 +41,9 @@ Project documentation, settings and explicit file sources stay on disk. With `co
 
 Write the next concrete step in the letter. Use the built-in tracker when work needs its own status, dependencies or discussion. Run `./.shift/bin/shift-task prime` from the project root for the bundled Beads workflow. Use the same executable in place of `bd` in its examples. `shift-task ready` finds available work, `shift-task show <id>` reads an issue and `shift-task comments <id>` reads its discussion. Tasks, claims, dependencies, labels and comments belong to Beads. Put the issue ID and the next concrete step in the working letter when a chat needs to resume a particular issue.
 
-The board returns in full. Keep the goal to the current project outcome. A decision records a choice other tasks must follow and its reason. A dead end records what was tried, the observed failure and the condition under which it matters. Review affected lines when scope changes or a task closes. Keep decisions specific to one task on its card.
+The shared board returns in full. Read it when starting work in an existing project. Under `## Goal`, use an unordered list by default, one stage outcome per bullet. A single goal in prose is also valid. Under `## Current focus`, describe what is underway toward those goals, including temporary conditions that affect other chats. Review the focus when circumstances change. The letter carries the individual next step. Durable design belongs in its document, owner policy in the owner record, and reusable lessons with project knowledge.
+
+Existing boards with Goal, Decisions and Dead ends can still be used for a shift. When revising one, carry forward any constraints that still affect current work and move lasting knowledge to its destination. Saved snapshots retain their original board text.
 
 ## OWNER.md, GLOSSARY.md, SHIFT.md
 
