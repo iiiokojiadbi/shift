@@ -1,8 +1,7 @@
-import { checkGlossary } from './glossary'
-import { DIR, NAMES } from './layout'
+import { DIR } from './layout'
 import { sectionRange } from './markdown'
 import type { Project } from './project'
-import { checkBoard, checkKnowledge, checkLetter, checkOwner } from './records'
+import { recordProblem } from './records'
 import { archiveCall } from './saved'
 
 function field(raw: Record<string, unknown>, name: string): string {
@@ -26,23 +25,6 @@ export function replacePassage(text: string, find: string, replacement: string, 
   if (!find || at < 0 || body.indexOf(find, at + 1) >= 0)
     throw new Error('Expected one exact match. Read the record and include more context.')
   return text.slice(0, start + at) + replacement + text.slice(start + at + find.length)
-}
-
-function problem(name: string, text: string) {
-  switch (name) {
-    case NAMES.board:
-      return checkBoard(text)
-    case NAMES.owner:
-      return checkOwner(text)
-    case NAMES.glossary:
-      return checkGlossary(text, name)
-    case NAMES.letter:
-      return checkLetter(text)
-    case NAMES.shift:
-      return null
-    default:
-      return checkKnowledge({ name: name.slice('knowledge/'.length), text })
-  }
 }
 
 export async function editRecord(p: Project, raw: Record<string, unknown>) {
@@ -81,6 +63,13 @@ export async function editRecord(p: Project, raw: Record<string, unknown>) {
   }
   const version = field(raw, 'revision')
   const revision = version === 'new' ? '' : version
+  if (action === 'delete') {
+    if (!name.startsWith('knowledge/')) throw new Error('Only current knowledge records can be deleted.')
+    if (await w.disk.exists(`${p.root}/${DIR}/${name}`))
+      throw new Error('A loose source still exists. Move or retire that file before deleting the imported record.')
+    await w.remove(name, revision)
+    return `Deleted ${name}.`
+  }
   if (action === 'discard') {
     const body = await draft<string>('read', revision)
     await draft('remove', revision, body)
@@ -104,7 +93,7 @@ export async function editRecord(p: Project, raw: Record<string, unknown>) {
         .concat(replacement.split('\n').map(s => `+ ${s}`))
         .join('\n')
   }
-  const bad = problem(name, next)
+  const bad = recordProblem(name, next)
   if (bad) throw new Error(bad)
   // A crash after committing an apply can leave its draft. Identical text is
   // already saved, so the same request can finish cleaning up without a write.

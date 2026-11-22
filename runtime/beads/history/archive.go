@@ -199,7 +199,7 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 		}
 	}
 	switch r.Action {
-	case "working-list", "working-write":
+	case "working-list", "working-write", "working-delete":
 		return workingOperation(tx, r)
 	case "begin":
 		if r.Key == "" || r.Files["letter.md"] == "" || r.Files["board.md"] == "" || r.About == "" {

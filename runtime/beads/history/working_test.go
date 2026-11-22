@@ -99,3 +99,19 @@ func TestDraftRemovalPreservesReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteWorkingKnowledge(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "history.db")
+	name := "knowledge/glossary.md"
+	records := must[map[string]WorkingRecord](t, db, Request{Action: "working-write", Changes: map[string]WorkingChange{name: {Text: "old"}, "board.md": {Text: "board"}}})
+	for _, r := range []Request{{Action: "working-delete", File: name, Revision: "stale"}, {Action: "working-delete", File: "board.md", Revision: records["board.md"].Revision}} {
+		if _, err := call(db, r); err == nil {
+			t.Fatal("unexpected deletion", r.File)
+		}
+	}
+	must[string](t, db, Request{Action: "working-delete", File: name, Revision: records[name].Revision})
+	got := must[map[string]WorkingRecord](t, db, Request{Action: "working-list"})
+	if len(got) != 1 || got["board.md"] != records["board.md"] {
+		t.Fatal(got)
+	}
+}

@@ -1,13 +1,15 @@
 import { Database } from 'bun:sqlite'
 import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
 
-import { prepareHandover } from '../handover'
+import { prepareHandover, wakeInput } from '../handover'
 
 let archive: Awaited<ReturnType<typeof historyRuntime>>
 beforeAll(async () => {
@@ -439,4 +441,106 @@ test('two threads sharing a document notify each other and silently accept their
   expect(await first('UserPromptSubmit')).toBe('')
   expect(await other('SessionStart', { source: 'compact' })).toContain('sections: Setup')
   expect(await first('UserPromptSubmit')).toBe('')
+})
+
+for (const prompt of ['Continue working', '$shift:unshift']) {
+  test(`archive-only wait survives a lost hook result and another chat's rotation: ${prompt}`, async () => {
+    const { root, hook, transcript } = await fixture()
+    await writeFile(join(root, '.shift/settings.toml'), 'history_limit = 1\n')
+    const save = (session: string) => {
+      const about = '---\ndescription: Saved fixture\nresult: shifted\nafter: wait\n---'
+      const id = archive.query<string>(root, {
+        action: 'begin',
+        key: session,
+        about,
+        files: { 'board.md': BOARD, 'letter.md': LETTER + session },
+      })
+      archive.query(root, { action: 'finish', session, id, about, state: 'complete', wait: session === 'scope', limit: 1 })
+      return id
+    }
+    const id = save('scope')
+    const waiting = () => archive.query(root, { action: 'waiting', session: 'scope' })
+    await hook('SessionStart')
+    expect(await hook('UserPromptSubmit', { prompt, turn_id: 'one' })).toContain(LETTER.trim())
+    expect(waiting()).toBe(id)
+    save('other')
+    const retried = await hook('UserPromptSubmit', { prompt: 'Retry', turn_id: 'two' })
+    expect(retried).toContain(LETTER.trim())
+    await appendFile(
+      transcript,
+      `${JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ text: retried }] } })}\n`,
+    )
+    expect(await hook('UserPromptSubmit', { prompt: 'Again', turn_id: 'three' })).not.toContain(LETTER.trim())
+    expect(waiting()).toBe('')
+  })
+}
+
+test('one MCP connection follows the hook project for import, edit and knowledge repair', async () => {
+  const { root, home, hook } = await fixture()
+  const other = await scratch('rebound-project')
+  const name = 'knowledge/glossary.md'
+  const loose = join(other, '.shift', name)
+  await mkdir(join(other, '.shift/knowledge'), { recursive: true })
+  await writeFile(join(other, '.shift/board.md'), BOARD)
+  await writeFile(join(other, '.shift/OWNER.md'), '- Existing owner rule.')
+  await writeFile(loose, '---\nkind: glossary\n---')
+  await hook('SessionStart')
+  const child = spawn('bun', [join(archive.plugin, 'runtime.js'), 'mcp'], {
+    env: { ...process.env, CODEX_HOME: home },
+    stdio: ['pipe', 'pipe', 'inherit'],
+  })
+  const replies = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
+  let id = 0
+  const call = async (args: Record<string, string>) => {
+    const params = { name: 'shift_record', arguments: args, _meta: { threadId: 'scope' } }
+    child.stdin.write(`${JSON.stringify({ id: ++id, method: 'tools/call', params })}\n`)
+    const line = await replies.next()
+    if (line.done) throw new Error('MCP closed before replying')
+    const reply = JSON.parse(line.value)
+    return String(reply.result.content[0].text)
+  }
+  try {
+    expect(await call({ action: 'import' })).toContain('Imported')
+    await hook('SessionStart', { cwd: other })
+    expect(await call({ action: 'import' })).toContain('is a glossary')
+    const list = () => archive.query<Record<string, { revision: string; text: string }>>(other, { action: 'working-list' })
+    expect(list()['board.md']).toBeUndefined()
+    archive.query(other, { action: 'working-write', changes: { [name]: { revision: '', text: 'obsolete' } } })
+    const revision = list()[name]?.revision
+    if (!revision) throw new Error('Missing imported revision')
+    expect(await call({ action: 'delete', name, revision })).toContain('loose source')
+    await unlink(loose)
+    expect(await call({ action: 'delete', name, revision: 'outdated' })).toContain('changed')
+    expect(await call({ action: 'delete', name, revision })).toContain('Deleted')
+    expect(await call({ action: 'import' })).toContain('Imported')
+    expect(list()[name]).toBeUndefined()
+    const board = list()['board.md']
+    if (!board) throw new Error('Missing imported board')
+    expect(
+      await call({ action: 'replace', name: 'board.md', revision: board.revision, find: BOARD, replacement: `${BOARD}\nProject B focus.` }),
+    ).toContain('Project B focus')
+    expect(list()['board.md']?.text).toContain('Project B focus')
+    await hook('SessionStart', { cwd: root })
+    expect(await call({ action: 'read', name: 'board.md' })).not.toContain('Project B focus')
+  } finally {
+    child.stdin.end()
+    child.kill()
+  }
+})
+
+test('a queued transition belongs to its project across a root switch with matching archive IDs', async () => {
+  const { root, home, hook, rawHook } = await fixture()
+  const other = await fixture()
+  const id = archive.seed(root, LETTER, BOARD)
+  expect(archive.seed(other.root, `${LETTER}second project`, BOARD)).toBe(id)
+  await hook('SessionStart')
+  const file = join(home, 'plugins/data/shift-sessions', `session-${createHash('sha256').update('scope').digest('hex')}.json`)
+  for (const cwd of [root, other.root]) {
+    prepareHandover(file, cwd, id, 0)
+    await hook('SessionStart', { cwd, source: 'compact' })
+  }
+  const prompt = wakeInput(id, root)
+  expect((await rawHook('UserPromptSubmit', { cwd: other.root, prompt })).continue).toBe(false)
+  expect(await hook('UserPromptSubmit', { cwd: root, prompt })).toContain(LETTER.trim())
+  expect(await hook('UserPromptSubmit', { cwd: other.root, prompt: 'Resume here' })).toContain('second project')
 })

@@ -9,7 +9,7 @@ import { currentMap, type MapPrints } from './map'
 import { fromRoot } from './paths'
 import type { Project } from './project'
 import { archiveCall, hasArchive, readSaved } from './saved'
-import { continuePrompt, NOTE_KINDS, type NoteKind } from './texts/prompts'
+import { continuePrompt, NOTE_KINDS, type NoteKind, waitContext } from './texts/prompts'
 import { TOLD } from './texts/rows'
 
 // Everything the mod tells the agent goes through here: a hint, the check of the records changed, the docs settled
@@ -185,7 +185,7 @@ export async function promptRecords(
       const letter = saved.files[NAMES.letter] ?? ''
       if (submitted.startsWith(`<shift id="${waiting}">\nShift done.`) && submitted.includes(letter.trim())) waiting = ''
       else recovery = continuePrompt(letter, await handBack(project, waiting, session))
-    }
+    } else recovery = waitContext(saved.files[NAMES.letter] ?? '', await handBack(project, waiting, session))
   }
   const outside = running === 0 ? await look(courier, 'other') : null
   if (outside?.body === null) await remember(courier, outside.seen)

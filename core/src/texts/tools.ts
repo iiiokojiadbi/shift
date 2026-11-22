@@ -115,11 +115,11 @@ export const TOOL_TEXTS: Record<string, ToolText> = {
     label: 'Working records',
     brief: 'read, edit and import current Markdown records.',
     description:
-      'Read current Markdown by logical name. Replace one exact passage at its revision. For long edits checkout a temporary file, edit it and apply using the returned revision. Use drafts to recover a draft or discard to remove it. Import adopts existing internal files.',
+      'Read current Markdown by logical name. Replace one exact passage at its revision. For long edits checkout a temporary file, edit it and apply using the returned revision. Use drafts to recover a draft or discard to remove it. Import validates existing internal files before adopting them together. Delete removes a current knowledge record at its revision after its loose source has been retired.',
     schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list', 'read', 'replace', 'checkout', 'apply', 'drafts', 'discard', 'import'] },
+        action: { type: 'string', enum: ['list', 'read', 'replace', 'checkout', 'apply', 'drafts', 'discard', 'delete', 'import'] },
         name: { type: 'string', description: 'board.md, letter.md, OWNER.md, GLOSSARY.md, SHIFT.md or knowledge/<name>.md' },
         revision: { type: 'string' },
         find: { type: 'string' },

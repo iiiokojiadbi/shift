@@ -80,6 +80,15 @@ func workingOperation(tx *bolt.Tx, r Request) (any, error) {
 	if err != nil || r.Action == "working-list" {
 		return records, err
 	}
+	if r.Action == "working-delete" {
+		if !validRecord(r.File) || !strings.HasPrefix(r.File, "knowledge/") {
+			return nil, errors.New("only knowledge records can be deleted")
+		}
+		if r.Revision == "" || records[r.File].Revision != r.Revision {
+			return nil, fmt.Errorf("%s changed; read its current revision and retry", r.File)
+		}
+		return r.File, tx.Bucket(working).Delete([]byte(r.File))
+	}
 	if len(r.Changes) == 0 {
 		return nil, errors.New("no working record changes")
 	}

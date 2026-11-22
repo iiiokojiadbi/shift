@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { acceptShift, changedRecords, resumeShift, settleShift, shiftBase, shiftHistory, shiftNotMade } from '../src/flows'
 import { frontmatter } from '../src/markdown'
 import { readSaved } from '../src/saved'
+import { setupReport } from '../src/setup'
 import type { PendingShift, ShiftInput } from '../src/types'
 import { BOARD, LETTER, R, ROOT } from './fixtures'
 import { memoryProject } from './memory'
@@ -63,7 +64,9 @@ test('a shift is refused without a letter, with a bad letter or without a board'
 test('a revised file-backed legacy decision must acquire a scope before its next snapshot', async () => {
   const p = await project()
   await accepted(p)
+  expect(await setupReport(p, null)).toContain('They pass every check')
   await p.store.write(`${R}/OWNER.md`, '- Keep the preview private.')
+  expect(await setupReport(p, null)).toContain('follow the decision with "Permanent"')
   const call = { input: INPUT, at: AT + 1, sessionId: 'another-chat' }
   expect(await acceptShift(p, call)).toEqual({ deny: expect.stringContaining('Permanent') })
   await p.store.write(`${R}/OWNER.md`, '- Keep the preview private.\n  [tasks preview-1] · Until the owner approves access')

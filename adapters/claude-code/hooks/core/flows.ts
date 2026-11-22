@@ -3,16 +3,16 @@ import { OUTCOME, readAbout, renderAbout, shiftFill } from './about'
 import { installTaskCommand, taskInstructions } from './beads'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary } from './history'
-import { ABOUT_MAX, atPlaces, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
+import { ABOUT_MAX, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
 import { formatK, frontmatter, openingParagraph, sections } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
-import { checkLetter, checkOwner, checkWork, checkWritten } from './records'
-import { archiveCall, readSaved, savedEntries, savedFiles } from './saved'
+import { checkLetter, checkWork, checkWritten, ownerRevisionProblem } from './records'
+import { archiveCall, readSaved, type SavedEntry, savedEntries, savedFiles } from './saved'
 import { lastShifts, readRecords, recentShifts } from './store'
 import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
-import type { HandedBack, PendingShift, SessionFile, Settled, ShiftInput, WaitNote } from './types'
+import type { HandedBack, PendingShift, SessionFile, Settled, ShiftInput, WaitNote, Work } from './types'
 
 // The flows that do not depend on the harness: an adapter hands them the loaded project and what only it knows.
 
@@ -151,7 +151,8 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   if (settings.enabled) await refreshDocs(project)
   const work = await readRecords(project)
   if (work === null) return { deny: `No board: create ${BOARD} by the sections in ${GUIDE_TOOL} and call again.` }
-  const workProblem = checkWork(work, project)
+  const entries = await savedEntries(project)
+  const workProblem = await currentWorkProblem(project, work, entries)
   if (workProblem !== null) return { deny: workProblem }
   const kept = await keepRecordsOut(project)
   if ('deny' in kept) return kept
@@ -169,13 +170,6 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   }
   const about = renderAbout({ ...shift, result: OUTCOME.pending })
   const files = savedFiles(work, letter, project.settingsText)
-  const entries = await savedEntries(project)
-  // A legacy file may cross its first shift untouched. Once a snapshot exists, a changed
-  // file-backed owner record must pass the same edit check as a database-backed one.
-  const ownerFormat = checkOwner(work.owner)
-  const latest = entries.at(-1)
-  if (ownerFormat && latest && (await readSaved(project, latest.id, NAMES.owner)).files[NAMES.owner] !== work.owner)
-    return { deny: atPlaces(ownerFormat, settings.files) }
   const previous = entries.toReversed().find(e => e.state === 'complete' && readAbout(e.about).session === call.sessionId)
   shift.dir = await archiveCall<string>(project, {
     action: 'begin',
@@ -191,6 +185,10 @@ export async function acceptShift(project: Project, call: ShiftCall): Promise<{ 
   const accepted = ACCEPTED(shift.dir, input.after)
 
   return { shift, result: kept.excluded === null ? accepted : `${EXCLUDED(kept.excluded)}\n\n${accepted}` }
+}
+
+export async function currentWorkProblem(project: Project, work: Work, entries?: SavedEntry[]) {
+  return checkWork(work, project) ?? ownerRevisionProblem(project, work.owner, entries)
 }
 
 export async function shiftHistory(project: Project, count: number): Promise<string> {

@@ -233,7 +233,7 @@ export class Session {
       if (name === 'shift_tasks') return tasksView(project)
       if (name === 'unshift') {
         const last = await resumeShift(project)
-        if (last.prompt) await dropWaiting(this.loop, project, last.waiting)
+        if (last.prompt) await dropWaiting(this.loop, this.hookFile ? undefined : project, last.waiting)
         return last.prompt ?? last.text
       }
       const tool = shownTools(project.settings).find(tool => tool.name === name)
@@ -455,7 +455,7 @@ export class Session {
                 await this.request('thread/queue/add', {
                   threadId: this.id,
                   clientUserMessageId: crypto.randomUUID(),
-                  input: [textInput(wakeInput(receipt.dir))],
+                  input: [textInput(wakeInput(receipt.dir, receipt.root))],
                 })
               return
             }
@@ -492,6 +492,10 @@ export class Session {
       threadId: this.id,
       items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: shiftContext(text) }] }],
     })
+  }
+
+  get shifting() {
+    return !!this.barrier
   }
 
   close() {

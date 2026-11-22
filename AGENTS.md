@@ -83,7 +83,7 @@ CHANGELOG.md               for people: what changed in each release, one entry p
 lefthook.yml  biome.json  package.json  LICENSE
 ```
 
-`.shift/` is the agent's own records for this project (board, owner decisions, knowledge, private task graph and shift history). It is local and never committed.
+This project keeps current Markdown records and saved shifts in `.shift/history.db`. Its optional task tracker has a separate workspace under `.shift/beads/`. The local `.shift/` directory is never committed.
 
 ## Rules for every change
 

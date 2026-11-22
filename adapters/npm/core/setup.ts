@@ -1,10 +1,9 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { docsReport } from './docs'
-import { sessionFiles, staleLayout } from './flows'
+import { currentWorkProblem, sessionFiles, staleLayout } from './flows'
 import { atPlaces, BOARD, GUIDE_TOOL, MOD, SETTINGS } from './layout'
 import { formatK } from './markdown'
 import type { Project } from './project'
-import { checkWork } from './records'
 import { DEFAULT_SETTINGS, SETTING_KEYS, settingValue } from './settings'
 import { readRecords } from './store'
 import { doctrine, GRAPH_LAYOUT } from './texts/doctrine'
@@ -100,7 +99,7 @@ async function recordsState(project: Project): Promise<string> {
   if (stale !== null) return stale
   const work = await readRecords(project)
   if (work === null) return `No board yet: create ${BOARD} by the sections in ${GUIDE_TOOL} before the first shift.`
-  const problem = checkWork(work, project)
+  const problem = await currentWorkProblem(project, work)
 
   return problem === null
     ? 'They pass every check a shift makes of the records, but whether anything changed since the last shift; the letter is checked by the shift itself.'

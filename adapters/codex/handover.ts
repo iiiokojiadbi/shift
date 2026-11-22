@@ -1,10 +1,11 @@
 // A stock client can submit directly to the app server as soon as replacement
 // history is installed. Its prompt hook and the MCP process share this receipt.
 import { Database } from 'bun:sqlite'
+import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { isSaved, WAKE } from '../../core/src'
-import { shiftContext } from './protocol'
+import { contextBody, shiftContext } from './protocol'
 
 export type Handover = { root: string; dir: string; offset: number | null; phase: 'prepared' | 'ready' | 'offered' | 'delivered' }
 
@@ -35,7 +36,15 @@ export function readyHandover(db: Database, row: Pick<Handover, 'root' | 'dir'>)
   db.query("UPDATE handover SET phase = 'ready' WHERE root = ? AND dir = ? AND phase = 'prepared'").run(row.root, row.dir)
 }
 
-export const wakeInput = (dir: string) => shiftContext(`${WAKE}\n${dir}`)
+export function wakeInput(dir: string, root?: string) {
+  const scope = root ? `\n${createHash('sha256').update(root).digest('hex')}` : ''
+  return shiftContext(`${WAKE}\n${dir}${scope}`)
+}
+
+export function queuedShift(prompt: string) {
+  const [message, dir] = contextBody(prompt).split('\n')
+  return message === WAKE && dir && isSaved(dir) && contextBody(prompt) !== prompt ? dir : null
+}
 
 // A client may restart after replacing history but before the MCP process
 // records success. A resume alone does not prove that replacement happened.

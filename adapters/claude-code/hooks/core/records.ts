@@ -20,6 +20,7 @@ import {
 } from './layout'
 import { blocks, dated, frontmatter, headings, missingSections, overLimit, quote, sections } from './markdown'
 import type { Project } from './project'
+import { readSaved, type SavedEntry, savedEntries } from './saved'
 import type { Kind, KnowledgeFile, Work } from './types'
 
 export function checkLetter(text: string): string | null {
@@ -176,4 +177,30 @@ export function knowledgeMap(files: readonly KnowledgeFile[]): string {
       ].join('\n')
     })
     .join('\n')
+}
+
+export function recordProblem(name: string, text: string, allowLegacy = false) {
+  switch (name) {
+    case NAMES.board:
+      return checkBoard(text)
+    case NAMES.owner:
+      return checkOwner(text, { allowLegacy })
+    case NAMES.glossary:
+      return checkGlossary(text, name)
+    case NAMES.letter:
+      return checkLetter(text)
+    case NAMES.shift:
+      return null
+    default:
+      return checkKnowledge({ name: name.slice('knowledge/'.length), text })
+  }
+}
+
+export async function ownerRevisionProblem(project: Project, owner: string | null, entries?: SavedEntry[]) {
+  const format = checkOwner(owner)
+  if (!format) return null
+  const latest = (entries ?? (await savedEntries(project))).at(-1)
+  return latest && (await readSaved(project, latest.id, NAMES.owner)).files[NAMES.owner] !== owner
+    ? atPlaces(format, project.settings.files)
+    : null
 }

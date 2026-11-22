@@ -65,7 +65,12 @@ class Daemon {
   async attach(id: string, root: string, file: string) {
     await this.ready
     const existing = this.sessions.get(id)
-    if (existing) return existing
+    if (existing?.root === root) return existing
+    if (existing?.shifting) throw new Error('The previous project is finishing a shift. Retry after its transition completes.')
+    if (existing) {
+      existing.close()
+      this.sessions.delete(id)
+    }
     const thread = fields((await this.rpc.call('thread/read', { threadId: id })).thread)
     if (thread.cwd !== root || thread.parentThreadId || fields(thread.source).subAgent || fields(thread.status).type !== 'active')
       throw new Error('Only the active main thread on the local server can shift.')
@@ -133,7 +138,13 @@ async function serve() {
             if (!(await projectAt(state.root)).settings.enabled) throw new Error('Shift is disabled in this project.')
             return reply(packet.id, { content: [{ type: 'text', text: status(state.usage) }] })
           }
-          let session = daemon?.sessions.get(id) ?? sessions.get(id)
+          const attached = daemon?.sessions.get(id)
+          if (attached && attached.root !== state.root && !attached.shifting) {
+            attached.close()
+            daemon?.sessions.delete(id)
+          }
+          let session = attached?.root === state.root ? attached : sessions.get(id)
+          if (session?.root !== state.root) session = undefined
           let turn = ''
           if (name === 'shift') {
             if (!daemon || daemon.disconnected) daemon = new Daemon()
@@ -162,6 +173,7 @@ async function serve() {
                 throw new Error('No app server attached.')
               },
               text => console.error(text),
+              file,
             )
             sessions.set(id, session)
           }

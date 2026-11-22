@@ -95,7 +95,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `shift_guide` | full guide or one section, `flow` or `records` |
 | `shift_sizes` | estimated token table by entity, plus the last three saved letters. For o200k_base counts run `bun run shift:sizes [project]` from the checkout |
 | `shift_status` | how full the history is and when the next hint comes |
-| `shift_record` | read and edit current Markdown, check out a temporary file or import existing internal records. [Working records](docs/records.md) |
+| `shift_record` | read and edit current Markdown, check out a temporary file import existing internal records or retire a knowledge record at its revision. [Working records](docs/records.md) |
 | `shift_history` | list, read, compare, export or delete retained shifts, or search saved shift records locally |
 | `shift_setup` | settings, record checks and session files. Use section `tasks` to prepare the task command and see its path |
 | `shift_read` | read a mapped document or knowledge file, optionally by exact heading |
@@ -108,12 +108,12 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | Key | Meaning |
 |---|---|
 | `enabled` | `false` turns the mod off in this project |
-| `history_limit` | completed shifts to retain, default 30. Pending and waiting letters are protected |
+| `history_limit` | completed shifts to retain and maximum earlier descriptions in a restore, default 30. Pending and waiting letters are protected |
 | `knowledge` | where knowledge goes: `local` (`.shift/knowledge/`), `project` (the project's docs) or `split` |
 | `commit` | `true` lets the project's git take `.shift/` in; by default the mod keeps it out through the local exclude file |
 | `[files]` `shift`, `owner`, `glossary` | where `SHIFT.md`, `OWNER.md` and `GLOSSARY.md` live |
 | `[files]` `always` | the project's own files loaded whole into every session |
-| `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` turns the map off |
+| `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
 | `[docs]` `toc`, `max_pinned`, `max_description`, `max_lines` | document tocs and checks for pins, descriptions and file length |
 
 ## Documentation

@@ -2,6 +2,7 @@
 import { BOARD, DIR, GLOSSARY, KNOWLEDGE, LETTER, OWNER, SHIFT_FILE } from './layout'
 import { basename, dirname, fromRoot } from './paths'
 import type { Project } from './project'
+import { ownerRevisionProblem, recordProblem } from './records'
 import { ARCHIVE_DB, archiveCall } from './saved'
 import type { Store } from './store'
 
@@ -61,6 +62,11 @@ export class WorkingRecords {
     return updated
   }
 
+  async remove(file: string, revision: string) {
+    await archiveCall(this.project, { action: 'working-delete', file, revision })
+    this.loaded = undefined
+  }
+
   async importFiles() {
     const { root } = this.project
     const paths = [...names, ...(await this.disk.list(`${root}/${KNOWLEDGE}`, 'file')).map(n => `${KNOWLEDGE}/${n}`)]
@@ -71,6 +77,8 @@ export class WorkingRecords {
       if (!name || current[name] || !(await this.disk.exists(`${root}/${path}`))) continue
       const text = await this.disk.read(`${root}/${path}`)
       if (text === null) throw new Error(`Cannot import ${path}; existing file is unreadable.`)
+      const problem = recordProblem(name, text, true) ?? (path === OWNER ? await ownerRevisionProblem(this.project, text) : null)
+      if (problem) throw new Error(`Cannot import ${path}: ${problem}`)
       changes[name] = { text, revision: '' }
     }
     if (Object.keys(changes).length) await this.put(changes, '')

@@ -34,7 +34,7 @@ import {
 import { projectAt } from '../npm/store'
 import { recentEdits } from './edits'
 import { freshSample, type Sample, sample } from './gauge'
-import { readHandover, readyHandover, replacedSince, wakeInput } from './handover'
+import { queuedShift, readHandover, readyHandover, replacedSince, wakeInput } from './handover'
 import { type MapPrints, mapAtTool, observeMap } from './map'
 import { contextBody, type Fields, fields } from './protocol'
 
@@ -222,8 +222,8 @@ async function contextFor(input: Fields, project: Project, state: HookState, res
     notes.push(changes.note)
   }
   state.doctrineHash = doctrineHash
-  notes.push(...recordNotes, records.recovery)
-  return { notes, waiting: records.waiting }
+  notes.push(...recordNotes)
+  return { notes, waiting: records.waiting, letter: records.recovery }
 }
 
 function checkpoint(db: Database): HookState | undefined {
@@ -304,20 +304,30 @@ export async function runHook(input: Fields, dir: string, file: string) {
     }
     const submit = input.hook_event_name === 'UserPromptSubmit'
     const transcript = typeof input.transcript_path === 'string' ? input.transcript_path : undefined
-    const wake = row && prompt === wakeInput(row.dir)
+    const queued = queuedShift(prompt)
+    const wake = row && (prompt === wakeInput(row.dir, project.root) || prompt === wakeInput(row.dir))
+    if (queued && !wake) {
+      db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))
+      db.exec('COMMIT')
+      return { continue: false, stopReason: 'The queued shift belongs to a different project or an earlier shift.' }
+    }
     const offer = state.offered
-    if (row?.phase === 'offered' && offer?.dir === row.dir && transcript) {
-      if (await retainedContext(transcript, offer, offer.marker)) {
-        if (isSaved(row.dir)) await acknowledgeWait(project, row.dir)
+    const retry =
+      (input.hook_event_name === 'SessionStart' && input.source === 'resume') ||
+      (submit && (!input.turn_id || input.turn_id !== offer?.turn))
+    if (offer && isSaved(offer.dir) && transcript && (await retainedContext(transcript, offer, offer.marker))) {
+      await acknowledgeWait(project, offer.dir)
+      if (row?.dir === offer.dir && row.phase === 'offered') {
         row.phase = 'delivered'
-      } else if (
-        (input.hook_event_name === 'SessionStart' && input.source === 'resume') ||
-        (submit && typeof input.turn_id === 'string' && input.turn_id !== offer.turn)
-      ) {
-        row.phase = 'ready'
+        db.query("UPDATE handover SET phase = 'delivered' WHERE root = ? AND dir = ?").run(row.root, row.dir)
       }
-      db.query('UPDATE handover SET phase = ? WHERE root = ? AND dir = ?').run(row.phase, row.root, row.dir)
-      if (row.phase !== 'offered') delete state.offered
+      delete state.offered
+    } else if (retry) {
+      if (row?.phase === 'offered') {
+        row.phase = 'ready'
+        db.query("UPDATE handover SET phase = 'ready' WHERE root = ? AND dir = ?").run(row.root, row.dir)
+      }
+      delete state.offered
     }
     // The server queue admits a wake only to a new idle turn. The owner may
     // already have continued in a different turn while this wake was queued.
@@ -334,16 +344,25 @@ export async function runHook(input: Fields, dir: string, file: string) {
           project,
           state,
           !!handover || command === RESUME_COMMAND,
-          row?.phase === 'delivered' || row?.phase === 'offered' ? row.dir : undefined,
+          state.offered?.dir ?? (row?.phase === 'delivered' ? row.dir : undefined),
         )
       : { notes: [], waiting: '' }
     const { notes } = delivery
     let waiting = delivery.waiting
+    let letter = delivery.letter
     if (handover) {
-      const letter = await archivedWait(project, handover.dir)
-      notes.push(letter)
+      waiting = handover.dir
+      letter = await archivedWait(project, waiting)
+      db.query("UPDATE handover SET phase = 'offered' WHERE root = ? AND dir = ?").run(project.root, waiting)
+    } else if (command === RESUME_COMMAND) {
+      const last = await resumeShift(project)
+      waiting = last.waiting ?? ''
+      letter = last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`
+    }
+    if (letter) notes.push(letter)
+    if (waiting && letter) {
       state.offered = {
-        dir: handover.dir,
+        dir: waiting,
         marker: letter.split('\n', 1)[0] ?? letter,
         offset: transcript
           ? await stat(transcript).then(
@@ -355,14 +374,8 @@ export async function runHook(input: Fields, dir: string, file: string) {
         hash: fingerprint(letter),
         ...(typeof input.turn_id === 'string' ? { turn: input.turn_id } : {}),
       }
-      db.query("UPDATE handover SET phase = 'offered' WHERE root = ? AND dir = ?").run(project.root, handover.dir)
     }
     if (command === SHIFT_COMMAND) notes.push(SHIFT_NOW(''))
-    if (command === RESUME_COMMAND && !handover) {
-      const last = await resumeShift(project)
-      if (last.prompt && last.waiting) waiting = last.waiting
-      notes.push(last.prompt ?? `<shift note="from the owner's /unshift">${last.text}</shift>`)
-    }
     if (project.settings.enabled && input.hook_event_name !== 'PreToolUse' && typeof input.transcript_path === 'string') {
       const hint = await sample(state.usage, input.transcript_path, input.source === 'compact')
       if (hint) notes.push(wrap({ kind: 'hint', body: hint }))
@@ -370,7 +383,6 @@ export async function runHook(input: Fields, dir: string, file: string) {
     db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))
     db.exec('COMMIT')
     const context = notes.filter(Boolean).join('\n\n')
-    if (waiting) await acknowledgeWait(project, waiting)
     return context ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context } } : {}
   } finally {
     db.close()

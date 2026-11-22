@@ -71,7 +71,7 @@ export const SETTING_KEYS: readonly Key[] = [
     since: 'storage roadmap',
     kind: 'limit',
     at: ['historyLimit'],
-    about: 'completed shifts to retain; pending letters are protected',
+    about: 'completed shifts to retain and maximum earlier descriptions in the restored preamble; pending letters are protected',
   },
   {
     key: 'enabled',
