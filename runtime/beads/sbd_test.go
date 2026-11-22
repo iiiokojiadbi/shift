@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +82,31 @@ func TestSBDWorkspaceOptions(t *testing.T) {
 	}
 	if got, err := sbdCommand([]string{"comments", "add", "id", "--", "--global"}); err != nil || got != "comments" {
 		t.Fatal(got, err)
+	}
+}
+
+func TestTaskGuideUpgrade(t *testing.T) {
+	data := t.TempDir()
+	path := filepath.Join(data, "PRIME.md")
+	old := "Older shared workflow.\n"
+	marked := fmt.Sprintf("%s<!-- shift-task guide %x -->\n", old, sha256.Sum256([]byte(old)))
+	for _, before := range []string{marked, "Project-specific instructions.", "Local additions\n" + marked} {
+		if err := os.WriteFile(path, []byte(before), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := prepareTaskGuide(data); err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before == marked {
+			if !strings.HasPrefix(string(after), taskGuide) {
+				t.Fatal("previous shared guide was not updated")
+			}
+		} else if string(after) != before {
+			t.Fatal("project guide was overwritten")
+		}
 	}
 }

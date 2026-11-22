@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"debug/buildinfo"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -113,6 +114,51 @@ exec ` + shellLiteral(installed) + ` "$root" shift-sbd "$@"
 	return rel, nil
 }
 
+//go:embed PRIME.md
+var taskGuide string
+
+// Fingerprint the shipped body so upgrades can refresh a previous default while
+// preserving a project guide, including local edits to a generated copy.
+func prepareTaskGuide(data string) error {
+	path := filepath.Join(data, "PRIME.md")
+	footer := func(body string) string {
+		return fmt.Sprintf("<!-- shift-task guide %x -->\n", sha256.Sum256([]byte(body)))
+	}
+	guide := taskGuide + footer(taskGuide)
+	info, err := os.Lstat(path)
+	missing := errors.Is(err, os.ErrNotExist)
+	if !missing {
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("expected a regular task guide at %s", path)
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		old := string(contents)
+		i := strings.LastIndex(old, "<!-- shift-task guide ")
+		if old == guide || i < 0 || old[i:] != footer(old[:i]) {
+			return nil
+		}
+	}
+	tmp, err := os.CreateTemp(data, ".prime-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.WriteString(guide)
+	if err = errors.Join(err, tmp.Close()); err != nil {
+		return err
+	}
+	if missing {
+		return renameExclusive(tmp.Name(), path)
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 func runSBD(bd, workspace string, args []string) error {
 	lock, err := workspaceLock(filepath.Join(workspace, "write.lock"))
 	if err != nil {
@@ -137,7 +183,13 @@ func runSBD(bd, workspace string, args []string) error {
 	}
 	cmd := taskCommand(bd, workspace, args)
 	// Native paths (e.g. --body-file) are relative to the agent's shell.
-	if !explicitInit {
+	if command == "prime" {
+		// Upstream checks .beads/PRIME.md in cwd before the selected database.
+		// Resolve the guide in our private workspace, also for existing projects.
+		if err := prepareTaskGuide(filepath.Join(workspace, ".beads")); err != nil {
+			return err
+		}
+	} else if !explicitInit {
 		cmd.Dir = ""
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -213,7 +265,7 @@ func sbdCommand(args []string) (string, error) {
 			continue
 		}
 		switch key {
-		case "--actor", "-C", "--directory", "--dolt-auto-commit", "--mem-profile":
+		case "--actor", "-C", "--directory", "--dolt-auto-commit", "--cpu-profile", "--mem-profile":
 			if !hasValue {
 				i++
 			}

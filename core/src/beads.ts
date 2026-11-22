@@ -24,6 +24,6 @@ export async function installTaskCommand(project: import('./project').Project): 
 
 export function taskInstructions(command?: TaskCommandPath | null): string {
   return command
-    ? `Use \`${command}\` from the project root for all tracker commands. Start with \`show <id>\` for a named issue or \`ready --parent <epic>\` for available work in an epic. Claim with \`update <id> --claim\`. A prerequisite is \`dep add <dependent> <prerequisite>\`. Close with \`close <id> --reason <result>\`. For the Beads reference run \`${command} prime\`; use this executable wherever it shows \`bd\`.`
+    ? `Use \`${command}\` from the project root for tracker commands. Run \`${command} prime\` for the shared Shift task workflow.`
     : 'To use the built-in shift-task tracker, call shift_setup(section="tasks") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.'
 }
