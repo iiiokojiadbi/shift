@@ -403,6 +403,439 @@ function words(list) {
   return (list ?? "").split(",").map((word) => word.trim()).filter((word) => word !== "");
 }
 
+// core/src/settings.ts
+var PLACEMENTS = ["local", "project", "split"];
+function historyWindow(settings) {
+  return settings.history.full + settings.history.brief;
+}
+var DEFAULT_SETTINGS = {
+  enabled: true,
+  knowledge: null,
+  history: { full: 1, brief: 9 },
+  tasks: { prepare: "on_demand" },
+  hints: { soft: true },
+  commit: false,
+  files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
+  docs: {
+    dirs: ["docs"],
+    exclude: [],
+    maxDepth: DOCS_MAX_DEPTH,
+    maxPinned: DOCS_PINNED_MAX_CHARS,
+    toc: false,
+    maxDescription: null,
+    maxLines: null
+  }
+};
+var KINDS2 = {
+  flag: (value) => typeof value === "boolean" ? null : "true or false",
+  path: (value) => typeof value === "string" && isInside(value) ? null : "a path inside the project",
+  files: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of files inside the project",
+  docs: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of folders or documents inside the project",
+  limit: (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? null : "a safe whole number above 0",
+  count: (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? null : "a safe whole number of 0 or more",
+  prepare: (value) => value === "on_start" || value === "on_demand" ? null : '"on_start" or "on_demand"',
+  placement: (value) => PLACEMENTS.includes(value) ? null : `one of ${quote(PLACEMENTS)}`
+};
+var SETTING_KEYS = [
+  {
+    key: "enabled",
+    since: "0.2.9",
+    kind: "flag",
+    at: ["enabled"],
+    about: "true enables Shift in this project. false turns off its tools, instructions and reminders."
+  },
+  {
+    key: "knowledge",
+    since: "0.2.9",
+    kind: "placement",
+    at: ["knowledge"],
+    about: 'Choose "local" for private knowledge, "project" for project docs, or "split" for both. Unset keeps knowledge local until the owner chooses.'
+  },
+  {
+    key: "commit",
+    since: "0.2.9",
+    kind: "flag",
+    at: ["commit"],
+    about: "true allows the project to commit Shift records. false keeps them private using the local Git exclude file."
+  },
+  {
+    key: "history.full",
+    since: "schema 2",
+    kind: "limit",
+    at: ["history", "full"],
+    about: "Number of recent letters returned in full, including the current letter (integer >= 1)."
+  },
+  {
+    key: "history.brief",
+    since: "schema 2",
+    kind: "count",
+    at: ["history", "brief"],
+    about: "Number of earlier descriptions (integer >= 0). The archive retains full + brief completed shifts."
+  },
+  {
+    key: "tasks.prepare",
+    since: "schema 2",
+    kind: "prepare",
+    at: ["tasks", "prepare"],
+    about: 'Prepare the optional tracker on first request ("on_demand") or at session start ("on_start").'
+  },
+  {
+    key: "hints.soft",
+    since: "schema 2",
+    kind: "flag",
+    at: ["hints", "soft"],
+    about: "true allows an early reminder when the host has room. false delivers only the final reminder."
+  },
+  {
+    key: "docs.max_depth",
+    since: "schema 2",
+    kind: "count",
+    at: ["docs", "maxDepth"],
+    about: "Subfolder levels below each listed directory (integer >= 0). Zero reads its direct files. Explicit files are always eligible."
+  },
+  {
+    key: "files.owner",
+    since: "0.3.0",
+    kind: "path",
+    at: ["files", "owner"],
+    about: "Project-relative path to the owner Markdown file. Unset uses the project record store."
+  },
+  {
+    key: "files.glossary",
+    since: "0.3.0",
+    kind: "path",
+    at: ["files", "glossary"],
+    about: "Project-relative path to the glossary Markdown file. Unset uses the project record store."
+  },
+  {
+    key: "files.always",
+    since: "0.5.0",
+    kind: "files",
+    at: ["files", "always"],
+    about: "List of project-relative files to load in full in every session. [] adds none."
+  },
+  {
+    key: "docs.exclude",
+    since: "schema 1",
+    kind: "files",
+    at: ["docs", "exclude"],
+    about: "List of individual project-relative documents to omit from the map, tocs and checks. [] excludes none."
+  },
+  {
+    key: "docs.dirs",
+    since: "0.3.0",
+    kind: "docs",
+    at: ["docs", "dirs"],
+    about: "List of project-relative directories or individual Markdown files to map and maintain. [] disables project documentation."
+  },
+  {
+    key: "docs.max_pinned",
+    since: "0.13.0",
+    kind: "limit",
+    at: ["docs", "maxPinned"],
+    about: "Combined character budget for pinned blocks (integer >= 1). Excess produces a remark. All pins still appear."
+  },
+  {
+    key: "docs.toc",
+    since: "0.5.0",
+    kind: "flag",
+    at: ["docs", "toc"],
+    about: "true maintains a table of contents below each document title. false leaves the document as written."
+  },
+  {
+    key: "docs.max_description",
+    since: "0.5.0",
+    kind: "limit",
+    at: ["docs", "maxDescription"],
+    about: "Maximum description length in characters (integer >= 1). Unset disables this check."
+  },
+  {
+    key: "docs.max_lines",
+    since: "0.5.0",
+    kind: "limit",
+    at: ["docs", "maxLines"],
+    about: "Maximum document length in lines (integer >= 1). Unset disables this check."
+  }
+];
+function slot(settings, { at }) {
+  const [first, second] = at;
+  return second === undefined ? [settings, first] : [settings[first], second];
+}
+var MIGRATIONS = [migrateUnversioned, migrateHistoryWindow];
+var SETTINGS_SCHEMA = MIGRATIONS.length;
+var EXAMPLES = {
+  knowledge: '"local"',
+  "files.owner": `"${OWNER}"`,
+  "files.glossary": `"${GLOSSARY}"`,
+  "docs.max_description": "200",
+  "docs.max_lines": "150"
+};
+function migrateUnversioned(sections) {
+  const documents = sections.get("docs");
+  if (documents)
+    sections.set("docs", documents.filter((row) => row.name !== "max_chars"));
+  const files = sections.get("files") ?? [];
+  const old = files.find((row) => row.name === "shift");
+  if (!old)
+    return {};
+  const former = old.value === undefined ? null : asPaths(old.value);
+  if (typeof former !== "string" || !isInside(former))
+    return `${SETTINGS}: \`files.shift\` must be a path inside the project.`;
+  files.splice(files.indexOf(old), 1);
+  if (former === SHIFT_FILE)
+    return {};
+  const docs = sections.get("docs") ?? [{ raw: "[docs]" }];
+  const exclude = docs.find((row) => row.name === "exclude");
+  if (exclude && !Array.isArray(exclude.value))
+    return `${SETTINGS}: \`docs.exclude\` must be a list of files inside the project.`;
+  const paths = exclude && Array.isArray(exclude.value) ? exclude.value : [];
+  if (!paths.some((path) => (normalize(path) ?? path) === former)) {
+    const value = [...paths, former];
+    const array = value.map((path) => /["\\]/.test(path) ? `'${path}'` : `"${path}"`).join(", ");
+    const comment = exclude ? exclude.raw.slice(withoutComment(exclude.raw).length) : "";
+    const row = { name: "exclude", value, raw: `exclude = [${array}]${comment ? ` ${comment}` : ""}` };
+    if (exclude)
+      docs[docs.indexOf(exclude)] = row;
+    else
+      docs.push(row);
+    sections.set("docs", docs);
+  }
+  return { legacyMap: former };
+}
+function migrateHistoryWindow(sections) {
+  const root = sections.get("") ?? [];
+  const old = root.find((row) => row.name === "history_limit");
+  if (!old)
+    return {};
+  if (typeof old.value !== "number" || KINDS2.limit(old.value))
+    return `${SETTINGS}: history_limit must be a safe whole number above 0.`;
+  const history = sections.get("history") ?? [{ raw: "[history]" }];
+  for (const [name, value] of [
+    ["full", 1],
+    ["brief", Math.min(10, old.value) - 1]
+  ]) {
+    if (!history.some((row) => row.name === name))
+      history.push({ name, value, raw: `${name} = ${value}` });
+  }
+  const comment = old.raw.slice(withoutComment(old.raw).length);
+  root.splice(root.indexOf(old), 1, ...comment ? [{ raw: comment }] : []);
+  sections.set("history", history);
+  return {};
+}
+function exampleName(row) {
+  return row.name ?? /^\s*#\s*([a-z_]+)\s*=/.exec(row.raw)?.[1];
+}
+function readSections(text) {
+  let rows = [];
+  const sections = new Map([["", rows]]);
+  const names = new Set;
+  let table = "";
+  let version = 0;
+  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+    const line = withoutComment(raw).trim();
+    const problem = (message) => `${SETTINGS}, line ${index + 1}: ${message}.`;
+    const header = /^\[([A-Za-z0-9_.-]+)\]$/.exec(line);
+    if (header) {
+      table = header[1] ?? "";
+      if (sections.has(table))
+        return problem(`\`[${table}]\` is opened twice; keep its keys under one`);
+      rows = [{ raw }];
+      sections.set(table, rows);
+    } else if (!line)
+      rows.push({ raw });
+    else {
+      const pair = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/.exec(line);
+      const value = pair ? tomlValue(pair[2] ?? "") : undefined;
+      if (!pair?.[1] || value === undefined)
+        return problem(`expected \`key = value\` with a string, true/false, a number or ["strings"], got "${raw.trim()}"`);
+      const name = table ? `${table}.${pair[1]}` : pair[1];
+      if (names.has(name))
+        return problem(`\`${name}\` is set twice; keep one`);
+      names.add(name);
+      if (name === "schema_version") {
+        if (typeof value !== "number" || !/^\d+$/.test(pair[2]?.trim() ?? "") || !Number.isSafeInteger(value))
+          return problem("schema_version must be a nonnegative integer");
+        if (value > SETTINGS_SCHEMA)
+          return problem(`schema ${value} requires a newer Shift (this build supports ${SETTINGS_SCHEMA})`);
+        version = value;
+      }
+      rows.push({ raw, name: pair[1], value });
+    }
+  }
+  return { sections, version };
+}
+function settingsDocument(text, upgrade) {
+  const file = readSections(text);
+  if (typeof file === "string")
+    return file;
+  const { sections, version } = file;
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    history: { ...DEFAULT_SETTINGS.history },
+    tasks: { ...DEFAULT_SETTINGS.tasks },
+    hints: { ...DEFAULT_SETTINGS.hints },
+    files: { ...DEFAULT_SETTINGS.files },
+    docs: { ...DEFAULT_SETTINGS.docs }
+  };
+  const set = new Set;
+  for (const migrate of MIGRATIONS.slice(version)) {
+    const result = migrate(sections);
+    if (typeof result === "string")
+      return result;
+    Object.assign(settings.files, result);
+  }
+  let changed = version < SETTINGS_SCHEMA;
+  for (const [table, rows] of sections) {
+    if (table && !TABLES.has(table)) {
+      if (!upgrade)
+        return `${SETTINGS}: unknown table \`[${table}]\`.`;
+      sections.delete(table);
+      changed = true;
+      continue;
+    }
+    const kept = [];
+    for (const row of rows) {
+      if (row.name && row.value !== undefined) {
+        const name = table ? `${table}.${row.name}` : row.name;
+        if (name === "schema_version" && version < SETTINGS_SCHEMA)
+          continue;
+        if (name !== "schema_version") {
+          const key = SETTING_KEYS.find((each) => each.key === name);
+          if (!key) {
+            if (!upgrade)
+              return `${SETTINGS}: unknown key \`${name}\`; the keys are ${SETTING_KEYS.map((each) => `\`${each.key}\``).join(", ")}.`;
+            changed = true;
+            continue;
+          }
+          const given = PATH_KINDS.has(key.kind) ? asPaths(row.value) : row.value;
+          const wanted = KINDS2[key.kind](given);
+          if (wanted !== null)
+            return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(row.value)}.`;
+          const [holder, field] = slot(settings, key);
+          holder[field] = given;
+          set.add(name);
+        }
+      }
+      kept.push(row);
+    }
+    sections.set(table, kept);
+  }
+  if (!Number.isSafeInteger(historyWindow(settings)))
+    return `${SETTINGS}: history.full + history.brief must be a safe whole number.`;
+  if (!upgrade)
+    return { settings, set, next: text };
+  if (version < SETTINGS_SCHEMA) {
+    sections.get("")?.unshift({ name: "schema_version", raw: `schema_version = ${SETTINGS_SCHEMA}` });
+    for (const { key } of SETTING_KEYS) {
+      if (set.has(key))
+        continue;
+      const [group, name] = key.includes(".") ? key.split(".") : ["", key];
+      const section = group ?? "";
+      const rows = sections.get(section) ?? [{ raw: `[${section}]` }];
+      if (rows.some((row) => exampleName(row) === name))
+        continue;
+      const example = EXAMPLES[key];
+      rows.push({
+        ...example ? {} : { name },
+        raw: example ? `# ${name} = ${example}` : `${name} = ${settingValue(DEFAULT_SETTINGS, key)}`
+      });
+      sections.set(section, rows);
+    }
+  }
+  for (const [table, rows] of sections) {
+    const annotated = [];
+    for (const row of rows) {
+      if (row.raw.startsWith("# Shift: "))
+        continue;
+      const name = exampleName(row);
+      const key = table ? `${table}.${name}` : name;
+      const about = key === "schema_version" ? "Settings format version, maintained by Shift during migration." : SETTING_KEYS.find((setting) => setting.key === key)?.about;
+      if (about)
+        annotated.push({ raw: `# Shift: ${about}` });
+      annotated.push(row);
+    }
+    if (annotated.length !== rows.length || annotated.some((row, index) => row.raw !== rows[index]?.raw))
+      changed = true;
+    sections.set(table, annotated);
+  }
+  if (!changed)
+    return { settings, set, next: text };
+  const newline = text.includes(`\r
+`) ? `\r
+` : `
+`;
+  const blocks = [...sections.values()].map((rows) => rows.map((row) => row.raw).join(newline).trimEnd());
+  return { settings, set, next: blocks.join(newline + newline) + newline };
+}
+function parseSettings(text) {
+  const parsed = settingsDocument(text, false);
+  return typeof parsed === "string" ? parsed : { settings: parsed.settings, set: parsed.set };
+}
+function settingValue(settings, key) {
+  const row = SETTING_KEYS.find((each) => each.key === key);
+  if (row === undefined)
+    return null;
+  const [holder, field] = slot(settings, row);
+  const value = holder[field];
+  return value === null || value === undefined ? null : JSON.stringify(value).replace(/","/g, '", "');
+}
+var TABLES = new Set(SETTING_KEYS.flatMap(({ key }) => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []));
+var PATH_KINDS = new Set(["path", "files", "docs"]);
+function asPaths(value) {
+  const one = (path) => path.startsWith("/") ? path : normalize(path) ?? path;
+  return typeof value === "string" ? one(value) : Array.isArray(value) ? value.map(one) : value;
+}
+function withoutComment(line) {
+  let quote = null;
+  for (let index = 0;index < line.length; index++) {
+    const char = line[index];
+    if (quote !== null) {
+      if (char === quote)
+        quote = null;
+    } else if (char === '"' || char === "'")
+      quote = char;
+    else if (char === "#")
+      return line.slice(0, index);
+  }
+  return line;
+}
+function tomlValue(raw) {
+  const value = raw.trim();
+  if (value === "true")
+    return true;
+  if (value === "false")
+    return false;
+  if (/^[+-]?\d+(\.\d+)?$/.test(value))
+    return Number(value);
+  const list = /^\[(.*)\]$/.exec(value);
+  if (list !== null)
+    return strings(list[1] ?? "");
+  return quoted(value);
+}
+function strings(inside) {
+  const items = [];
+  const item = /\s*("[^"\\]*"|'[^']*')\s*(,|$)/y;
+  let at = 0;
+  while (at < inside.length && inside.slice(at).trim() !== "") {
+    item.lastIndex = at;
+    const found = item.exec(inside);
+    if (found === null)
+      return;
+    const value = quoted(found[1] ?? "");
+    if (value === undefined)
+      return;
+    items.push(value);
+    at = item.lastIndex;
+    if (found[2] === "" && at < inside.length)
+      return;
+  }
+  return items;
+}
+function quoted(value) {
+  const found = /^"([^"\\]*)"$|^'([^']*)'$/.exec(value);
+  return found === null ? undefined : found[1] ?? found[2];
+}
+
 // core/src/saved.ts
 var ARCHIVE_DB = `${DIR}/history.db`;
 var NEXT_SAVED = "s-0000000000000000";
@@ -413,13 +846,19 @@ async function archiveCall(p, request) {
     throw new Error("This adapter has no bundled history runtime.");
   return JSON.parse(await p.store.beads(p.root, ["shift-history"], JSON.stringify(request)));
 }
-async function savedEntries(p, current, session) {
+async function savedEntries(p, selection) {
   if (!await hasArchive(p))
     return [];
-  if (!current)
+  if (!selection)
     return archiveCall(p, { action: "list" });
-  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current };
-  return archiveCall(p, { action: "list", ...selection, session, limit: p.settings.historyLimit });
+  const { current, preview, session, letters } = selection;
+  const before = current === NEXT_SAVED ? undefined : current;
+  return archiveCall(p, {
+    action: "list",
+    before,
+    letters,
+    ...preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, limit: historyWindow(p.settings) } : {}
+  });
 }
 function readSaved(p, id, file) {
   if (!isSaved(id))
@@ -679,13 +1118,19 @@ async function readRecords(project) {
     shift: await store.read(`${root}/${files.shift}`)
   };
 }
-async function lastShifts(project, count, exclude, session, preview = true) {
-  const saved = await savedEntries(project, preview ? exclude : undefined, session);
-  const entries = saved.filter((entry) => !exclude || exclude === NEXT_SAVED || entry.id < exclude);
-  return { total: entries.length, entries: entries.slice(Math.max(0, entries.length - count)).map((e) => ({ name: e.id, about: e.about })) };
+async function lastShifts(project, count, current, session, preview = true, letters = 0) {
+  const saved = await savedEntries(project, { current, session, preview, letters });
+  return {
+    total: saved.length,
+    entries: saved.slice(Math.max(0, saved.length - count)).map((e) => ({
+      name: e.id,
+      about: e.about,
+      ...e.files?.[NAMES.letter] === undefined ? {} : { letter: e.files[NAMES.letter] }
+    }))
+  };
 }
 function recentShifts(project, current, session, preview = true) {
-  return lastShifts(project, project.settings.historyLimit - 1, current, session, preview);
+  return lastShifts(project, historyWindow(project.settings) - 1, current, session, preview, project.settings.history.full - 1);
 }
 
 // core/src/docs.ts
@@ -711,8 +1156,15 @@ function withToc(text) {
   return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join(`
 `);
 }
-function isDoc(path, dirs) {
-  return path.endsWith(".md") && dirs.map(trimDir).some((entry) => isFile(entry) ? path === entry : path.startsWith(`${entry}/`));
+function isDoc(path, dirs, maxDepth = DOCS_MAX_DEPTH) {
+  return path.endsWith(".md") && dirs.map(trimDir).some((entry) => {
+    if (isFile(entry))
+      return path === entry;
+    if (!path.startsWith(`${entry}/`))
+      return false;
+    const parts = path.slice(entry.length + 1).split("/");
+    return parts.length - 1 <= maxDepth && !parts.slice(0, -1).some((folder) => folder.startsWith("."));
+  });
 }
 function excludedDoc(settings, path) {
   return path === settings.files.legacyMap || settings.docs.exclude.includes(path);
@@ -769,7 +1221,7 @@ async function followWrite(project, file) {
   const path = file.slice(root.length + 1);
   if (path.startsWith(`${DIR}/`) || excludedDoc(settings, path))
     return null;
-  if (isDoc(path, settings.docs.dirs))
+  if (isDoc(path, settings.docs.dirs, settings.docs.maxDepth))
     await refreshDocs(project, { tocs: false });
   return path;
 }
@@ -800,7 +1252,7 @@ async function settleDocs(project, paths) {
     if (text === null)
       continue;
     read.set(path, text);
-    const doc = isDoc(path, docs.dirs);
+    const doc = isDoc(path, docs.dirs, docs.maxDepth);
     if (doc && docs.toc) {
       const next = withToc(text);
       if (next !== null && next !== text) {
@@ -835,7 +1287,7 @@ async function docsReport(project) {
   if (!settings.enabled || docs.dirs.length === 0)
     return null;
   const rootFiles = (await store.list(root, "file")).filter((name) => name.endsWith(".md"));
-  const paths = new Set([...await docPaths(store, root, docs.dirs), ...rootFiles]);
+  const paths = new Set([...await docPaths(store, root, docs.dirs, docs.maxDepth), ...rootFiles]);
   const undescribed = [];
   const lines = [];
   const kept = [];
@@ -843,9 +1295,9 @@ async function docsReport(project) {
     if (excludedDoc(settings, path) || path === settings.files.shift)
       continue;
     const text = await store.read(`${root}/${path}`) ?? "";
-    if (isDoc(path, docs.dirs))
+    if (isDoc(path, docs.dirs, docs.maxDepth))
       kept.push(readDoc(path, text));
-    const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : [];
+    const own = isDoc(path, docs.dirs, docs.maxDepth) ? docRemarks(text, docs) : [];
     if (own.includes(NO_DESCRIPTION))
       undescribed.push(path);
     const remarks = [
@@ -879,14 +1331,14 @@ async function docOutline({ store, root }, file) {
   return [`${path} \u2014 ${lineCount(text)} lines`, `  ${description(text) ?? "no description"}`, ...rows].join(`
 `);
 }
-function readingPath(input, dirs) {
-  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs))
+function readingPath(input, dirs, maxDepth = DOCS_MAX_DEPTH) {
+  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs, maxDepth))
     return `${DIR}/${input}`;
   return input.replace(/^\.\//, "");
 }
 async function readMapped(project, input, section) {
-  const path = readingPath(input, project.settings.docs.dirs);
-  if (!isInside(path) || /[\\:]/.test(path) || path.includes("\x00") || !path.endsWith(".md") || dirname(path) !== KNOWLEDGE && (excludedDoc(project.settings, path) || !isDoc(path, project.settings.docs.dirs))) {
+  const path = readingPath(input, project.settings.docs.dirs, project.settings.docs.maxDepth);
+  if (!isInside(path) || /[\\:]/.test(path) || path.includes("\x00") || !path.endsWith(".md") || dirname(path) !== KNOWLEDGE && (excludedDoc(project.settings, path) || !isDoc(path, project.settings.docs.dirs, project.settings.docs.maxDepth))) {
     throw new Error("Use a local knowledge file or a document path from the project map.");
   }
   const text = await project.store.read(`${project.root}/${path}`);
@@ -908,7 +1360,7 @@ async function docsMentioning({ store, root, settings }, file) {
     return "Name a file.";
   const pattern = new RegExp(`(?<![\\w-])${escapeRegExp2(name)}(?![\\w-])`);
   const found = [];
-  for (const path of await docPaths(store, root, dirs)) {
+  for (const path of await docPaths(store, root, dirs, settings.docs.maxDepth)) {
     if (excludedDoc(settings, path) || path === fromRoot(root, file))
       continue;
     if (pattern.test(await store.read(`${root}/${path}`) ?? ""))
@@ -923,13 +1375,13 @@ function escapeRegExp2(text) {
 }
 var MAP_START = `<!-- ${MOD}:docs \u2014 written by the mod from each document's description and ## headings; edit those, not this -->`;
 var MAP_END = `<!-- /${MOD}:docs -->`;
-async function docPaths(store, root, dirs) {
+async function docPaths(store, root, dirs, maxDepth = DOCS_MAX_DEPTH) {
   const paths = new Set;
   const walk = async (dir, depth = 0) => {
     for (const name of await store.list(`${root}/${dir}`, "file"))
       if (name.endsWith(".md"))
         paths.add(`${dir}/${name}`);
-    if (depth >= DOCS_MAX_DEPTH)
+    if (depth >= maxDepth)
       return;
     for (const name of await store.list(`${root}/${dir}`, "dir"))
       if (!name.startsWith("."))
@@ -952,7 +1404,7 @@ async function docStamps(project) {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
       if (name.endsWith(".md") && `${dir}/${name}` !== settings.files.shift)
         found[`${dir}/${name}`] = stamp;
-    if (depth >= DOCS_MAX_DEPTH)
+    if (depth >= settings.docs.maxDepth)
       return;
     for (const name of await store.list(`${root}/${dir}`, "dir"))
       if (!name.startsWith("."))
@@ -994,7 +1446,7 @@ function renderMap(docs, settings, missing, knowledge = "") {
     return [MAP_START, "", `## Documents`, "", off, ...end].join(`
 `);
   }
-  const empty = dirs.map(trimDir).filter((entry) => !settings.exclude.includes(entry) && !docs.some((doc) => isDoc(doc.path, [entry]))).map((entry) => `- ${entryName(entry)} \u2014 ${isFile(entry) ? "no such file" : missing.includes(entry) ? "no such folder" : "no documents"}`);
+  const empty = dirs.map(trimDir).filter((entry) => !settings.exclude.includes(entry) && !docs.some((doc) => isDoc(doc.path, [entry], settings.maxDepth))).map((entry) => `- ${entryName(entry)} \u2014 ${isFile(entry) ? "no such file" : missing.includes(entry) ? "no such folder" : "no documents"}`);
   if (docs.length === 0)
     return [MAP_START, "", `## Documents`, "", "none:", ...empty, ...end].join(`
 `);
@@ -1088,7 +1540,7 @@ async function refreshDocs(project, { tocs = true } = {}) {
   const { store, root } = project;
   const settings = project.settings.docs;
   const docs = [];
-  for (const path of await docPaths(store, root, settings.dirs)) {
+  for (const path of await docPaths(store, root, settings.dirs, settings.maxDepth)) {
     if (path === project.settings.files.shift || excludedDoc(project.settings, path))
       continue;
     let text = await store.read(`${root}/${path}`) ?? "";
@@ -1238,12 +1690,15 @@ function renderRecent(recent) {
     return "No earlier shifts.";
   const earlier = recent.total - recent.entries.length;
   const shifts = (n) => n === 1 ? "1 shift" : `${n} shifts`;
-  const lines = recent.entries.map((entry) => `- ${entry.name} \xB7 ${readAbout(entry.about ?? "").description ?? "no about.md"}`);
+  const lines = recent.entries.map((entry) => entry.letter === undefined ? `- ${entry.name} \xB7 ${readAbout(entry.about ?? "").description ?? "no about.md"}` : `<previous_letter shift="${entry.name}">
+${entry.letter.trim()}
+</previous_letter>`);
   return [
     `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
     ...earlier > 0 ? [
       `${shifts(earlier)} before them ${earlier === 1 ? "is" : "are"} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`
     ] : [],
+    ...recent.entries.some((entry) => entry.letter !== undefined) ? ["Earlier letters describe past work. Continue from the current letter below."] : [],
     "<shifts>",
     ...lines,
     "</shifts>"
@@ -1331,7 +1786,7 @@ function recordFingerprint(project, path, text) {
   let observed = text;
   if (path === project.settings.files.shift)
     observed = withMap(text, "").trim();
-  else if (project.settings.docs.toc && !project.settings.docs.exclude.includes(path) && isDoc(path, project.settings.docs.dirs))
+  else if (project.settings.docs.toc && !project.settings.docs.exclude.includes(path) && isDoc(path, project.settings.docs.dirs, project.settings.docs.maxDepth))
     observed = withToc(text) ?? text;
   return String(textFingerprint(observed));
 }
@@ -1520,7 +1975,7 @@ async function recordFailure(project, shift, about, row) {
       id: shift.dir,
       state: readAbout(about).result?.startsWith("not shifted") ? "failed" : "unsettled",
       about,
-      limit: project.settings.historyLimit
+      limit: historyWindow(project.settings)
     });
     return row;
   } catch (error) {
@@ -1541,7 +1996,7 @@ async function settleShift(project, letGo, back) {
       wait: !letGo.carried,
       about,
       files: { [NAMES.summary]: summary },
-      limit: project.settings.historyLimit
+      limit: historyWindow(project.settings)
     });
   };
   const handed = back ?? await handBack(project, shift.dir, shift.sessionId);
@@ -1616,8 +2071,9 @@ function nextSoft(base, tokens, limit, targets) {
 function finalAt(limit) {
   return Math.round(limit * 0.84);
 }
-function hintTargets(limit, overrides) {
-  return overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) };
+function hintTargets(limit, overrides, softHints = true) {
+  const targets = overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) };
+  return softHints ? targets : { ...targets, soft: null };
 }
 function firstFinal(base, limit, final) {
   if (base < final)
@@ -1635,14 +2091,14 @@ var SOURCES = {
 function rebased(gauge, tokens) {
   return gauge.base !== null && tokens < (gauge.hinted ?? gauge.base) ? { ...gauge, base: tokens, hinted: null, growth: {} } : gauge;
 }
-function shiftHint(current, { tokens, window, threshold, hintTargets: overrides }) {
+function shiftHint(current, { tokens, window, threshold, hintTargets: overrides, softHints }) {
   if (tokens === undefined)
     return { gauge: current, text: null };
   const gauge = rebased(current, tokens);
   if (gauge.base === null)
     return { gauge: { ...gauge, base: tokens, unassisted: false }, text: gauge.unassisted ? UNASSISTED_HINT : null };
   const limit = threshold ?? window;
-  const targets = hintTargets(limit, overrides);
+  const targets = hintTargets(limit, overrides, softHints);
   const hinted = { ...gauge, hinted: tokens };
   if (tokens >= firstFinal(gauge.base, limit, targets.final) && (gauge.hinted === null || gauge.hinted < targets.final))
     return { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) };
@@ -1671,12 +2127,12 @@ function sources(growth) {
   const shares = growthShares(growth);
   return shares.length === 0 ? "" : ` Mostly from: ${shares.map((each) => `${each.source} ${each.share}%`).join(", ")}.`;
 }
-function renderStatus(current, { tokens, window, threshold, hintTargets: overrides }) {
+function renderStatus(current, { tokens, window, threshold, hintTargets: overrides, softHints }) {
   if (tokens === undefined)
     return "No reading yet: the first response since the last let-go has not come back.";
   const gauge = rebased(current, tokens);
   const limit = threshold ?? window;
-  const targets = hintTargets(limit, overrides);
+  const targets = hintTargets(limit, overrides, softHints);
   const base = gauge.base ?? tokens;
   const final = firstFinal(base, limit, targets.final);
   const lines = [
@@ -1774,11 +2230,11 @@ async function restore(keeper) {
     return { ...merged, base: from, hinted: now.hinted ?? lastStep(from, reading), whole: true };
   });
 }
-function lastStep(base, { tokens, window, threshold, hintTargets: overrides }) {
+function lastStep(base, { tokens, window, threshold, hintTargets: overrides, softHints }) {
   if (base === null || tokens === undefined || tokens < base)
     return null;
   const limit = threshold ?? window;
-  const targets = hintTargets(limit, overrides);
+  const targets = hintTargets(limit, overrides, softHints);
   if (tokens >= firstFinal(base, limit, targets.final))
     return tokens;
   const soft = nextSoft(base, base, limit, targets);
@@ -1963,7 +2419,7 @@ async function acknowledgeWait(project, id) {
     action: "received",
     session: project.deliveryKey ?? project.actor,
     id,
-    limit: project.settings.historyLimit
+    limit: historyWindow(project.settings)
   });
 }
 async function waitingNote(loop, project) {
@@ -2477,343 +2933,6 @@ function parseHistoryCount(raw) {
 function parsePath(raw, key) {
   return optional(raw, key);
 }
-// core/src/settings.ts
-var PLACEMENTS = ["local", "project", "split"];
-var HISTORY_CAPACITY = 10;
-var DEFAULT_SETTINGS = {
-  enabled: true,
-  knowledge: null,
-  historyLimit: HISTORY_CAPACITY,
-  commit: false,
-  files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
-  docs: {
-    dirs: ["docs"],
-    exclude: [],
-    maxPinned: DOCS_PINNED_MAX_CHARS,
-    toc: false,
-    maxDescription: null,
-    maxLines: null
-  }
-};
-var KINDS2 = {
-  flag: (value) => typeof value === "boolean" ? null : "true or false",
-  path: (value) => typeof value === "string" && isInside(value) ? null : "a path inside the project",
-  files: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of files inside the project",
-  docs: (value) => Array.isArray(value) && value.every(isInside) ? null : "a list of folders or documents inside the project",
-  limit: (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? null : "a safe whole number above 0",
-  placement: (value) => PLACEMENTS.includes(value) ? null : `one of ${quote(PLACEMENTS)}`
-};
-var SETTING_KEYS = [
-  {
-    key: "history_limit",
-    since: "storage roadmap",
-    kind: "limit",
-    at: ["historyLimit"],
-    about: `completed shifts to retain, up to ${HISTORY_CAPACITY} including the current shift; earlier descriptions use the remaining slots`
-  },
-  {
-    key: "enabled",
-    since: "0.2.9",
-    kind: "flag",
-    at: ["enabled"],
-    about: "false turns the mod off in this project from the next session: no tools, no doctrine, no hints"
-  },
-  {
-    key: "knowledge",
-    since: "0.2.9",
-    kind: "placement",
-    at: ["knowledge"],
-    about: 'where knowledge goes: "local", "project" or "split"; unset \u2014 local, and ask the owner once'
-  },
-  {
-    key: "commit",
-    since: "0.2.9",
-    kind: "flag",
-    at: ["commit"],
-    about: "true lets the project's git take the records in; false \u2014 the mod keeps them out by the local exclude file"
-  },
-  { key: "files.owner", since: "0.3.0", kind: "path", at: ["files", "owner"], about: "where OWNER.md lives, from the project's root" },
-  {
-    key: "files.glossary",
-    since: "0.3.0",
-    kind: "path",
-    at: ["files", "glossary"],
-    about: "where GLOSSARY.md lives, from the project's root"
-  },
-  {
-    key: "files.always",
-    since: "0.5.0",
-    kind: "files",
-    at: ["files", "always"],
-    about: "the project's own files loaded whole into every session, beside SHIFT.md and OWNER.md"
-  },
-  {
-    key: "docs.exclude",
-    since: "schema 1",
-    kind: "files",
-    at: ["docs", "exclude"],
-    about: "individual document paths to omit from the map, tocs and checks"
-  },
-  {
-    key: "docs.dirs",
-    since: "0.3.0",
-    kind: "docs",
-    at: ["docs", "dirs"],
-    about: `the folders of documents the mod keeps, ${DOCS_MAX_DEPTH} folders deep at most, or single documents such as "AGENTS.md" (since 0.9.0): the map in SHIFT.md, the toc, the checks, the docs tools; [] \u2014 none, the docs are left alone`
-  },
-  {
-    key: "docs.max_pinned",
-    since: "0.13.0",
-    kind: "limit",
-    at: ["docs", "maxPinned"],
-    about: "how long the pinned `> [!IMPORTANT]` blocks of the docs may be together: past it the map says so and still shows them all"
-  },
-  {
-    key: "docs.toc",
-    since: "0.5.0",
-    kind: "flag",
-    at: ["docs", "toc"],
-    about: "true \u2014 the mod keeps a toc in each document under its # title"
-  },
-  {
-    key: "docs.max_description",
-    since: "0.5.0",
-    kind: "limit",
-    at: ["docs", "maxDescription"],
-    about: "a document's description longer than this is a remark; unset \u2014 no such check"
-  },
-  {
-    key: "docs.max_lines",
-    since: "0.5.0",
-    kind: "limit",
-    at: ["docs", "maxLines"],
-    about: "a document longer than this many lines is a remark; unset \u2014 no such check"
-  }
-];
-function slot(settings, { at }) {
-  const [first, second] = at;
-  return second === undefined ? [settings, first] : [settings[first], second];
-}
-var MIGRATIONS = [migrateUnversioned];
-var SETTINGS_SCHEMA = MIGRATIONS.length;
-var EXAMPLES = {
-  knowledge: '"local"  # choose local, project or split',
-  "files.owner": `"${OWNER}"  # uncomment to use a Markdown file`,
-  "files.glossary": `"${GLOSSARY}"  # uncomment to use a Markdown file`,
-  "docs.max_description": "200  # optional character limit",
-  "docs.max_lines": "150  # optional line limit"
-};
-function migrateUnversioned(sections) {
-  const documents = sections.get("docs");
-  if (documents)
-    sections.set("docs", documents.filter((row) => row.name !== "max_chars"));
-  const files = sections.get("files") ?? [];
-  const old = files.find((row) => row.name === "shift");
-  if (!old)
-    return {};
-  const former = old.value === undefined ? null : asPaths(old.value);
-  if (typeof former !== "string" || !isInside(former))
-    return `${SETTINGS}: \`files.shift\` must be a path inside the project.`;
-  files.splice(files.indexOf(old), 1);
-  if (former === SHIFT_FILE)
-    return {};
-  const docs = sections.get("docs") ?? [{ raw: "[docs]" }];
-  const exclude = docs.find((row) => row.name === "exclude");
-  if (exclude && !Array.isArray(exclude.value))
-    return `${SETTINGS}: \`docs.exclude\` must be a list of files inside the project.`;
-  const paths = exclude && Array.isArray(exclude.value) ? exclude.value : [];
-  if (!paths.some((path) => (normalize(path) ?? path) === former)) {
-    const value = [...paths, former];
-    const array = value.map((path) => /["\\]/.test(path) ? `'${path}'` : `"${path}"`).join(", ");
-    const comment = exclude ? exclude.raw.slice(withoutComment(exclude.raw).length) : "";
-    const row = { name: "exclude", value, raw: `exclude = [${array}]${comment ? ` ${comment}` : ""}` };
-    if (exclude)
-      docs[docs.indexOf(exclude)] = row;
-    else
-      docs.push(row);
-    sections.set("docs", docs);
-  }
-  return { legacyMap: former };
-}
-function readSections(text) {
-  let rows = [];
-  const sections = new Map([["", rows]]);
-  const names = new Set;
-  let table = "";
-  let version = 0;
-  for (const [index, raw] of text.split(/\r?\n/).entries()) {
-    const line = withoutComment(raw).trim();
-    const problem = (message) => `${SETTINGS}, line ${index + 1}: ${message}.`;
-    const header = /^\[([A-Za-z0-9_.-]+)\]$/.exec(line);
-    if (header) {
-      table = header[1] ?? "";
-      if (sections.has(table))
-        return problem(`\`[${table}]\` is opened twice; keep its keys under one`);
-      rows = [{ raw }];
-      sections.set(table, rows);
-    } else if (!line)
-      rows.push({ raw });
-    else {
-      const pair = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/.exec(line);
-      const value = pair ? tomlValue(pair[2] ?? "") : undefined;
-      if (!pair?.[1] || value === undefined)
-        return problem(`expected \`key = value\` with a string, true/false, a number or ["strings"], got "${raw.trim()}"`);
-      const name = table ? `${table}.${pair[1]}` : pair[1];
-      if (names.has(name))
-        return problem(`\`${name}\` is set twice; keep one`);
-      names.add(name);
-      if (name === "schema_version") {
-        if (typeof value !== "number" || !/^\d+$/.test(pair[2]?.trim() ?? "") || !Number.isSafeInteger(value))
-          return problem("schema_version must be a nonnegative integer");
-        if (value > SETTINGS_SCHEMA)
-          return problem(`schema ${value} requires a newer Shift (this build supports ${SETTINGS_SCHEMA})`);
-        version = value;
-      }
-      rows.push({ raw, name: pair[1], value });
-    }
-  }
-  return { sections, version };
-}
-function settingsDocument(text, upgrade) {
-  const file = readSections(text);
-  if (typeof file === "string")
-    return file;
-  const { sections, version } = file;
-  const settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files }, docs: { ...DEFAULT_SETTINGS.docs } };
-  const set = new Set;
-  for (const migrate of MIGRATIONS.slice(version)) {
-    const result = migrate(sections);
-    if (typeof result === "string")
-      return result;
-    Object.assign(settings.files, result);
-  }
-  let changed = version < SETTINGS_SCHEMA;
-  for (const [table, rows] of sections) {
-    if (table && !TABLES.has(table)) {
-      if (!upgrade)
-        return `${SETTINGS}: unknown table \`[${table}]\`.`;
-      sections.delete(table);
-      changed = true;
-      continue;
-    }
-    const kept = [];
-    for (const row of rows) {
-      if (row.name && row.value !== undefined) {
-        const name = table ? `${table}.${row.name}` : row.name;
-        if (name === "schema_version" && version < SETTINGS_SCHEMA)
-          continue;
-        if (name !== "schema_version") {
-          const key = SETTING_KEYS.find((each) => each.key === name);
-          if (!key) {
-            if (!upgrade)
-              return `${SETTINGS}: unknown key \`${name}\`; the keys are ${SETTING_KEYS.map((each) => `\`${each.key}\``).join(", ")}.`;
-            changed = true;
-            continue;
-          }
-          const given = PATH_KINDS.has(key.kind) ? asPaths(row.value) : row.value;
-          const wanted = KINDS2[key.kind](given);
-          if (wanted !== null)
-            return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(row.value)}.`;
-          const [holder, field] = slot(settings, key);
-          holder[field] = name === "history_limit" && typeof given === "number" ? Math.min(given, HISTORY_CAPACITY) : given;
-          set.add(name);
-        }
-      }
-      kept.push(row);
-    }
-    sections.set(table, kept);
-  }
-  if (!upgrade || !changed)
-    return { settings, set, next: text };
-  if (version < SETTINGS_SCHEMA) {
-    sections.get("")?.unshift({ raw: `schema_version = ${SETTINGS_SCHEMA}` });
-    for (const { key } of SETTING_KEYS) {
-      if (set.has(key))
-        continue;
-      const [group, name] = key.includes(".") ? key.split(".") : ["", key];
-      const section = group ?? "";
-      const rows = sections.get(section) ?? [{ raw: `[${section}]` }];
-      const example = EXAMPLES[key];
-      rows.push({ raw: example ? `# ${name} = ${example}` : `${name} = ${settingValue(DEFAULT_SETTINGS, key)}` });
-      sections.set(section, rows);
-    }
-  }
-  const newline = text.includes(`\r
-`) ? `\r
-` : `
-`;
-  const blocks = [...sections.values()].map((rows) => rows.map((row) => row.raw).join(newline).trimEnd());
-  return { settings, set, next: blocks.join(newline + newline) + newline };
-}
-function parseSettings(text) {
-  const parsed = settingsDocument(text, false);
-  return typeof parsed === "string" ? parsed : { settings: parsed.settings, set: parsed.set };
-}
-function settingValue(settings, key) {
-  const row = SETTING_KEYS.find((each) => each.key === key);
-  if (row === undefined)
-    return null;
-  const [holder, field] = slot(settings, row);
-  const value = holder[field];
-  return value === null || value === undefined ? null : JSON.stringify(value).replace(/","/g, '", "');
-}
-var TABLES = new Set(SETTING_KEYS.flatMap(({ key }) => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []));
-var PATH_KINDS = new Set(["path", "files", "docs"]);
-function asPaths(value) {
-  const one = (path) => path.startsWith("/") ? path : normalize(path) ?? path;
-  return typeof value === "string" ? one(value) : Array.isArray(value) ? value.map(one) : value;
-}
-function withoutComment(line) {
-  let quote = null;
-  for (let index = 0;index < line.length; index++) {
-    const char = line[index];
-    if (quote !== null) {
-      if (char === quote)
-        quote = null;
-    } else if (char === '"' || char === "'")
-      quote = char;
-    else if (char === "#")
-      return line.slice(0, index);
-  }
-  return line;
-}
-function tomlValue(raw) {
-  const value = raw.trim();
-  if (value === "true")
-    return true;
-  if (value === "false")
-    return false;
-  if (/^[+-]?\d+(\.\d+)?$/.test(value))
-    return Number(value);
-  const list = /^\[(.*)\]$/.exec(value);
-  if (list !== null)
-    return strings(list[1] ?? "");
-  return quoted(value);
-}
-function strings(inside) {
-  const items = [];
-  const item = /\s*("[^"\\]*"|'[^']*')\s*(,|$)/y;
-  let at = 0;
-  while (at < inside.length && inside.slice(at).trim() !== "") {
-    item.lastIndex = at;
-    const found = item.exec(inside);
-    if (found === null)
-      return;
-    const value = quoted(found[1] ?? "");
-    if (value === undefined)
-      return;
-    items.push(value);
-    at = item.lastIndex;
-    if (found[2] === "" && at < inside.length)
-      return;
-  }
-  return items;
-}
-function quoted(value) {
-  const found = /^"([^"\\]*)"$|^'([^']*)'$/.exec(value);
-  return found === null ? undefined : found[1] ?? found[2];
-}
-
 // core/src/working.ts
 var names = [BOARD, LETTER, OWNER, GLOSSARY, SHIFT_FILE];
 var fileKeys = {
@@ -3239,7 +3358,7 @@ Use shift_record(action="checkout", name="letter.md"), edit its returned path an
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide\u2019s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window holds up to ${HISTORY_CAPACITY} shifts. Your current letter takes one slot. The preamble carries up to ${HISTORY_CAPACITY - 1} earlier descriptions in order. Use their IDs to read the full letters. A smaller history_limit reduces this window. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Earlier descriptions come first, then earlier full letters. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`;
 var GUIDE = `${GUIDE_FLOW.trimEnd()}
 
 ${GUIDE_RECORDS}`;
@@ -3570,7 +3689,7 @@ async function startSession(project, knownCommand) {
   const stale = await staleLayout(project);
   if (stale !== null)
     rows.push({ text: `${MOD}: ${stale}`, level: "warning" });
-  else if (knownCommand === undefined && project.store.beads) {
+  else if (settings.tasks.prepare === "on_start" && knownCommand === undefined && project.store.beads) {
     try {
       command = await installTaskCommand(project);
     } catch (error) {
@@ -3851,10 +3970,10 @@ function usageReading(previous, gauge, tokens, window) {
 function freshSample() {
   return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 };
 }
-function status({ gauge, reading }) {
-  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) });
+function status({ gauge, reading }, softHints = true) {
+  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window), softHints });
 }
-async function sample(state, transcript, reset) {
+async function sample(state, transcript, reset, softHints = true) {
   const handle = await open(transcript, "r").catch(() => null);
   if (!handle)
     return null;
@@ -3886,7 +4005,7 @@ async function sample(state, transcript, reset) {
           if (typeof tokens !== "number" || typeof info.model_context_window !== "number" || info.model_context_window <= 0)
             continue;
           Object.assign(state, usageReading(state.reading, state.gauge, tokens, info.model_context_window));
-          const next = shiftHint(state.gauge, state.reading);
+          const next = shiftHint(state.gauge, { ...state.reading, softHints });
           state.gauge = next.gauge;
           hint = next.text ?? hint;
         } catch {}
@@ -4706,7 +4825,7 @@ async function runHook(input, dir, file) {
     if (command === SHIFT_COMMAND)
       notes.push(SHIFT_NOW(""));
     if (project.settings.enabled && input.hook_event_name !== "PreToolUse" && typeof input.transcript_path === "string") {
-      const hint = await sample(state.usage, input.transcript_path, input.source === "compact");
+      const hint = await sample(state.usage, input.transcript_path, input.source === "compact", project.settings.hints.soft);
       if (hint)
         notes.push(wrap({ kind: "hint", body: hint }));
     }
@@ -4812,7 +4931,7 @@ class Session {
         },
         history: async () => ({}),
         base: async () => shiftBase(await projectAt(root, id), id),
-        reading: async () => this.reading
+        reading: async () => ({ ...this.reading, softHints: (await projectAt(root, id)).settings.hints.soft })
       }
     };
   }
@@ -4918,7 +5037,7 @@ class Session {
       const tool = shownTools(project.settings).find((tool) => tool.name === name);
       if (!tool)
         throw new Error(`Unknown tool: ${name}`);
-      const file = name === "shift_read" && typeof raw.path === "string" ? readingPath(raw.path.trim(), project.settings.docs.dirs) : name === "doc_outline" ? raw.path : name === "shift" ? raw.letter : undefined;
+      const file = name === "shift_read" && typeof raw.path === "string" ? readingPath(raw.path.trim(), project.settings.docs.dirs, project.settings.docs.maxDepth) : name === "doc_outline" ? raw.path : name === "shift" ? raw.letter : undefined;
       if (typeof file === "string" && file) {
         const root = await realpath2(this.root);
         const path = resolve3(root, file);
@@ -5297,9 +5416,10 @@ async function serve() {
             throw new Error("Missing thread or project from the session hook.");
           const name = String(params.name);
           if (name === "shift_status") {
-            if (!(await projectAt(state.root)).settings.enabled)
+            const { settings } = await projectAt(state.root);
+            if (!settings.enabled)
               throw new Error("Shift is disabled in this project.");
-            return reply(packet.id, { content: [{ type: "text", text: status(state.usage) }] });
+            return reply(packet.id, { content: [{ type: "text", text: status(state.usage, settings.hints.soft) }] });
           }
           const attached = daemon?.sessions.get(id);
           if (attached && attached.root !== state.root && !attached.shifting) {

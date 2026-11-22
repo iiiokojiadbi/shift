@@ -17,8 +17,8 @@ All four adapters use the tested Beads installation shipped with Shift and the s
 
 ## Implementation and acceptance
 
-1. **Deliver the command.** Prepare the project entry on session startup and refresh it on upgrade. Initialize the private workspace on first use. Verify native prime, create, show, update and close from different working directories with another bd and another workspace present. Exercise the packaged command on supported platforms.
+1. **Deliver the command.** Prepare or refresh the project entry when the tracker is requested, or on startup when configured. Initialize the private workspace on first use. Verify native prime, create, show, update and close from different working directories with another bd and another workspace present. Exercise the packaged command on supported platforms.
 2. **Separate the shift lifecycle.** Save, continue, wait, restore, compare and size shifts using shift records alone. Verify restoration with the task database unavailable. A retained conversation receives documentation changes through its normal delivery path. Task reads and comments belong to explicit Beads commands.
 3. **Verify the storage boundary.** On a disposable copy, reopen a native issue and check its ID, metadata, links and comments with the project command. Restore a saved letter by ID with the task database unavailable. Place older task and snapshot files beside both stores and verify they stay untouched during setup, save and restore.
 
-The archive uses a rolling window of ten completed shifts, deduplicates identical record contents and protects pending letters. See [Records](records.md) for backup, transfer and recovery, and [Development](development.md) for the release gates.
+The archive uses a rolling window of `full + brief` completed shifts (ten by default), deduplicates identical record contents and protects pending letters. See [Records](records.md) for backup, transfer and recovery, and [Development](development.md) for the release gates.

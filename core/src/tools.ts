@@ -236,7 +236,7 @@ export async function startSession(project: Project, knownCommand?: TaskCommandP
 
   const stale = await staleLayout(project)
   if (stale !== null) rows.push({ text: `${MOD}: ${stale}`, level: 'warning' })
-  else if (knownCommand === undefined && project.store.beads) {
+  else if (settings.tasks.prepare === 'on_start' && knownCommand === undefined && project.store.beads) {
     try {
       command = await installTaskCommand(project)
     } catch (error) {

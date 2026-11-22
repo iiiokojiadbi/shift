@@ -1,5 +1,6 @@
 import { DIR, NAMES } from './layout'
 import type { Project } from './project'
+import { historyWindow } from './settings'
 import type { Work } from './types'
 
 export const ARCHIVE_DB = `${DIR}/history.db`
@@ -13,11 +14,20 @@ export async function archiveCall<T>(p: Project, request: Record<string, unknown
   if (!p.store.beads) throw new Error('This adapter has no bundled history runtime.')
   return JSON.parse(await p.store.beads(p.root, ['shift-history'], JSON.stringify(request)))
 }
-export async function savedEntries(p: Project, current?: string, session?: string): Promise<SavedEntry[]> {
+export async function savedEntries(
+  p: Project,
+  selection?: { current?: string | undefined; preview: boolean; session?: string | undefined; letters: number },
+): Promise<SavedEntry[]> {
   if (!(await hasArchive(p))) return []
-  if (!current) return archiveCall(p, { action: 'list' })
-  const selection = current === NEXT_SAVED ? { upcoming: true } : { id: current }
-  return archiveCall(p, { action: 'list', ...selection, session, limit: p.settings.historyLimit })
+  if (!selection) return archiveCall(p, { action: 'list' })
+  const { current, preview, session, letters } = selection
+  const before = current === NEXT_SAVED ? undefined : current
+  return archiveCall(p, {
+    action: 'list',
+    before,
+    letters,
+    ...(preview && current ? { id: before, upcoming: current === NEXT_SAVED, session, limit: historyWindow(p.settings) } : {}),
+  })
 }
 export function readSaved(p: Project, id: string, file?: string): Promise<SavedEntry> {
   if (!isSaved(id)) throw new Error('Pass a saved shift ID from shift_history.')

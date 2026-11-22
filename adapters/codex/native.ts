@@ -135,8 +135,9 @@ async function serve() {
           if (!id || typeof state.root !== 'string') throw new Error('Missing thread or project from the session hook.')
           const name = String(params.name)
           if (name === 'shift_status') {
-            if (!(await projectAt(state.root)).settings.enabled) throw new Error('Shift is disabled in this project.')
-            return reply(packet.id, { content: [{ type: 'text', text: status(state.usage) }] })
+            const { settings } = await projectAt(state.root)
+            if (!settings.enabled) throw new Error('Shift is disabled in this project.')
+            return reply(packet.id, { content: [{ type: 'text', text: status(state.usage, settings.hints.soft) }] })
           }
           const attached = daemon?.sessions.get(id)
           if (attached && attached.root !== state.root && !attached.shifting) {

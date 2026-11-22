@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { docOutline, docsMentioning, docsReport, followWrite, outline, settleDocs, withToc } from '../src/docs'
+import { docOutline, docStamps, docsMentioning, docsReport, followWrite, outline, readMapped, settleDocs, withToc } from '../src/docs'
 import { sessionFiles } from '../src/flows'
 import { pinned } from '../src/markdown'
 import { loadProject, type Project } from '../src/project'
@@ -237,4 +237,26 @@ test('a > [!IMPORTANT] block is pinned under its document with its section, in a
   expect(archived).toContain('  pinned (Release):\n    · Tag first,')
   expect(archived).not.toContain('sections: Release')
   expect(await docOutline(await at(store), 'docs/dev.md')).toContain('Release')
+})
+
+test('documentation depth applies to walks, edits and mapped reads, including explicitly listed deep files', async () => {
+  const top = 'docs/top.md'
+  const deep = 'docs/a/b/deep.md'
+  const explicit = 'docs/a/b/listed.md'
+  const store = memoryStore({
+    [SETTINGS]: `[docs]\ndirs = ["docs", "${explicit}"]\nmax_depth = 0\ntoc = true`,
+    [`${ROOT}/${top}`]: DOC,
+    [`${ROOT}/${deep}`]: DOC,
+    [`${ROOT}/${explicit}`]: DOC,
+  })
+  const project = await at(store)
+  const files = await sessionFiles(project)
+  expect(files[0]?.text).toContain(top)
+  expect(files[0]?.text).toContain(explicit)
+  expect(files[0]?.text).not.toContain(deep)
+  expect(Object.keys(await docStamps(project)).sort()).toEqual([explicit, top])
+  await afterWrite(project, `${ROOT}/${deep}`)
+  expect(await store.read(`${ROOT}/${deep}`)).toBe(DOC)
+  await expect(readMapped(project, deep)).rejects.toThrow('project map')
+  expect(await readMapped(project, explicit)).toContain('<!-- toc -->')
 })

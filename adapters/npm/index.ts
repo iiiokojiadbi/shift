@@ -463,7 +463,12 @@ export default function shift(pi: ExtensionAPI): void {
         const window = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0
         const settings = SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model)
 
-        return { tokens: usage?.tokens ?? undefined, window, threshold: settings.enabled ? window - settings.reserveTokens : undefined }
+        return {
+          softHints: (await project()).settings.hints.soft,
+          tokens: usage?.tokens ?? undefined,
+          window,
+          threshold: settings.enabled ? window - settings.reserveTokens : undefined,
+        }
       },
     }
   }

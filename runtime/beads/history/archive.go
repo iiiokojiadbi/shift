@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ import (
 )
 
 type Request struct {
+	Before   string                   `json:"before"`
+	Letters  int                      `json:"letters"`
 	Text     string                   `json:"text"`
 	Revision string                   `json:"revision"`
 	Changes  map[string]WorkingChange `json:"changes"`
@@ -62,6 +65,14 @@ func load(v []byte) (Entry, error) {
 func contentID(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func readContent(blobs *bolt.Bucket, name, digest string) (string, error) {
+	raw := blobs.Get([]byte(digest))
+	if raw == nil || contentID(string(raw)) != digest {
+		return "", fmt.Errorf("damaged content for %s", name)
+	}
+	return string(raw), nil
 }
 
 func save(entries, blobs *bolt.Bucket, e Entry, files map[string]string) error {
@@ -158,14 +169,7 @@ func rotate(entries, blobs *bolt.Bucket, limit int) error {
 	return nil
 }
 
-const historyCapacity = 10
-
 func transact(tx *bolt.Tx, r Request) (any, error) {
-	// Older clients may still send their former, larger window.
-	switch r.Action {
-	case "finish", "received", "list":
-		r.Limit = min(r.Limit, historyCapacity)
-	}
 	if r.Action == "waiting" || r.Action == "received" {
 		if r.Session == "" {
 			return nil, errors.New("session is required")
@@ -403,20 +407,31 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 			}
 		}
 		result := []Entry{}
-		err := b.ForEach(func(k, v []byte) error {
-			if skip[string(k)] {
-				return nil
+		// Select historical letters in the same transaction as their descriptions and retention preview.
+		cursor := b.Cursor()
+		for k, v := cursor.Last(); k != nil; k, v = cursor.Prev() {
+			id := string(k)
+			if skip[id] || (r.Before != "" && id >= r.Before) {
+				continue
 			}
 			e, err := load(v)
-			if err == nil {
-				e.Files = nil
-				e.Key = ""
-				e.Initial = ""
-				result = append(result, e)
+			if err != nil {
+				return nil, err
 			}
-			return err
-		})
-		return result, err
+			if len(result) < r.Letters {
+				letter, err := readContent(blobs, "letter.md", e.Files["letter.md"])
+				if err != nil {
+					return nil, err
+				}
+				e.Files = map[string]string{"letter.md": letter}
+			} else {
+				e.Files = nil
+			}
+			e.Key, e.Initial = "", ""
+			result = append(result, e)
+		}
+		slices.Reverse(result)
+		return result, nil
 	case "read":
 		e, err := load(b.Get([]byte(r.ID)))
 		if err != nil {
@@ -427,11 +442,10 @@ func transact(tx *bolt.Tx, r Request) (any, error) {
 				delete(e.Files, k)
 				continue
 			}
-			raw := blobs.Get([]byte(v))
-			if raw == nil || contentID(string(raw)) != v {
-				return nil, fmt.Errorf("damaged content for %s", k)
+			e.Files[k], err = readContent(blobs, k, v)
+			if err != nil {
+				return nil, err
 			}
-			e.Files[k] = string(raw)
 		}
 		return e, nil
 	case "delete":

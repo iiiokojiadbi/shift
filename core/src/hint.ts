@@ -13,8 +13,9 @@ export function finalAt(limit: number): number {
   return Math.round(limit * 0.84)
 }
 
-function hintTargets(limit: number, overrides?: HintTargets): HintTargets {
-  return overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) }
+function hintTargets(limit: number, overrides?: HintTargets, softHints = true): HintTargets {
+  const targets = overrides ?? { soft: Math.round(limit * 0.6), final: finalAt(limit) }
+  return softHints ? targets : { ...targets, soft: null }
 }
 
 // Give a new stretch some room even when the previous shift left a full history.
@@ -43,14 +44,14 @@ function rebased(gauge: Gauge, tokens: number): Gauge {
 // A reading that crosses both milestones gives only the final hint.
 export function shiftHint(
   current: Gauge,
-  { tokens, window, threshold, hintTargets: overrides }: Reading,
+  { tokens, window, threshold, hintTargets: overrides, softHints }: Reading,
 ): { gauge: Gauge; text: string | null } {
   if (tokens === undefined) return { gauge: current, text: null }
   const gauge = rebased(current, tokens)
   if (gauge.base === null) return { gauge: { ...gauge, base: tokens, unassisted: false }, text: gauge.unassisted ? UNASSISTED_HINT : null }
 
   const limit = threshold ?? window
-  const targets = hintTargets(limit, overrides)
+  const targets = hintTargets(limit, overrides, softHints)
   const hinted = { ...gauge, hinted: tokens }
   if (tokens >= firstFinal(gauge.base, limit, targets.final) && (gauge.hinted === null || gauge.hinted < targets.final))
     return { gauge: hinted, text: finalHint(tokens, limit, gauge.growth) }
@@ -136,11 +137,11 @@ export function growthOf(messages: readonly { role: string; content: unknown }[]
 }
 
 // What the status tool answers: the fill, the limit, the growth since the last shift, when the next hints come, and what grew.
-export function renderStatus(current: Gauge, { tokens, window, threshold, hintTargets: overrides }: Reading): string {
+export function renderStatus(current: Gauge, { tokens, window, threshold, hintTargets: overrides, softHints }: Reading): string {
   if (tokens === undefined) return 'No reading yet: the first response since the last let-go has not come back.'
   const gauge = rebased(current, tokens)
   const limit = threshold ?? window
-  const targets = hintTargets(limit, overrides)
+  const targets = hintTargets(limit, overrides, softHints)
   const base = gauge.base ?? tokens
   const final = firstFinal(base, limit, targets.final)
   const lines = [
@@ -286,10 +287,10 @@ async function restore(keeper: GaugeKeeper): Promise<void> {
 }
 
 // On restore, infer the milestones already passed in this stretch.
-export function lastStep(base: number | null, { tokens, window, threshold, hintTargets: overrides }: Reading): number | null {
+export function lastStep(base: number | null, { tokens, window, threshold, hintTargets: overrides, softHints }: Reading): number | null {
   if (base === null || tokens === undefined || tokens < base) return null
   const limit = threshold ?? window
-  const targets = hintTargets(limit, overrides)
+  const targets = hintTargets(limit, overrides, softHints)
   if (tokens >= firstFinal(base, limit, targets.final)) return tokens
   const soft = nextSoft(base, base, limit, targets)
   return soft !== null && tokens >= soft ? soft : null

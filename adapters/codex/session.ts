@@ -137,7 +137,7 @@ export class Session {
         },
         history: async () => ({}),
         base: async () => shiftBase(await projectAt(root, id), id),
-        reading: async () => this.reading,
+        reading: async () => ({ ...this.reading, softHints: (await projectAt(root, id)).settings.hints.soft }),
       },
     }
   }
@@ -242,7 +242,7 @@ export class Session {
       if (!tool) throw new Error(`Unknown tool: ${name}`)
       const file =
         name === 'shift_read' && typeof raw.path === 'string'
-          ? readingPath(raw.path.trim(), project.settings.docs.dirs)
+          ? readingPath(raw.path.trim(), project.settings.docs.dirs, project.settings.docs.maxDepth)
           : name === 'doc_outline'
             ? raw.path
             : name === 'shift'

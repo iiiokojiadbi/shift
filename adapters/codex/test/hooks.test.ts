@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { DEFAULT_SETTINGS } from '../../../core/src/settings'
 import { BOARD, LETTER } from '../../../core/test/data'
 import { historyRuntime } from '../../npm/test/native-history'
 import { cleanup, scratch } from '../../npm/test/scratch'
@@ -546,10 +545,16 @@ test('a queued transition belongs to its project across a root switch with match
   expect(await hook('UserPromptSubmit', { cwd: other.root, prompt: 'Resume here' })).toContain('second project')
 })
 
-test('shift eleven restores its letter and nine descriptions with the ten full records available by ID', async () => {
+test.each([
+  [1, 9],
+  [2, 18],
+  [3, 0],
+])('restore %i full letters and %i descriptions after rotation', async (full, brief) => {
   const { root, hook } = await fixture()
+  const window = full + brief
+  await writeFile(join(root, '.shift/settings.toml'), `[history]\nfull = ${full}\nbrief = ${brief}\n`)
   const ids: string[] = []
-  for (let i = 1; i <= 11; i++) {
+  for (let i = 1; i <= window + 1; i++) {
     const about = `---\ndescription: Result ${i}.\nresult: shifted\nafter: wait\n---`
     const files = { 'board.md': BOARD, 'letter.md': `${LETTER}\nFull detail ${i}.` }
     const id = archive.query<string>(root, { action: 'begin', key: String(i), about, files })
@@ -560,14 +565,14 @@ test('shift eleven restores its letter and nine descriptions with the ten full r
       state: 'complete',
       wait: true,
       about,
-      limit: DEFAULT_SETTINGS.historyLimit,
+      limit: window,
     })
     ids.push(id)
   }
   const restored = await hook('UserPromptSubmit', { prompt: '$shift:unshift' })
   const rows = [...(restored.match(/^- s-[a-f0-9]+ · .*$/gm) ?? [])]
-  expect(rows).toEqual(ids.slice(1, -1).map((id, i) => `- ${id} · Result ${i + 2}.`))
-  expect(restored.match(/Full detail \d+\./g)).toEqual(['Full detail 11.'])
+  expect(rows).toEqual(ids.slice(1, brief + 1).map((id, i) => `- ${id} · Result ${i + 2}.`))
+  expect([...(restored.match(/Full detail \d+\./g) ?? [])]).toEqual(Array.from({ length: full }, (_, i) => `Full detail ${brief + 2 + i}.`))
   expect(archive.query<{ id: string }[]>(root, { action: 'list' }).map(e => e.id)).toEqual(ids.slice(1))
   for (const [i, id] of ids.slice(1).entries()) {
     expect(archive.query<{ files: Record<string, string> }>(root, { action: 'read', id, file: 'letter.md' }).files['letter.md']).toContain(

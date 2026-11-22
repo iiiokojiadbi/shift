@@ -10,10 +10,10 @@ test('transcript reminders and status follow the usable window when it changes',
   const root = await scratch('codex-hints')
   const usage = freshSample()
   const transcript = join(root, 'transcript')
-  async function report(window: number, tokens: number) {
+  async function report(window: number, tokens: number, softHints = true) {
     const info = { model_context_window: window, last_token_usage: { total_tokens: tokens } }
     await appendFile(transcript, `${JSON.stringify({ payload: { type: 'token_count', info } })}\n`)
-    return sample(usage, transcript, false)
+    return sample(usage, transcript, false, softHints)
   }
 
   expect(await report(475_000, 20_000)).toBeNull()
@@ -30,4 +30,7 @@ test('transcript reminders and status follow the usable window when it changes',
   expect(await report(258_400, 208_000)).toBeNull()
   expect(await report(1_000_000, 210_000)).toBeNull()
   expect(status(usage)).toContain('final at 840K')
+  expect(status(usage, false)).toContain('no soft hint before the final')
+  expect(await report(1_000_000, 600_000, false)).toBeNull()
+  expect(await report(1_000_000, 840_000, false)).toContain('Shift now')
 })

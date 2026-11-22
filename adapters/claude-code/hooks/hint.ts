@@ -43,7 +43,12 @@ export function keeperOf($: EngineInterface): GaugeKeeper {
     reading: async () => {
       const { tokens, window } = (await $.session.usage()).context
 
-      return { tokens, window, threshold: tokens === undefined ? undefined : await compactLimit($, window) }
+      return {
+        softHints: (await projectOf($)).settings.hints.soft,
+        tokens,
+        window,
+        threshold: tokens === undefined ? undefined : await compactLimit($, window),
+      }
     },
   }
 }

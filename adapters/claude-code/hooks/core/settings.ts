@@ -9,7 +9,9 @@ export type Settings = {
   enabled: boolean
   // Where knowledge goes; null until the owner said, and then it stays in the records' knowledge folder.
   knowledge: Placement | null
-  historyLimit: number
+  history: { full: number; brief: number }
+  tasks: { prepare: 'on_demand' | 'on_start' }
+  hints: { soft: boolean }
   // true lets the project's git take the records in; false keeps them out, the mod excludes them itself.
   commit: boolean
   // Where the files loaded into every session live, relative to the project's root; `always` are the project's own
@@ -24,6 +26,7 @@ export type Settings = {
 export type DocsSettings = {
   dirs: string[]
   exclude: string[]
+  maxDepth: number
   maxPinned: number
   toc: boolean
   maxDescription: number | null
@@ -33,17 +36,22 @@ export type DocsSettings = {
 export const PLACEMENTS = ['local', 'project', 'split'] as const
 export type Placement = (typeof PLACEMENTS)[number]
 
-export const HISTORY_CAPACITY = 10
+export function historyWindow(settings: Settings): number {
+  return settings.history.full + settings.history.brief
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
   knowledge: null,
-  historyLimit: HISTORY_CAPACITY,
+  history: { full: 1, brief: 9 },
+  tasks: { prepare: 'on_demand' },
+  hints: { soft: true },
   commit: false,
   files: { shift: SHIFT_FILE, owner: OWNER, glossary: GLOSSARY, always: [] },
   docs: {
     dirs: ['docs'],
     exclude: [],
+    maxDepth: DOCS_MAX_DEPTH,
     maxPinned: DOCS_PINNED_MAX_CHARS,
     toc: false,
     maxDescription: null,
@@ -60,99 +68,143 @@ const KINDS = {
   files: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of files inside the project'),
   docs: (value: Value) => (Array.isArray(value) && value.every(isInside) ? null : 'a list of folders or documents inside the project'),
   limit: (value: Value) => (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? null : 'a safe whole number above 0'),
+  count: (value: Value) =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? null : 'a safe whole number of 0 or more',
+  prepare: (value: Value) => (value === 'on_start' || value === 'on_demand' ? null : '"on_start" or "on_demand"'),
   placement: (value: Value) => ((PLACEMENTS as readonly unknown[]).includes(value) ? null : `one of ${quote(PLACEMENTS)}`),
 }
 
 // A key of the settings file: the mod's version it came in, what it does, the sort of its value and where it lives in
 // the settings — a field, or a table and a field. One row is all a new key needs.
-type Key = { key: string; since: string; kind: keyof typeof KINDS; at: [keyof Settings] | ['files' | 'docs', string]; about: string }
+type Key = {
+  key: string
+  since: string
+  kind: keyof typeof KINDS
+  at: [keyof Settings] | ['files' | 'docs' | 'history' | 'tasks' | 'hints', string]
+  about: string
+}
 
 // Every key, so an agent after an update sees what is new.
 export const SETTING_KEYS: readonly Key[] = [
-  {
-    key: 'history_limit',
-    since: 'storage roadmap',
-    kind: 'limit',
-    at: ['historyLimit'],
-    about: `completed shifts to retain, up to ${HISTORY_CAPACITY} including the current shift; earlier descriptions use the remaining slots`,
-  },
   {
     key: 'enabled',
     since: '0.2.9',
     kind: 'flag',
     at: ['enabled'],
-    about: 'false turns the mod off in this project from the next session: no tools, no doctrine, no hints',
+    about: 'true enables Shift in this project. false turns off its tools, instructions and reminders.',
   },
   {
     key: 'knowledge',
     since: '0.2.9',
     kind: 'placement',
     at: ['knowledge'],
-    about: 'where knowledge goes: "local", "project" or "split"; unset — local, and ask the owner once',
+    about:
+      'Choose "local" for private knowledge, "project" for project docs, or "split" for both. Unset keeps knowledge local until the owner chooses.',
   },
   {
     key: 'commit',
     since: '0.2.9',
     kind: 'flag',
     at: ['commit'],
-    about: "true lets the project's git take the records in; false — the mod keeps them out by the local exclude file",
+    about: 'true allows the project to commit Shift records. false keeps them private using the local Git exclude file.',
   },
-  { key: 'files.owner', since: '0.3.0', kind: 'path', at: ['files', 'owner'], about: "where OWNER.md lives, from the project's root" },
+  {
+    key: 'history.full',
+    since: 'schema 2',
+    kind: 'limit',
+    at: ['history', 'full'],
+    about: 'Number of recent letters returned in full, including the current letter (integer >= 1).',
+  },
+  {
+    key: 'history.brief',
+    since: 'schema 2',
+    kind: 'count',
+    at: ['history', 'brief'],
+    about: 'Number of earlier descriptions (integer >= 0). The archive retains full + brief completed shifts.',
+  },
+  {
+    key: 'tasks.prepare',
+    since: 'schema 2',
+    kind: 'prepare',
+    at: ['tasks', 'prepare'],
+    about: 'Prepare the optional tracker on first request ("on_demand") or at session start ("on_start").',
+  },
+  {
+    key: 'hints.soft',
+    since: 'schema 2',
+    kind: 'flag',
+    at: ['hints', 'soft'],
+    about: 'true allows an early reminder when the host has room. false delivers only the final reminder.',
+  },
+  {
+    key: 'docs.max_depth',
+    since: 'schema 2',
+    kind: 'count',
+    at: ['docs', 'maxDepth'],
+    about: 'Subfolder levels below each listed directory (integer >= 0). Zero reads its direct files. Explicit files are always eligible.',
+  },
+  {
+    key: 'files.owner',
+    since: '0.3.0',
+    kind: 'path',
+    at: ['files', 'owner'],
+    about: 'Project-relative path to the owner Markdown file. Unset uses the project record store.',
+  },
   {
     key: 'files.glossary',
     since: '0.3.0',
     kind: 'path',
     at: ['files', 'glossary'],
-    about: "where GLOSSARY.md lives, from the project's root",
+    about: 'Project-relative path to the glossary Markdown file. Unset uses the project record store.',
   },
   {
     key: 'files.always',
     since: '0.5.0',
     kind: 'files',
     at: ['files', 'always'],
-    about: "the project's own files loaded whole into every session, beside SHIFT.md and OWNER.md",
+    about: 'List of project-relative files to load in full in every session. [] adds none.',
   },
   {
     key: 'docs.exclude',
     since: 'schema 1',
     kind: 'files',
     at: ['docs', 'exclude'],
-    about: 'individual document paths to omit from the map, tocs and checks',
+    about: 'List of individual project-relative documents to omit from the map, tocs and checks. [] excludes none.',
   },
   {
     key: 'docs.dirs',
     since: '0.3.0',
     kind: 'docs',
     at: ['docs', 'dirs'],
-    about: `the folders of documents the mod keeps, ${DOCS_MAX_DEPTH} folders deep at most, or single documents such as "AGENTS.md" (since 0.9.0): the map in SHIFT.md, the toc, the checks, the docs tools; [] — none, the docs are left alone`,
+    about: 'List of project-relative directories or individual Markdown files to map and maintain. [] disables project documentation.',
   },
   {
     key: 'docs.max_pinned',
     since: '0.13.0',
     kind: 'limit',
     at: ['docs', 'maxPinned'],
-    about: 'how long the pinned `> [!IMPORTANT]` blocks of the docs may be together: past it the map says so and still shows them all',
+    about: 'Combined character budget for pinned blocks (integer >= 1). Excess produces a remark. All pins still appear.',
   },
   {
     key: 'docs.toc',
     since: '0.5.0',
     kind: 'flag',
     at: ['docs', 'toc'],
-    about: 'true — the mod keeps a toc in each document under its # title',
+    about: 'true maintains a table of contents below each document title. false leaves the document as written.',
   },
   {
     key: 'docs.max_description',
     since: '0.5.0',
     kind: 'limit',
     at: ['docs', 'maxDescription'],
-    about: "a document's description longer than this is a remark; unset — no such check",
+    about: 'Maximum description length in characters (integer >= 1). Unset disables this check.',
   },
   {
     key: 'docs.max_lines',
     since: '0.5.0',
     kind: 'limit',
     at: ['docs', 'maxLines'],
-    about: 'a document longer than this many lines is a remark; unset — no such check',
+    about: 'Maximum document length in lines (integer >= 1). Unset disables this check.',
   },
 ]
 
@@ -160,7 +212,7 @@ export const SETTING_KEYS: readonly Key[] = [
 function slot(settings: Settings, { at }: Key): [Record<string, unknown>, string] {
   const [first, second] = at
 
-  return second === undefined ? [settings, first] : [settings[first as 'files' | 'docs'], second]
+  return second === undefined ? [settings, first] : [settings[first as 'files' | 'docs' | 'history' | 'tasks' | 'hints'], second]
 }
 
 // The settings a file gives and the keys it sets itself; what is wrong with it otherwise.
@@ -168,15 +220,15 @@ export type ParsedSettings = { settings: Settings; set: ReadonlySet<string> }
 
 // An index in this table is the source schema. Each step sees the original
 // keys, including retired ones. Cleanup and validation run after the last step.
-const MIGRATIONS = [migrateUnversioned]
+const MIGRATIONS = [migrateUnversioned, migrateHistoryWindow]
 export const SETTINGS_SCHEMA = MIGRATIONS.length
 
 const EXAMPLES: Record<string, string> = {
-  knowledge: '"local"  # choose local, project or split',
-  'files.owner': `"${OWNER}"  # uncomment to use a Markdown file`,
-  'files.glossary': `"${GLOSSARY}"  # uncomment to use a Markdown file`,
-  'docs.max_description': '200  # optional character limit',
-  'docs.max_lines': '150  # optional line limit',
+  knowledge: '"local"',
+  'files.owner': `"${OWNER}"`,
+  'files.glossary': `"${GLOSSARY}"`,
+  'docs.max_description': '200',
+  'docs.max_lines': '150',
 }
 
 type Row = { raw: string; name?: string; value?: Value }
@@ -212,6 +264,29 @@ function migrateUnversioned(sections: Sections): { legacyMap?: string } | string
     sections.set('docs', docs)
   }
   return { legacyMap: former }
+}
+
+function migrateHistoryWindow(sections: Sections): Record<string, never> | string {
+  const root = sections.get('') ?? []
+  const old = root.find(row => row.name === 'history_limit')
+  if (!old) return {}
+  if (typeof old.value !== 'number' || KINDS.limit(old.value)) return `${SETTINGS}: history_limit must be a safe whole number above 0.`
+  const history = sections.get('history') ?? [{ raw: '[history]' }]
+  // Schema 1 silently capped the old total at ten, even when the file said more.
+  for (const [name, value] of [
+    ['full', 1],
+    ['brief', Math.min(10, old.value) - 1],
+  ] as const) {
+    if (!history.some(row => row.name === name)) history.push({ name, value, raw: `${name} = ${value}` })
+  }
+  const comment = old.raw.slice(withoutComment(old.raw).length)
+  root.splice(root.indexOf(old), 1, ...(comment ? [{ raw: comment }] : []))
+  sections.set('history', history)
+  return {}
+}
+
+function exampleName(row: Row): string | undefined {
+  return row.name ?? /^\s*#\s*([a-z_]+)\s*=/.exec(row.raw)?.[1]
 }
 
 function readSections(text: string): { sections: Sections; version: number } | string {
@@ -255,7 +330,14 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
   const file = readSections(text)
   if (typeof file === 'string') return file
   const { sections, version } = file
-  const settings: Settings = { ...DEFAULT_SETTINGS, files: { ...DEFAULT_SETTINGS.files }, docs: { ...DEFAULT_SETTINGS.docs } }
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    history: { ...DEFAULT_SETTINGS.history },
+    tasks: { ...DEFAULT_SETTINGS.tasks },
+    hints: { ...DEFAULT_SETTINGS.hints },
+    files: { ...DEFAULT_SETTINGS.files },
+    docs: { ...DEFAULT_SETTINGS.docs },
+  }
   const set = new Set<string>()
   for (const migrate of MIGRATIONS.slice(version)) {
     const result = migrate(sections)
@@ -287,7 +369,7 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
           const wanted = KINDS[key.kind](given)
           if (wanted !== null) return `${SETTINGS}: \`${name}\` is ${wanted}, got ${JSON.stringify(row.value)}.`
           const [holder, field] = slot(settings, key)
-          holder[field] = name === 'history_limit' && typeof given === 'number' ? Math.min(given, HISTORY_CAPACITY) : given
+          holder[field] = given
           set.add(name)
         }
       }
@@ -295,19 +377,41 @@ export function settingsDocument(text: string, upgrade: boolean): Document | str
     }
     sections.set(table, kept)
   }
-  if (!upgrade || !changed) return { settings, set, next: text }
+  if (!Number.isSafeInteger(historyWindow(settings))) return `${SETTINGS}: history.full + history.brief must be a safe whole number.`
+  if (!upgrade) return { settings, set, next: text }
   if (version < SETTINGS_SCHEMA) {
-    sections.get('')?.unshift({ raw: `schema_version = ${SETTINGS_SCHEMA}` })
+    sections.get('')?.unshift({ name: 'schema_version', raw: `schema_version = ${SETTINGS_SCHEMA}` })
     for (const { key } of SETTING_KEYS) {
       if (set.has(key)) continue
       const [group, name] = key.includes('.') ? key.split('.') : ['', key]
       const section = group ?? ''
       const rows = sections.get(section) ?? [{ raw: `[${section}]` }]
+      if (rows.some(row => exampleName(row) === name)) continue
       const example = EXAMPLES[key]
-      rows.push({ raw: example ? `# ${name} = ${example}` : `${name} = ${settingValue(DEFAULT_SETTINGS, key)}` })
+      rows.push({
+        ...(example ? {} : { name }),
+        raw: example ? `# ${name} = ${example}` : `${name} = ${settingValue(DEFAULT_SETTINGS, key)}`,
+      })
       sections.set(section, rows)
     }
   }
+  for (const [table, rows] of sections) {
+    const annotated: Row[] = []
+    for (const row of rows) {
+      if (row.raw.startsWith('# Shift: ')) continue
+      const name = exampleName(row)
+      const key = table ? `${table}.${name}` : name
+      const about =
+        key === 'schema_version'
+          ? 'Settings format version, maintained by Shift during migration.'
+          : SETTING_KEYS.find(setting => setting.key === key)?.about
+      if (about) annotated.push({ raw: `# Shift: ${about}` })
+      annotated.push(row)
+    }
+    if (annotated.length !== rows.length || annotated.some((row, index) => row.raw !== rows[index]?.raw)) changed = true
+    sections.set(table, annotated)
+  }
+  if (!changed) return { settings, set, next: text }
   const newline = text.includes('\r\n') ? '\r\n' : '\n'
   const blocks = [...sections.values()].map(rows =>
     rows

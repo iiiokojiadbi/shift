@@ -121,13 +121,20 @@ test('size table shows only sizes and the three newest available letters', async
 
 test('only a confirmed local task command can be recommended on startup, setup or task listing', async () => {
   const project = await memoryProject()
+  let probes = 0
   let answer = './.shift/bin/shift-task.exe'
   project.store.beads = async (_root, args) => {
+    probes++
     expect(args).toEqual(['shift-install-task'])
     if (answer === '') throw new Error('foreign executable')
     return answer
   }
   const setup = () => tool('shift_setup').run({ section: 'tasks' }, callOn(project))
+  expect((await startSession(project)).doctrine).toContain('shift_setup(section="tasks")')
+  expect(probes).toBe(0)
+  expect(await setup()).toEqual({ result: expect.stringContaining('./.shift/bin/shift-task.exe prime') })
+  expect(probes).toBe(1)
+  project.settings.tasks.prepare = 'on_start'
   expect((await startSession(project)).doctrine).toContain('./.shift/bin/shift-task.exe prime')
   expect(await tasksView(project)).toContain('./.shift/bin/shift-task.exe list')
   expect(await setup()).toEqual({ result: expect.stringContaining('./.shift/bin/shift-task.exe prime') })

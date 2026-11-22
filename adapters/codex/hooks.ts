@@ -393,7 +393,7 @@ export async function runHook(input: Fields, dir: string, file: string) {
     }
     if (command === SHIFT_COMMAND) notes.push(SHIFT_NOW(''))
     if (project.settings.enabled && input.hook_event_name !== 'PreToolUse' && typeof input.transcript_path === 'string') {
-      const hint = await sample(state.usage, input.transcript_path, input.source === 'compact')
+      const hint = await sample(state.usage, input.transcript_path, input.source === 'compact', project.settings.hints.soft)
       if (hint) notes.push(wrap({ kind: 'hint', body: hint }))
     }
     db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))

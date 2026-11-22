@@ -16,7 +16,7 @@ The core holds everything that does not depend on a harness; an adapter is wirin
 
 ## Core and adapters
 
-Each adapter locates its bundled runtime and asks it to prepare the project-local task command at session start. The runtime returns the path that the agent can use for ordinary Beads commands. The core uses `saved.ts` for shift history. Archive operations go to bbolt through the runtime's stdin interface. Saving and restoring a letter require only the archive and project records. See the [storage roadmap](beads-roadmap.md) for acceptance scenarios.
+Each adapter locates its bundled runtime and asks it to prepare the project-local task command on request, or at session start for `[tasks] prepare = "on_start"`. The runtime returns the path that the agent can use for ordinary Beads commands. The core uses `saved.ts` for shift history. Archive operations go to bbolt through the runtime's stdin interface. Saving and restoring a letter require only the archive and project records. See the [storage roadmap](beads-roadmap.md) for acceptance scenarios.
 
 `core/src/` is pure TypeScript with no harness imports. A harness may load only files inside its plugin folder, so `scripts/sync-core.ts` copies `core/src/` into `adapters/claude-code/hooks/core/` and `adapters/npm/core/`, which pi's and opencode's entries share; the copies are never edited, and the pre-commit hook fails on a stale one. The Codex launcher runs from the checkout and imports the core directly.
 

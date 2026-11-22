@@ -8,6 +8,7 @@ import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkWork, checkWritten, ownerRevisionProblem } from './records'
 import { archiveCall, readSaved, type SavedEntry, savedEntries, savedFiles } from './saved'
+import { historyWindow } from './settings'
 import { lastShifts, readRecords, recentShifts } from './store'
 import { ACCEPTED, continuePrompt, deliveredFiles, EXCLUDED, NOT_IGNORED, resumePrompt, waitContext } from './texts/prompts'
 import { CONTINUING, NOT_MADE, UNSETTLED, WAITING } from './texts/rows'
@@ -33,7 +34,11 @@ export type ConfirmedEdit = (path: string, current: string | null, previous: str
 export function recordFingerprint(project: Project, path: string, text: string): string {
   let observed = text
   if (path === project.settings.files.shift) observed = withMap(text, '').trim()
-  else if (project.settings.docs.toc && !project.settings.docs.exclude.includes(path) && isDoc(path, project.settings.docs.dirs))
+  else if (
+    project.settings.docs.toc &&
+    !project.settings.docs.exclude.includes(path) &&
+    isDoc(path, project.settings.docs.dirs, project.settings.docs.maxDepth)
+  )
     observed = withToc(text) ?? text
   return String(textFingerprint(observed))
 }
@@ -256,7 +261,7 @@ async function recordFailure(project: Project, shift: PendingShift, about: strin
       id: shift.dir,
       state: readAbout(about).result?.startsWith('not shifted') ? 'failed' : 'unsettled',
       about,
-      limit: project.settings.historyLimit,
+      limit: historyWindow(project.settings),
     })
 
     return row
@@ -291,7 +296,7 @@ export async function settleShift(project: Project, letGo: LetGo, back?: HandedB
       wait: !letGo.carried,
       about,
       files: { [NAMES.summary]: summary },
-      limit: project.settings.historyLimit,
+      limit: historyWindow(project.settings),
     })
   }
   const handed = back ?? (await handBack(project, shift.dir, shift.sessionId))

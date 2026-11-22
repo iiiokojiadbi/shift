@@ -5,6 +5,7 @@ import { NAMES } from './layout'
 import { basename } from './paths'
 import type { Project } from './project'
 import { archiveCall, hasArchive, isSaved, readSaved } from './saved'
+import { historyWindow } from './settings'
 import {
   compactInstructions,
   continuePrompt,
@@ -329,7 +330,7 @@ export async function acknowledgeWait(project: Project, id: string) {
     action: 'received',
     session: project.deliveryKey ?? project.actor,
     id,
-    limit: project.settings.historyLimit,
+    limit: historyWindow(project.settings),
   })
 }
 export async function waitingNote(

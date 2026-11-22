@@ -41,10 +41,13 @@ try {
   const { TOOLS, loadProject, startSession, acceptShift, settleShift, resumeShift, promptRecords, waitingNote, FRESH_LOOKS } = await import(
     pathToFileURL(resolve(pkg, 'core/index.ts')).href
   )
-  const source = await loadProject(nodeStore, project, 'writer')
+  const source = await loadProject(nodeStore, project, 'writer', undefined, 'start')
   const startup = await startSession(source)
   assert.ok(!(await readdir(join(project, '.shift'))).includes('beads'), 'Startup must leave Beads unopened.')
   assert.ok(startup.enabled)
+  assert.equal(startup.command, null)
+  assert.ok(!(await readdir(join(project, '.shift'))).includes('bin'), 'Startup must leave the optional launcher unprepared.')
+  assert.match(await call('shift_setup', { section: 'tasks' }), /shift-task/)
   const taskCommand = resolve(project, '.shift/bin/shift-task')
   const runCLI = promisify(execFile)
   const cli = async (...args: string[]) => (await runCLI(taskCommand, args, { cwd: project })).stdout

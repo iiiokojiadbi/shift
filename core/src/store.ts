@@ -1,6 +1,7 @@
 import { DIR, KNOWLEDGE, NAMES } from './layout'
 import type { Project } from './project'
-import { NEXT_SAVED, savedEntries } from './saved'
+import { savedEntries } from './saved'
+import { historyWindow } from './settings'
 import type { KnowledgeFile, Recent, Work } from './types'
 
 // The files the mod works on, as a harness gives them; paths are absolute.
@@ -51,13 +52,26 @@ export async function readRecords(project: Project): Promise<Work | null> {
 }
 
 // The last `count` shifts' about.md, oldest first, and how many shifts the project has in all.
-export async function lastShifts(project: Project, count: number, exclude?: string, session?: string, preview = true): Promise<Recent> {
-  const saved = await savedEntries(project, preview ? exclude : undefined, session)
-  const entries = saved.filter(entry => !exclude || exclude === NEXT_SAVED || entry.id < exclude)
-  return { total: entries.length, entries: entries.slice(Math.max(0, entries.length - count)).map(e => ({ name: e.id, about: e.about })) }
+export async function lastShifts(
+  project: Project,
+  count: number,
+  current?: string,
+  session?: string,
+  preview = true,
+  letters = 0,
+): Promise<Recent> {
+  const saved = await savedEntries(project, { current, session, preview, letters })
+  return {
+    total: saved.length,
+    entries: saved.slice(Math.max(0, saved.length - count)).map(e => ({
+      name: e.id,
+      about: e.about,
+      ...(e.files?.[NAMES.letter] === undefined ? {} : { letter: e.files[NAMES.letter] }),
+    })),
+  }
 }
 
-// The shifts the message after a shift recalls.
+// The current letter occupies the last full slot and is delivered separately.
 export function recentShifts(project: Project, current?: string, session?: string, preview = true): Promise<Recent> {
-  return lastShifts(project, project.settings.historyLimit - 1, current, session, preview)
+  return lastShifts(project, historyWindow(project.settings) - 1, current, session, preview, project.settings.history.full - 1)
 }

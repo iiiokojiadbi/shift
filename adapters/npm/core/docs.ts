@@ -49,8 +49,16 @@ export function withToc(text: string): string | null {
   return [...lines.slice(0, title.line), eol, ...block, ...lines.slice(title.line)].join('\n')
 }
 
-export function isDoc(path: string, dirs: readonly string[]): boolean {
-  return path.endsWith('.md') && dirs.map(trimDir).some(entry => (isFile(entry) ? path === entry : path.startsWith(`${entry}/`)))
+export function isDoc(path: string, dirs: readonly string[], maxDepth = DOCS_MAX_DEPTH): boolean {
+  return (
+    path.endsWith('.md') &&
+    dirs.map(trimDir).some(entry => {
+      if (isFile(entry)) return path === entry
+      if (!path.startsWith(`${entry}/`)) return false
+      const parts = path.slice(entry.length + 1).split('/')
+      return parts.length - 1 <= maxDepth && !parts.slice(0, -1).some(folder => folder.startsWith('.'))
+    })
+  )
 }
 
 function excludedDoc(settings: Settings, path: string): boolean {
@@ -114,7 +122,7 @@ export async function followWrite(project: Project, file: string): Promise<strin
   if (!settings.enabled || settings.docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
   const path = file.slice(root.length + 1)
   if (path.startsWith(`${DIR}/`) || excludedDoc(settings, path)) return null
-  if (isDoc(path, settings.docs.dirs)) await refreshDocs(project, { tocs: false })
+  if (isDoc(path, settings.docs.dirs, settings.docs.maxDepth)) await refreshDocs(project, { tocs: false })
 
   return path
 }
@@ -149,7 +157,7 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
     let text = await store.read(`${root}/${path}`)
     if (text === null) continue
     read.set(path, text)
-    const doc = isDoc(path, docs.dirs)
+    const doc = isDoc(path, docs.dirs, docs.maxDepth)
     if (doc && docs.toc) {
       const next = withToc(text)
       if (next !== null && next !== text) {
@@ -191,15 +199,15 @@ export async function docsReport(project: Project): Promise<string | null> {
   const docs = settings.docs
   if (!settings.enabled || docs.dirs.length === 0) return null
   const rootFiles = (await store.list(root, 'file')).filter(name => name.endsWith('.md'))
-  const paths = new Set([...(await docPaths(store, root, docs.dirs)), ...rootFiles])
+  const paths = new Set([...(await docPaths(store, root, docs.dirs, docs.maxDepth)), ...rootFiles])
   const undescribed: string[] = []
   const lines: string[] = []
   const kept: Doc[] = []
   for (const path of paths) {
     if (excludedDoc(settings, path) || path === settings.files.shift) continue
     const text = (await store.read(`${root}/${path}`)) ?? ''
-    if (isDoc(path, docs.dirs)) kept.push(readDoc(path, text))
-    const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
+    if (isDoc(path, docs.dirs, docs.maxDepth)) kept.push(readDoc(path, text))
+    const own = isDoc(path, docs.dirs, docs.maxDepth) ? docRemarks(text, docs) : []
     if (own.includes(NO_DESCRIPTION)) undescribed.push(path)
     const remarks = [
       ...own.filter(remark => remark !== NO_DESCRIPTION),
@@ -247,19 +255,20 @@ export async function docOutline({ store, root }: Project, file: string): Promis
 }
 
 // A logical knowledge name is shorthand for the path printed in the session map.
-export function readingPath(input: string, dirs: readonly string[]): string {
-  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs)) return `${DIR}/${input}`
+export function readingPath(input: string, dirs: readonly string[], maxDepth = DOCS_MAX_DEPTH): string {
+  if (input.startsWith(`${NAMES.knowledge}/`) && !isDoc(input, dirs, maxDepth)) return `${DIR}/${input}`
   return input.replace(/^\.\//, '')
 }
 
 export async function readMapped(project: Project, input: string, section?: string): Promise<string> {
-  const path = readingPath(input, project.settings.docs.dirs)
+  const path = readingPath(input, project.settings.docs.dirs, project.settings.docs.maxDepth)
   if (
     !isInside(path) ||
     /[\\:]/.test(path) ||
     path.includes('\0') ||
     !path.endsWith('.md') ||
-    (dirname(path) !== KNOWLEDGE && (excludedDoc(project.settings, path) || !isDoc(path, project.settings.docs.dirs)))
+    (dirname(path) !== KNOWLEDGE &&
+      (excludedDoc(project.settings, path) || !isDoc(path, project.settings.docs.dirs, project.settings.docs.maxDepth)))
   ) {
     throw new Error('Use a local knowledge file or a document path from the project map.')
   }
@@ -278,7 +287,7 @@ export async function docsMentioning({ store, root, settings }: Project, file: s
   if (name === '') return 'Name a file.'
   const pattern = new RegExp(`(?<![\\w-])${escapeRegExp(name)}(?![\\w-])`)
   const found: string[] = []
-  for (const path of await docPaths(store, root, dirs)) {
+  for (const path of await docPaths(store, root, dirs, settings.docs.maxDepth)) {
     if (excludedDoc(settings, path) || path === fromRoot(root, file)) continue
     if (pattern.test((await store.read(`${root}/${path}`)) ?? '')) found.push(path)
   }
@@ -304,11 +313,11 @@ export type Doc = { path: string; description: string | null; archived?: boolean
 
 // Every document the settings name, from the project's root, sorted: each .md file under a folder — a missing folder
 // has none, a hidden one is skipped — and a named document that is there.
-export async function docPaths(store: Store, root: string, dirs: readonly string[]): Promise<string[]> {
+export async function docPaths(store: Store, root: string, dirs: readonly string[], maxDepth = DOCS_MAX_DEPTH): Promise<string[]> {
   const paths = new Set<string>()
   const walk = async (dir: string, depth = 0): Promise<void> => {
     for (const name of await store.list(`${root}/${dir}`, 'file')) if (name.endsWith('.md')) paths.add(`${dir}/${name}`)
-    if (depth >= DOCS_MAX_DEPTH) return
+    if (depth >= maxDepth) return
     for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of dirs.map(trimDir)) {
@@ -328,7 +337,7 @@ export async function docStamps(project: Project): Promise<Record<string, string
   const walk = async (dir: string, depth = 0): Promise<void> => {
     for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${dir}`)))
       if (name.endsWith('.md') && `${dir}/${name}` !== settings.files.shift) found[`${dir}/${name}`] = stamp
-    if (depth >= DOCS_MAX_DEPTH) return
+    if (depth >= settings.docs.maxDepth) return
     for (const name of await store.list(`${root}/${dir}`, 'dir')) if (!name.startsWith('.')) await walk(`${dir}/${name}`, depth + 1)
   }
   for (const entry of settings.docs.dirs.map(trimDir)) {
@@ -374,7 +383,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
   }
   const empty = dirs
     .map(trimDir)
-    .filter(entry => !settings.exclude.includes(entry) && !docs.some(doc => isDoc(doc.path, [entry])))
+    .filter(entry => !settings.exclude.includes(entry) && !docs.some(doc => isDoc(doc.path, [entry], settings.maxDepth)))
     .map(entry => `- ${entryName(entry)} — ${isFile(entry) ? 'no such file' : missing.includes(entry) ? 'no such folder' : 'no documents'}`)
   if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, ...end].join('\n')
   const folders = new Map<string, Doc[]>()
@@ -461,7 +470,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const { store, root } = project
   const settings = project.settings.docs
   const docs: Doc[] = []
-  for (const path of await docPaths(store, root, settings.dirs)) {
+  for (const path of await docPaths(store, root, settings.dirs, settings.maxDepth)) {
     if (path === project.settings.files.shift || excludedDoc(project.settings, path)) continue
     let text = (await store.read(`${root}/${path}`)) ?? ''
     const next = tocs && settings.toc ? withToc(text) : null

@@ -22,7 +22,6 @@ import {
   STATUS_TOOL,
   TOOL,
 } from '../layout'
-import { HISTORY_CAPACITY } from '../settings'
 import { TOOL_TEXTS } from './tools'
 
 // A list of sections in their order, each with what goes in it: a section without its text does not compile.
@@ -162,6 +161,6 @@ Use shift_record(action="checkout", name="letter.md"), edit its returned path an
 
 Call shift with the letter path and after. Choose continue for autonomous work and wait for the owner's input. After acceptance end the turn with one line for continue, or your complete answer to the owner for wait. If refused, correct the named record and call again. Shift checks the board, owner rules, glossary, knowledge, settings, letter and recorded progress. The guide’s records section describes their formats. Read the restored letter with the board and current project records. When using the tracker, use the project command confirmed in your session instructions or by shift_setup(section="tasks"). Run its prime subcommand.
 
-List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window holds up to ${HISTORY_CAPACITY} shifts. Your current letter takes one slot. The preamble carries up to ${HISTORY_CAPACITY - 1} earlier descriptions in order. Use their IDs to read the full letters. A smaller history_limit reduces this window. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
+List saved shifts with shift_history. Use its stable IDs to read a record, compare any pair, export or delete a completed entry. Search saved records locally with action="search" and query. The history window retains [history] full + brief shifts. Earlier descriptions come first, then earlier full letters. Continue from the current letter, delivered last. Read any retained letter by ID. Pending letters stay protected. To resume from a fresh chat use the unshift action.`
 
 export const GUIDE = `${GUIDE_FLOW.trimEnd()}\n\n${GUIDE_RECORDS}`

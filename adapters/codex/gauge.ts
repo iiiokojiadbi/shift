@@ -32,13 +32,13 @@ export function freshSample(): Sample {
   return { gauge: FRESH_GAUGE, reading: { tokens: undefined, window: 0, threshold: undefined }, offset: 0 }
 }
 
-export function status({ gauge, reading }: Sample) {
-  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window) })
+export function status({ gauge, reading }: Sample, softHints = true) {
+  return renderStatus(gauge, { ...reading, hintTargets: windowTargets(reading.window), softHints })
 }
 
 // Hook processes share only the latest reading and its byte offset. Long tool results are skipped by
 // seeking to the tail. An incomplete last record is picked up on the next call.
-export async function sample(state: Sample, transcript: string, reset: boolean) {
+export async function sample(state: Sample, transcript: string, reset: boolean, softHints = true) {
   const handle = await open(transcript, 'r').catch(() => null)
   if (!handle) return null
   let hint: string | null = null
@@ -64,7 +64,7 @@ export async function sample(state: Sample, transcript: string, reset: boolean) 
           const tokens = fields(info.last_token_usage).total_tokens
           if (typeof tokens !== 'number' || typeof info.model_context_window !== 'number' || info.model_context_window <= 0) continue
           Object.assign(state, usageReading(state.reading, state.gauge, tokens, info.model_context_window))
-          const next = shiftHint(state.gauge, state.reading)
+          const next = shiftHint(state.gauge, { ...state.reading, softHints })
           state.gauge = next.gauge
           hint = next.text ?? hint
         } catch {

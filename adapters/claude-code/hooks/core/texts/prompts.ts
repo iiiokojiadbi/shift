@@ -94,7 +94,11 @@ export function renderRecent(recent: Recent): string {
   const earlier = recent.total - recent.entries.length
   const shifts = (n: number) => (n === 1 ? '1 shift' : `${n} shifts`)
   // No `after`: a row of past waits would pull the agent towards waiting when it could go on.
-  const lines = recent.entries.map(entry => `- ${entry.name} · ${readAbout(entry.about ?? '').description ?? 'no about.md'}`)
+  const lines = recent.entries.map(entry =>
+    entry.letter === undefined
+      ? `- ${entry.name} · ${readAbout(entry.about ?? '').description ?? 'no about.md'}`
+      : `<previous_letter shift="${entry.name}">\n${entry.letter.trim()}\n</previous_letter>`,
+  )
 
   return [
     `What you did before: the last ${shifts(recent.entries.length)}, oldest first.`,
@@ -102,6 +106,9 @@ export function renderRecent(recent: Recent): string {
       ? [
           `${shifts(earlier)} before them ${earlier === 1 ? 'is' : 'are'} not listed: ${HISTORY_TOOL} reads them, up to ${HISTORY_MAX} at a time.`,
         ]
+      : []),
+    ...(recent.entries.some(entry => entry.letter !== undefined)
+      ? ['Earlier letters describe past work. Continue from the current letter below.']
       : []),
     '<shifts>',
     ...lines,

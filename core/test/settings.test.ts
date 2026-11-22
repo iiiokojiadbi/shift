@@ -3,7 +3,7 @@ import { acceptShift } from '../src/flows'
 import { atPlaces } from '../src/layout'
 import { loadProject } from '../src/project'
 import { readSaved } from '../src/saved'
-import { DEFAULT_SETTINGS, parseSettings } from '../src/settings'
+import { DEFAULT_SETTINGS, parseSettings, SETTING_KEYS } from '../src/settings'
 import { renderWork, unassistedInstructions } from '../src/texts/prompts'
 import { startSession, TOOLS } from '../src/tools'
 import { BOARD, LETTER, R, ROOT } from './fixtures'
@@ -16,8 +16,8 @@ test('settings parse the keys, comments and tables; a missing key keeps its defa
     set: new Set(['enabled']),
   })
   expect(parseSettings("knowledge = 'split'")).toMatchObject({ settings: { ...DEFAULT_SETTINGS, knowledge: 'split' } })
-  expect(DEFAULT_SETTINGS.historyLimit).toBe(10)
-  expect(parseSettings('history_limit = 40')).toMatchObject({ settings: { historyLimit: 10 } })
+  expect(DEFAULT_SETTINGS.history).toEqual({ full: 1, brief: 9 })
+  expect(parseSettings('history_limit = 40')).toMatchObject({ settings: { history: { full: 1, brief: 9 } } })
   expect(parseSettings('commit = true')).toMatchObject({ settings: { ...DEFAULT_SETTINGS, commit: true } })
   expect(parseSettings('knowledge = "a # b"')).toContain('`knowledge` is one of')
 })
@@ -25,7 +25,7 @@ test('settings parse the keys, comments and tables; a missing key keeps its defa
 test('a wrong value, an unknown key or a broken line is named', () => {
   expect(parseSettings('enabled = "no"')).toContain('`enabled` is true or false')
   expect(parseSettings('enable = false')).toContain('unknown key `enable`')
-  expect(parseSettings('[hints]\nsoft = 3')).toContain('unknown table `[hints]`')
+  expect(parseSettings('[hints]\nsoft = 3')).toContain('true or false')
   expect(parseSettings('history_limit = 100000000000000000000')).toContain('safe whole number')
   expect(parseSettings('enabled false')).toContain('line 1')
 })
@@ -102,7 +102,8 @@ test('first startup writes usable defaults once and leaves optional choices unse
   const started = await open(store)
   expect(started.problem).toBeNull()
   expect(started.settings).toEqual(DEFAULT_SETTINGS)
-  expect(started.settingsText).toContain('schema_version = 1')
+  expect(started.settingsText).toContain('schema_version = 2')
+  for (const key of SETTING_KEYS) expect(started.settingsText).toContain(`# Shift: ${key.about}\n`)
   expect(started.set.has('knowledge')).toBe(false)
   expect(started.set.has('files.owner')).toBe(false)
   expect(started.set.has('files.glossary')).toBe(false)
@@ -126,24 +127,26 @@ test.each(['', 'schema_version = 0\n'])('upgrade from schema zero retains choice
     docs: { dirs: ['docs', 'AGENTS.md'], exclude: ['docs/rules.md'], toc: true },
   })
   expect(current.set.has('files.owner')).toBe(true)
-  expect(current.settingsText).toContain('# Private rules\nknowledge = "split" # keep')
+  expect(current.settingsText).toContain('knowledge = "split" # keep')
   expect(current.settingsText).not.toMatch(/max_chars|\[retired\]|^shift =/m)
   expect(store.files.get(`${R}/SHIFT.md`)).toBe('Owner rules')
   expect((await open(store)).settingsText).toBe(current.settingsText)
 })
 
 test('a current sparse file keeps its layout and leaves newly unsupported entries until startup', async () => {
-  const text = 'schema_version = 1\r\nenabled = false # keep\r\n'
+  const text = 'schema_version = 2\r\nenabled = false # keep\r\n'
   const store = memoryStore({ [settingsPath]: text })
-  expect((await open(store)).settingsText).toBe(text)
-  store.files.set(settingsPath, `${text}retired = 5\r\n`)
+  const annotated = (await open(store)).settingsText
+  expect(annotated).toContain('enabled = false # keep\r\n')
+  expect(annotated).not.toContain('[history]')
+  store.files.set(settingsPath, `${annotated}retired = 5\r\n`)
   await loadProject(store, ROOT)
   expect(store.files.get(settingsPath)).toContain('retired')
-  expect((await open(store)).settingsText).toBe(text)
+  expect((await open(store)).settingsText).toBe(annotated)
 })
 
 test.each([
-  'schema_version = 2\nfuture = 5',
+  'schema_version = 3\nfuture = 5',
   'schema_version = -1',
   'schema_version = 1.5',
   'enabled = "no"',
@@ -179,4 +182,17 @@ test('a failed map import retries from the original schema and an existing inter
   expect((await open(store)).problem).toBeNull()
   expect(store.files.get(`${R}/SHIFT.md`)).toBe('current rules')
   expect(store.files.get(former)).toBe('former rules')
+})
+
+test.each([1, 4, 40])('schema 1 migrates the effective history limit %i and annotates existing optional examples once', async limit => {
+  const store = memoryStore({
+    [settingsPath]: `schema_version = 1\nhistory_limit = ${limit} # project choice\n# knowledge = "local"\n[files]\n# owner = ".shift/OWNER.md"\n`,
+  })
+  const started = await open(store)
+  expect(started.settings.history).toEqual({ full: 1, brief: Math.min(10, limit) - 1 })
+  expect(started.settingsText).not.toContain('history_limit')
+  expect(started.settingsText).toContain('# project choice')
+  expect(started.settingsText?.match(/^# knowledge =/gm)).toHaveLength(1)
+  expect(started.settingsText?.match(/^# owner =/gm)).toHaveLength(1)
+  expect((await open(store)).settingsText).toBe(started.settingsText)
 })

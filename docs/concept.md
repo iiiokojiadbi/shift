@@ -29,7 +29,7 @@ The digest preserves the thread of thought, the letter explains what comes next,
 
 - **Only "shift".** The words "compression", "summary", "compaction" are absent from everything the model reads: some models answer them with an `<analysis>`/`<summary>` text instead of a tool call.
 - **What came from the mod is tagged.** The doctrine is `<shift note="…">`, what a shift hands back is `<shift id="…">` with the letter in `<letter shift="…">`, each record in `<file path="…">`. The knowledge map comes in the session file `SHIFT.md`. Records carry headings and code blocks of their own, so only a tag marks where a file ends, and the agent tells the mod's text from the owner's instructions at once.
-- **In what order.** A model reads the start of a context as a frame, the middle weakest, the end as what to do now. So a shift hands back the records first, then the descriptions of the last shifts oldest first, then the letter last, right before the turn. A recent shift's line is its ID and description only: a column of past `wait` pulled the agent towards waiting.
+- **In what order.** A model reads the start of a context as a frame, the middle weakest, the end as what to do now. So a shift hands back the records first, then earlier descriptions and any configured historical letters oldest first, then the current letter last, right before the turn. A recent shift's line is its ID and description only: a column of past `wait` pulled the agent towards waiting.
 - **In English.** Everything the agent reads — code, docs, prompts, tool descriptions, records — is in English; the readers are agents.
 
 ## Out of scope

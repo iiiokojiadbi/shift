@@ -22,7 +22,7 @@ The session always starts with `SHIFT.md` (where knowledge goes, and a map of th
 
 ### Project tasks
 
-Write the next step in the shift letter. Use the built-in tracker when work needs its own status, dependencies or discussion. To continue a tracked issue, include its ID in the letter. From the project root, run `./.shift/bin/shift-task prime` (Windows: `./.shift/bin/shift-task.exe prime`). Substitute that executable for `bd` in Beads examples. Use `ready` to find work and `show <id>` to read an issue. Shift prepares the command at startup. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
+Write the next step in the shift letter. Use the built-in tracker when work needs its own status, dependencies or discussion. To continue a tracked issue, include its ID in the letter. Prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`. From the project root, run `./.shift/bin/shift-task prime` (Windows: `./.shift/bin/shift-task.exe prime`). Substitute that executable for `bd` in Beads examples. Use `ready` to find work and `show <id>` to read an issue. The first task command initializes the private workspace. The system PATH and any unrelated Beads installation stay independent.
 
 ## Install
 
@@ -103,17 +103,20 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 ## Settings
 
-`.shift/settings.toml` is created with project defaults at session start. Shift upgrades older files, preserves supported values and removes retired settings. The top-level `schema_version` identifies the file format. See [settings and migration](docs/records.md#settings). The read-only `shift_setup` report lists the effective values.
+`.shift/settings.toml` is created with project defaults at session start. Each setting has a comment explaining its accepted values. Shift upgrades older files, preserves supported values and removes retired settings. The top-level `schema_version` identifies the file format. See [settings and migration](docs/records.md#settings). The read-only `shift_setup` report lists the effective values.
 
 | Key | Meaning |
 |---|---|
 | `enabled` | `false` turns the mod off in this project |
-| `history_limit` | rolling history window, default and maximum 10. The current letter takes one slot and up to nine earlier descriptions return with it. Pending and waiting letters are protected |
+| `[history]` `full`, `brief` | full letters including the current one (default 1), then the number of older descriptions (default 9). The archive keeps their sum. Undelivered letters are protected |
+| `[tasks]` `prepare` | `"on_demand"` (default) prepares the optional project command on explicit request. `"on_start"` prepares it at session start |
+| `[hints]` `soft` | `true` (default) allows the early reminder when the host has room. `false` keeps only the final reminder |
 | `knowledge` | where knowledge goes: `local` (`.shift/knowledge/`), `project` (the project's docs) or `split` |
 | `commit` | `true` lets the project's git take `.shift/` in; by default the mod keeps it out through the local exclude file |
 | `[files]` `owner`, `glossary` | where the owner record and glossary live. The map stays inside `.shift`. A previous `[files] shift` path can seed its rules once |
 | `[files]` `always` | the project's own files loaded whole into every session |
-| `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
+| `[docs]` `dirs` | the folders and individual files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
+| `[docs]` `max_depth` | levels below each listed directory, default 8. Set 0 for direct children only. Explicit file paths work at any depth |
 | `[docs]` `exclude` | individual document paths to leave out of the map, automatic tocs and checks |
 | `[docs]` `toc`, `max_pinned`, `max_description`, `max_lines` | document tocs and checks for pins, descriptions and file length |
 

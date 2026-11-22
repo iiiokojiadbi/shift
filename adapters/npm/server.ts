@@ -274,7 +274,11 @@ const plugin: Definition = {
         },
         history: async () => growthIn(await ctx.session.context({ sessionID })),
         base: async () => shiftBase(await project(), sessionID),
-        reading: async () => ({ tokens: (await state(sessionID)).fill, ...(await limits(sessionID)) }),
+        reading: async () => ({
+          softHints: (await project()).settings.hints.soft,
+          tokens: (await state(sessionID)).fill,
+          ...(await limits(sessionID)),
+        }),
       }
     }
 

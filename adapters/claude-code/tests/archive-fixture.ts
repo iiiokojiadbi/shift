@@ -45,8 +45,17 @@ export function archiveFixture(state: ArchiveFixture, stdin: string): string {
         else delete state.waiting[query.session]
       }
       return JSON.stringify(entry.id)
-    case 'list':
-      return JSON.stringify(state.entries.map(({ id, about, state }) => ({ id, about, state })))
+    case 'list': {
+      const preceding = state.entries.filter(entry => !query.before || entry.id < query.before)
+      return JSON.stringify(
+        preceding.map(({ id, about, state, files }, index) => ({
+          id,
+          about,
+          state,
+          ...(index >= preceding.length - (query.letters ?? 0) ? { files: { 'letter.md': files['letter.md'] } } : {}),
+        })),
+      )
+    }
     case 'read':
       if (!entry) throw new Error('Unknown saved shift')
       return JSON.stringify({ ...entry, files: query.file ? { [query.file]: entry.files[query.file] } : entry.files })
