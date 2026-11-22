@@ -16,10 +16,10 @@ import { shownTools } from './tools'
 export async function setupReport(project: Project, loaded: string | null): Promise<string> {
   const { settings } = project
   const state =
-    project.settingsText === null
-      ? 'No settings file: every key is at its default.'
-      : project.problem !== null
-        ? `It does not parse — ${project.problem} The mod stays on with the defaults, and a shift is refused until it is fixed.`
+    project.problem !== null
+      ? `It does not parse — ${project.problem} The mod stays on with the defaults, and a shift is refused until it is fixed.`
+      : project.settingsText === null
+        ? 'No settings file: every key is at its default.'
         : 'It parses.'
   const keys = SETTING_KEYS.map(({ key, since, about }) => {
     const value = settingValue(settings, key)

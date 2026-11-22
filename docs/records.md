@@ -24,7 +24,7 @@ Internal records are Markdown stored in `.shift/history.db`. Logical names such 
 
 ```
 .shift/
-├── settings.toml     optional project settings
+├── settings.toml     versioned project settings
 ├── drafts/           temporary Markdown from active checkouts
 ├── bin/              project-local shift-task launcher
 ├── beads/            optional private task workspace
@@ -53,7 +53,7 @@ These come into every session whole, beside the system prompt, and again after e
 - **GLOSSARY.md** — one article per term: `## <term>`, then `Variants`, `Means` (what it is, not what it does), `Avoid` (words not to use for it, so one thing has one name), `Where`, and `Unconfirmed` while an inferred meaning is not checked with the owner. The format follows a glossary kept as a model prompt in another project, with `Avoid` from a domain-modeling practice.
 - **SHIFT.md** — how the project keeps its knowledge, on the owner's word, and the map of its documents the mod writes between its markers. It comes from a project where a script wrote such a map into AGENTS.md; there the map grew to two thirds of a 72 KB AGENTS.md. The mod rebuilds the map at a session's start, at a shift and after a write of a document, and keeps a toc in each when asked. The tocs and the checks of the files written — by Edit or Write, or by a script, found by the documents' stamps — wait for the next message: an agent writing a set of documents linked to each other was told of every link to a sibling not written yet, and of every toc, one note per file.
 
-Every active document keeps its description and sections in the map regardless of map size. Existing `[docs] max_chars` values are accepted for compatibility. Mark an archived reference with `archived: true` in its frontmatter and describe when to consult it. Its map entry shows its path, archive status, description and any explicit pins. Its full outline remains available through `doc_outline`.
+Every active document keeps its description and sections in the map regardless of map size. Mark an archived reference with `archived: true` in its frontmatter and describe when to consult it. Its map entry shows its path, archive status, description and any explicit pins. Its full outline remains available through `doc_outline`.
 
 A new stretch receives the full current map. While the history is retained, each session remembers the documents it has seen. A new document gets its map entry, a removed one its path. Body edits name the affected section, and changed descriptions and pins carry their updated text. Generated tocs are excluded. The writing session advances its observation silently for a known write. A shell tool with no file receipt can also hide a simultaneous external edit during the same command. An idle or detached session compares against its own checkpoint at the next observation.
 
@@ -65,11 +65,15 @@ A `> [!IMPORTANT]` block in a mapped document is pinned: the map shows it under 
 
 Whether knowledge goes into the project's own docs or stays local is the owner's choice per project — `knowledge = "local" | "project" | "split"`, a split's boundary a rule in OWNER.md; until the owner said, it stays local: the agent does not write a project's shared files on its own guess.
 
-The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. The owner can retire the old copy after checking the rules.
+The map stays inside `.shift` in every project. Its logical name is `.shift/SHIFT.md`, stored in the working database by default. The placement decision applies to the documents and knowledge it points to. When upgrading a project with a former `[files] shift` path, the first internal map takes its owner-authored rules from that file and rebuilds the generated section locally. An existing internal map takes precedence. The migration adds the former path to `[docs] exclude` so automatic tocs and the map leave the original alone. The owner can retire the old copy after checking the rules.
 
 ## Settings
 
-`settings.toml` is the owner's, optional, a flat subset of TOML. A missing file or key is the default; an unknown key or table, a key set twice or a bad value is named, leaves the mod on and refuses a shift until fixed — a typo must not switch the mod off silently. Paths are from the project's root: `./OWNER.md` is `OWNER.md`, and the root itself is no docs folder. `shift_setup` lists every key with its value here, its default and the version it came in, in its default read-only report. The tasks section prepares and locates the project command; the keys themselves are rows of `SETTING_KEYS`.
+At session start Shift creates `.shift/settings.toml` with project defaults. The top-level integer `schema_version` describes the file format independently of the plugin release. An unversioned file and an explicit version 0 use the same migration to schema 1. It retains supported values, fills missing defaults, transfers a former external map as described above and drops unsupported keys and tables, including the obsolete `[docs] max_chars`. Existing choices such as `enabled = false`, an explicit owner path and `knowledge = "split"` keep their meaning. Optional examples in the generated file are comments: uncommenting an owner or glossary path selects a physical file, and choosing a knowledge placement records the owner's decision.
+
+An already current file may omit defaults. At the next session start unknown settings are removed and a valid current file otherwise stays byte-for-byte unchanged. A newer schema, an unreadable file, a malformed line or an invalid supported value leaves the file in place and reports the problem. Ordinary tool calls read settings without upgrading them. Paths are project-relative. The syntax supports flat tables, booleans, numbers, quoted strings and single-line string arrays. The default `shift_setup` report shows effective values and which settings are explicit.
+
+A future schema change with a rename or a change in meaning must translate the previous schema before removing retired keys. Apply each missing version in order, validate the resulting document and write its final version only after its storage changes succeed. Never infer a file version from the installed release.
 
 `.shift/` is the agent's own, with no git of its own. Whether the project's git takes it in is the owner's choice (`commit`); by default the mod adds it to the repository's local exclude file.
 

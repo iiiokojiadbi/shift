@@ -91,6 +91,7 @@ export class Session {
   private mapOffset?: number
   private loaded: string | null = null
   private command: import('../../core/src/beads').TaskCommandPath | null = null
+  private settingsStarted = false
   private prepared = false
   private enabled = false
   private observation = Promise.resolve()
@@ -154,7 +155,8 @@ export class Session {
       }
     }
     await this.observation
-    const project = await projectAt(this.root, this.id)
+    const project = await projectAt(this.root, this.id, undefined, this.settingsStarted ? undefined : 'start')
+    this.settingsStarted = true
     this.enabled = project.settings.enabled
     if (!project.settings.enabled) return { params, delivered: async () => {} }
     const first = !this.prepared

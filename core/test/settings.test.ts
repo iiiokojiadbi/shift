@@ -93,3 +93,90 @@ test('a moved path is moved once, even when it holds a default inside it', () =>
   const files = { owner: 'pkg/.shift/OWNER.md', glossary: '.shift/OWNER.md', shift: '.shift/SHIFT.md' }
   expect(atPlaces('see .shift/OWNER.md and .shift/GLOSSARY.md', files)).toBe('see pkg/.shift/OWNER.md and .shift/OWNER.md')
 })
+
+const settingsPath = `${R}/settings.toml`
+const open = (store: ReturnType<typeof memoryStore>) => loadProject(store, ROOT, 'session', undefined, 'start')
+
+test('first startup writes usable defaults once and leaves optional choices unset', async () => {
+  const store = memoryStore()
+  const started = await open(store)
+  expect(started.problem).toBeNull()
+  expect(started.settings).toEqual(DEFAULT_SETTINGS)
+  expect(started.settingsText).toContain('schema_version = 1')
+  expect(started.set.has('knowledge')).toBe(false)
+  expect(started.set.has('files.owner')).toBe(false)
+  expect(started.set.has('files.glossary')).toBe(false)
+  const stamps = await store.stamps(R)
+  expect((await open(store)).settingsText).toBe(started.settingsText)
+  expect(await store.stamps(R)).toEqual(stamps)
+})
+
+test.each(['', 'schema_version = 0\n'])('upgrade from schema zero retains choices and removes retired keys', async version => {
+  const store = memoryStore({
+    [settingsPath]:
+      version +
+      '# Private rules\nknowledge = "split" # keep\nenabled = false\n[retired]\nvalue = 4\n[files]\nowner = ".shift/OWNER.md"\nshift = "docs/rules.md"\n[docs]\nmax_chars = 1\ndirs = ["docs", "AGENTS.md"]\ntoc = true',
+    [`${ROOT}/docs/rules.md`]: 'Owner rules',
+  })
+  const current = await open(store)
+  expect(current.problem).toBeNull()
+  expect(current.settings).toMatchObject({
+    enabled: false,
+    knowledge: 'split',
+    docs: { dirs: ['docs', 'AGENTS.md'], exclude: ['docs/rules.md'], toc: true },
+  })
+  expect(current.set.has('files.owner')).toBe(true)
+  expect(current.settingsText).toContain('# Private rules\nknowledge = "split" # keep')
+  expect(current.settingsText).not.toMatch(/max_chars|\[retired\]|^shift =/m)
+  expect(store.files.get(`${R}/SHIFT.md`)).toBe('Owner rules')
+  expect((await open(store)).settingsText).toBe(current.settingsText)
+})
+
+test('a current sparse file keeps its layout and leaves newly unsupported entries until startup', async () => {
+  const text = 'schema_version = 1\r\nenabled = false # keep\r\n'
+  const store = memoryStore({ [settingsPath]: text })
+  expect((await open(store)).settingsText).toBe(text)
+  store.files.set(settingsPath, `${text}retired = 5\r\n`)
+  await loadProject(store, ROOT)
+  expect(store.files.get(settingsPath)).toContain('retired')
+  expect((await open(store)).settingsText).toBe(text)
+})
+
+test.each([
+  'schema_version = 2\nfuture = 5',
+  'schema_version = -1',
+  'schema_version = 1.5',
+  'enabled = "no"',
+  'enabled false',
+  '[files]\nshift = "/outside.md"',
+  'schema_version = 1\nschema_version = 1',
+])('a refused migration preserves the original file: %s', async source => {
+  const store = memoryStore({ [settingsPath]: source })
+  expect((await open(store)).problem).toBeTruthy()
+  expect(store.files.get(settingsPath)).toBe(source)
+})
+
+test('initialization skips the previous skill layout and preserves unreadable files', async () => {
+  const foreign = memoryStore({ [`${R}/sessions/example`]: '' })
+  await open(foreign)
+  expect(foreign.files.has(settingsPath)).toBe(false)
+  const store = memoryStore({ [settingsPath]: 'private' })
+  store.read = async () => null
+  expect((await open(store)).problem).toContain('Cannot read')
+  expect(store.files.get(settingsPath)).toBe('private')
+})
+
+test('a failed map import retries from the original schema and an existing internal map takes priority', async () => {
+  const source = '[files]\nshift = "docs/former.md"'
+  const former = `${ROOT}/docs/former.md`
+  const store = memoryStore({ [settingsPath]: source, [former]: 'former rules' })
+  const read = store.read
+  store.read = path => (path === former ? Promise.resolve(null) : read(path))
+  expect((await open(store)).problem).toContain('Cannot read the former map')
+  expect(store.files.get(settingsPath)).toBe(source)
+  store.read = read
+  store.files.set(`${R}/SHIFT.md`, 'current rules')
+  expect((await open(store)).problem).toBeNull()
+  expect(store.files.get(`${R}/SHIFT.md`)).toBe('current rules')
+  expect(store.files.get(former)).toBe('former rules')
+})

@@ -41,3 +41,14 @@ test('a link counts as what it points to', async () => {
   expect(await nodeStore.list(join(root, 'pages'), 'dir')).toEqual(['loop'])
   expect(Object.keys(await nodeStore.stamps(join(root, 'pages'))).sort()).toEqual(['guide.md', 'real.md'])
 })
+
+test('settings initialization preserves a file another writer has created or edited', async () => {
+  const file = join(await scratch('settings'), '.shift/settings.toml')
+  const writes = await Promise.allSettled(['first', 'second'].map(text => nodeStore.write(file, text, null)))
+  expect(writes.filter(write => write.status === 'fulfilled')).toHaveLength(1)
+  const saved = await readFile(file, 'utf8')
+  await expect(nodeStore.write(file, 'migration', 'stale')).rejects.toThrow('changed')
+  expect(await readFile(file, 'utf8')).toBe(saved)
+  await nodeStore.write(file, 'migration', saved)
+  expect(await readFile(file, 'utf8')).toBe('migration')
+})

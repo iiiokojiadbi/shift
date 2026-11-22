@@ -217,7 +217,7 @@ export default function shift(pi: ExtensionAPI): void {
   // Tools are registered before the project is known, so an off project only takes them out of the active set.
   // A wait note survives a reload: the last wait entry on the branch says whether one is still undelivered.
   pi.on('session_start', async (_event, ctx) => {
-    const start = await startSession(await branchProject(ctx))
+    const start = await startSession(await branchProject(ctx, 'start'))
     command = start.command
     enabled = start.enabled
     if (enabled) process.env.SHIFT_PI_MAIN = binding(ctx.cwd)
@@ -513,14 +513,14 @@ function cannotLetGo(ctx: ExtensionContext): string | null {
 }
 
 // The project loaded once for the hook at hand.
-async function branchProject(ctx: ExtensionContext): Promise<Project> {
+async function branchProject(ctx: ExtensionContext, lifecycle?: 'start'): Promise<Project> {
   const actor = ctx.sessionManager.getSessionId()
   const entries = ctx.sessionManager.getBranch()
   const anchor = entries.findLast(entry => entry.type === 'custom' && entry.customType === DELIVERY_ENTRY)
   const branch = anchor?.type === 'custom' && typeof anchor.data === 'string' ? anchor.data : null
   const letter = entries.findLast(entry => entry.type === 'custom' && entry.customType === LETTER_BRANCH)
   const letterSession = letter?.type === 'custom' ? JSON.stringify([actor, letter.data]) : actor
-  const project = await projectAt(ctx.cwd, actor, letterSession)
+  const project = await projectAt(ctx.cwd, actor, letterSession, lifecycle)
   project.deliveryKey = JSON.stringify([actor, branch])
   return project
 }

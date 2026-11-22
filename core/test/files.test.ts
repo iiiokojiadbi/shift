@@ -10,7 +10,7 @@ import { renderSessionFiles } from '../src/texts/prompts'
 import { BOARD, LETTER, R, ROOT } from './fixtures'
 import { memoryStore } from './memory'
 
-const docsOf = (dirs: string[], maxChars = 100000) => ({ ...DEFAULT_SETTINGS.docs, dirs, maxChars })
+const docsOf = (dirs: string[]) => ({ ...DEFAULT_SETTINGS.docs, dirs })
 
 const at = (store: Store) => loadProject(store, ROOT)
 const withDocs = async (store: Store, docs: DocsSettings) => ({ ...(await at(store)), settings: { ...DEFAULT_SETTINGS, docs } })
@@ -44,10 +44,9 @@ test('the docs map lists each document with its description and sections, and re
   expect(second.split(MAP_END).length).toBe(2)
 
   const many = Array.from({ length: 400 }, (_, i) => ({ path: `docs/x/${i}.md`, description: 'd'.repeat(80), sections: ['s'], pins: [] }))
-  const map = renderMap(many, docsOf(['docs'], 24000), [])
+  const map = renderMap(many, docsOf(['docs']), [])
   expect(map.match(/ {2}sections: s$/gm)).toHaveLength(many.length)
   expect(map).toContain(`- \`docs/x/399.md\` — ${'d'.repeat(80)}\n  sections: s`)
-  expect(parseSettings('[docs]\nmax_chars = 0')).toContain('above 0')
 })
 
 test('a folder with nothing to list is named as missing or empty; with no SHIFT.md and no documents nothing is written', async () => {

@@ -15,7 +15,7 @@ import {
 import { basename, dirname, fromRoot, isInside, normalize, resolvePath } from './paths'
 import type { Project } from './project'
 import { knowledgeMap } from './records'
-import type { DocsSettings } from './settings'
+import type { DocsSettings, Settings } from './settings'
 import { readKnowledge, type Store } from './store'
 
 // The project's documents the mod keeps, the ones `[docs] dirs` names — folders, or a single document such as
@@ -51,6 +51,10 @@ export function withToc(text: string): string | null {
 
 export function isDoc(path: string, dirs: readonly string[]): boolean {
   return path.endsWith('.md') && dirs.map(trimDir).some(entry => (isFile(entry) ? path === entry : path.startsWith(`${entry}/`)))
+}
+
+function excludedDoc(settings: Settings, path: string): boolean {
+  return path === settings.files.legacyMap || settings.docs.exclude.includes(path)
 }
 
 function description(text: string): string | null {
@@ -109,7 +113,7 @@ export async function followWrite(project: Project, file: string): Promise<strin
   const { root, settings } = project
   if (!settings.enabled || settings.docs.dirs.length === 0 || !file.startsWith(`${root}/`)) return null
   const path = file.slice(root.length + 1)
-  if (path.startsWith(`${DIR}/`) || path === settings.files.legacyMap) return null
+  if (path.startsWith(`${DIR}/`) || excludedDoc(settings, path)) return null
   if (isDoc(path, settings.docs.dirs)) await refreshDocs(project, { tocs: false })
 
   return path
@@ -141,7 +145,7 @@ export async function settleDocs(project: Project, paths: readonly string[]): Pr
   const remarked: string[] = []
   let pins = false
   for (const path of paths) {
-    if (path === settings.files.legacyMap) continue
+    if (excludedDoc(settings, path)) continue
     let text = await store.read(`${root}/${path}`)
     if (text === null) continue
     read.set(path, text)
@@ -192,7 +196,7 @@ export async function docsReport(project: Project): Promise<string | null> {
   const lines: string[] = []
   const kept: Doc[] = []
   for (const path of paths) {
-    if (path === settings.files.legacyMap || path === settings.files.shift) continue
+    if (excludedDoc(settings, path) || path === settings.files.shift) continue
     const text = (await store.read(`${root}/${path}`)) ?? ''
     if (isDoc(path, docs.dirs)) kept.push(readDoc(path, text))
     const own = isDoc(path, docs.dirs) ? docRemarks(text, docs) : []
@@ -255,7 +259,7 @@ export async function readMapped(project: Project, input: string, section?: stri
     /[\\:]/.test(path) ||
     path.includes('\0') ||
     !path.endsWith('.md') ||
-    (dirname(path) !== KNOWLEDGE && !isDoc(path, project.settings.docs.dirs))
+    (dirname(path) !== KNOWLEDGE && (excludedDoc(project.settings, path) || !isDoc(path, project.settings.docs.dirs)))
   ) {
     throw new Error('Use a local knowledge file or a document path from the project map.')
   }
@@ -275,7 +279,7 @@ export async function docsMentioning({ store, root, settings }: Project, file: s
   const pattern = new RegExp(`(?<![\\w-])${escapeRegExp(name)}(?![\\w-])`)
   const found: string[] = []
   for (const path of await docPaths(store, root, dirs)) {
-    if (path === fromRoot(root, file)) continue
+    if (excludedDoc(settings, path) || path === fromRoot(root, file)) continue
     if (pattern.test((await store.read(`${root}/${path}`)) ?? '')) found.push(path)
   }
   const where = dirs.map(dir => entryName(trimDir(dir))).join(', ')
@@ -336,7 +340,7 @@ export async function docStamps(project: Project): Promise<Record<string, string
     }
   }
 
-  if (settings.files.legacyMap) delete found[settings.files.legacyMap]
+  for (const path of Object.keys(found)) if (excludedDoc(settings, path)) delete found[path]
   for (const [name, stamp] of Object.entries(await store.stamps(`${root}/${KNOWLEDGE}`))) {
     if (name.endsWith('.md')) found[`${KNOWLEDGE}/${name}`] = stamp
   }
@@ -370,7 +374,7 @@ export function renderMap(docs: readonly Doc[], settings: DocsSettings, missing:
   }
   const empty = dirs
     .map(trimDir)
-    .filter(entry => !docs.some(doc => isDoc(doc.path, [entry])))
+    .filter(entry => !settings.exclude.includes(entry) && !docs.some(doc => isDoc(doc.path, [entry])))
     .map(entry => `- ${entryName(entry)} — ${isFile(entry) ? 'no such file' : missing.includes(entry) ? 'no such folder' : 'no documents'}`)
   if (docs.length === 0) return [MAP_START, '', `## Documents`, '', 'none:', ...empty, ...end].join('\n')
   const folders = new Map<string, Doc[]>()
@@ -458,7 +462,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   const settings = project.settings.docs
   const docs: Doc[] = []
   for (const path of await docPaths(store, root, settings.dirs)) {
-    if (path === project.settings.files.shift || path === project.settings.files.legacyMap) continue
+    if (path === project.settings.files.shift || excludedDoc(project.settings, path)) continue
     let text = (await store.read(`${root}/${path}`)) ?? ''
     const next = tocs && settings.toc ? withToc(text) : null
     if (next !== null && next !== text) {
@@ -469,7 +473,7 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   }
   const missing: string[] = []
   for (const entry of settings.dirs.map(trimDir)) {
-    if (!(await store.exists(`${root}/${entry}`))) missing.push(entry)
+    if (!excludedDoc(project.settings, trimDir(entry)) && !(await store.exists(`${root}/${entry}`))) missing.push(entry)
   }
   const shift = `${root}/${project.settings.files.shift}`
   const current = await store.read(shift)

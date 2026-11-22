@@ -33,7 +33,8 @@ export type ConfirmedEdit = (path: string, current: string | null, previous: str
 export function recordFingerprint(project: Project, path: string, text: string): string {
   let observed = text
   if (path === project.settings.files.shift) observed = withMap(text, '').trim()
-  else if (project.settings.docs.toc && isDoc(path, project.settings.docs.dirs)) observed = withToc(text) ?? text
+  else if (project.settings.docs.toc && !project.settings.docs.exclude.includes(path) && isDoc(path, project.settings.docs.dirs))
+    observed = withToc(text) ?? text
   return String(textFingerprint(observed))
 }
 

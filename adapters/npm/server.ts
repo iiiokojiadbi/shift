@@ -113,7 +113,7 @@ const plugin: Definition = {
   id: MOD,
   async setup(ctx) {
     const root = ctx.location.directory
-    const start = await startSession(await projectAt(root))
+    const start = await startSession(await projectAt(root, undefined, undefined, 'start'))
     if (!start.enabled) return
     // The docs' tocs and map are refreshed once, as the plugin starts: later the notes settle what changed, each with
     // its note.

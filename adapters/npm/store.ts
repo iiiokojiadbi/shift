@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import type { Stats } from 'node:fs'
-import { access, chmod, mkdir, readdir, readFile, readlink, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { access, chmod, link, mkdir, readdir, readFile, readlink, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -53,7 +53,7 @@ export const nodeStore: Store = {
   },
   // Written whole or not at all: a write that fails half way leaves the record as it was. A link is written through,
   // as an editor would, and the file keeps its mode.
-  write: async (path, text) => {
+  write: async (path, text, expected) => {
     await mkdir(dirname(path), { recursive: true })
     const target = await through(path)
     const mode = await stat(target).then(
@@ -65,7 +65,15 @@ export const nodeStore: Store = {
     try {
       await writeFile(temporary, text)
       if (mode !== null) await chmod(temporary, mode)
-      await rename(temporary, target)
+      if (expected === null) {
+        // Publish the complete file only if no editor created it meanwhile.
+        await link(temporary, target)
+        await unlink(temporary)
+      } else {
+        if (expected !== undefined && (await readFile(target, 'utf8')) !== expected)
+          throw new Error('Settings changed during initialization.')
+        await rename(temporary, target)
+      }
     } catch (error) {
       await unlink(temporary).catch(() => undefined)
       throw error
@@ -87,8 +95,8 @@ export const nodeStore: Store = {
 }
 
 // The project at `root`, loaded once for the event or tool call at hand.
-export function projectAt(root: string, actor?: string, letterSession?: string): Promise<Project> {
-  return loadProject(nodeStore, root, actor, letterSession)
+export function projectAt(root: string, actor?: string, letterSession?: string, lifecycle?: 'start'): Promise<Project> {
+  return loadProject(nodeStore, root, actor, letterSession, lifecycle)
 }
 
 // The file a write goes to: a link's target, through a chain of links, even one not there yet; a cycle of links is

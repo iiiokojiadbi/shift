@@ -62,6 +62,6 @@ export function claudeStore($: EngineInterface): Store {
 }
 
 // The session's project, loaded once for the hook or tool call at hand.
-export async function projectOf($: EngineInterface): Promise<Project> {
-  return loadProject(claudeStore($), await $.session.root(), await $.session.id())
+export async function projectOf($: EngineInterface, lifecycle?: 'start'): Promise<Project> {
+  return loadProject(claudeStore($), await $.session.root(), await $.session.id(), undefined, lifecycle)
 }

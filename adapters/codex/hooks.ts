@@ -272,7 +272,12 @@ export async function runHook(input: Fields, dir: string, file: string) {
       }
     return {}
   }
-  const project = await projectAt(String(input.cwd), typeof input.session_id === 'string' ? input.session_id : undefined)
+  const project = await projectAt(
+    String(input.cwd),
+    typeof input.session_id === 'string' ? input.session_id : undefined,
+    undefined,
+    input.hook_event_name === 'SessionStart' ? 'start' : undefined,
+  )
   const prompt = input.hook_event_name === 'UserPromptSubmit' && typeof input.prompt === 'string' ? input.prompt.trim() : ''
   const token = prompt.split(/\s/, 1)[0] ?? ''
   const command = pickerCommands.get(token) ?? /^\/\/?([^/\s]+)$/.exec(token)?.[1]

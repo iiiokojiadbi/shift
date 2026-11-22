@@ -54,7 +54,7 @@ const letGoDone = atom({ plugin: 'shift', key: 'letGoDone' } as const, null as L
 export const register: Register = on => {
   // Off in a project whose settings say so: nothing is registered, and every other hook passes through.
   on('session.start', async ($, e, next) => {
-    const project = await projectOf($)
+    const project = await projectOf($, 'start')
     const start = await startSession(project)
     for (const row of start.rows) $.ui.log(row.text)
     await update($, enabled, () => start.enabled)
@@ -76,7 +76,7 @@ export const register: Register = on => {
     // A resume, a /clear or a branch resets the state without a session start, and a new root is another project:
     // the switch, the doctrine and the files are read again for what runs now.
     if ((await read($, filesSession)) !== (await sessionKey($))) {
-      const project = await projectOf($)
+      const project = await projectOf($, 'start')
       const start = await startSession(project)
       for (const row of start.rows) $.ui.log(row.text)
       await update($, enabled, () => start.enabled)

@@ -103,7 +103,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 
 ## Settings
 
-`.shift/settings.toml` is optional. Every key and its default are listed by `shift_setup`.
+`.shift/settings.toml` is created with project defaults at session start. Shift upgrades older files, preserves supported values and removes retired settings. The top-level `schema_version` identifies the file format. See [settings and migration](docs/records.md#settings). The read-only `shift_setup` report lists the effective values.
 
 | Key | Meaning |
 |---|---|
@@ -114,6 +114,7 @@ Both reports appear under **Hook stopped**, before any model call. The typed ali
 | `[files]` `owner`, `glossary` | where the owner record and glossary live. The map stays inside `.shift`. A previous `[files] shift` path can seed its rules once |
 | `[files]` `always` | the project's own files loaded whole into every session |
 | `[docs]` `dirs` | the folders (8 folders deep at most) and files mapped into `SHIFT.md`; `[]` disables project documentation and keeps local knowledge topics in the map |
+| `[docs]` `exclude` | individual document paths to leave out of the map, automatic tocs and checks |
 | `[docs]` `toc`, `max_pinned`, `max_description`, `max_lines` | document tocs and checks for pins, descriptions and file length |
 
 ## Documentation

@@ -16,7 +16,8 @@ export type Store = {
   // listing and no reads: what the records' look after every tool can afford.
   stamps(path: string): Promise<Record<string, string>>
   // Writes the file whole, making its folders.
-  write(path: string, text: string): Promise<void>
+  // Settings initialization supplies the text it read, or null to create a missing file.
+  write(path: string, text: string, expected?: string | null): Promise<void>
   exists(path: string): Promise<boolean>
   // Runs git with `args` in `root`: its exit code and what it printed; null when there is no git to run.
   git(root: string, args: readonly string[]): Promise<{ code: number; stdout: string } | null>
