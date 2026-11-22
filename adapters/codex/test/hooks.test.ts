@@ -585,6 +585,13 @@ test('subagent hooks cannot restore the main letter or initiate a shift', async 
   const { rawHook, root } = await fixture()
   archive.seed(root, LETTER, BOARD)
   expect(await rawHook('UserPromptSubmit', { agent_id: 'child', prompt: '$shift:unshift' })).toEqual({})
+  for (const actor of [{}, { agent_id: 'child' }]) {
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      const output = await rawHook(event, { ...actor, tool_name: 'mcp__other__shift' })
+      expect(output.continue).not.toBe(false)
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined()
+    }
+  }
   expect((await rawHook('PreToolUse', { agent_id: 'child', tool_name: 'mcp__shift__shift' })).hookSpecificOutput.permissionDecision).toBe(
     'deny',
   )
@@ -606,4 +613,28 @@ test('a former public map seeds internal rules once and receives no further writ
   await hook('SessionStart')
   expect(current()).toContain('Keep private knowledge local.')
   expect(await Bun.file(join(root, '.shift/SHIFT.md')).exists()).toBe(false)
+})
+
+test('disabled startup reports a failed migration and subsequent hooks keep the project off', async () => {
+  const { root, rawHook } = await fixture()
+  const settings = 'enabled = false\nretired = true\n[files]\nshift = "docs"'
+  await writeFile(join(root, '.shift/settings.toml'), settings)
+  const start = await rawHook('SessionStart')
+  expect(start.systemMessage).toContain('Cannot read the former map')
+  expect(start.hookSpecificOutput).toBeUndefined()
+  expect(await rawHook('UserPromptSubmit', { prompt: '$shift:unshift' })).toEqual({
+    continue: false,
+    stopReason: 'Shift is disabled in this project.',
+  })
+  expect(await rawHook('PreToolUse', { tool_name: 'mcp__other__lookup' })).toEqual({})
+})
+
+test('a broken Shift checkpoint leaves another plugin in control of its tool', async () => {
+  const { home, rawHook } = await fixture()
+  await mkdir(join(home, 'plugins', 'data'), { recursive: true })
+  await writeFile(join(home, 'plugins', 'data', 'shift-sessions'), 'not a directory')
+  for (const event of ['PreToolUse', 'PostToolUse']) {
+    const result = await rawHook(event, { tool_name: 'mcp__other__shift' })
+    expect(result).toEqual({ systemMessage: expect.stringContaining('Shift could not check its records') })
+  }
 })

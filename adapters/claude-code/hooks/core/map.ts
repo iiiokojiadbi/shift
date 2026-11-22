@@ -1,7 +1,7 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { docStamps, mapParts, refreshDocs, TOC_END, TOC_START } from './docs'
-import { type ConfirmedEdit, recordFingerprint, staleLayout, textFingerprint } from './flows'
-import { frontmatter, headings, lineOutside, pinned } from './markdown'
+import { type ConfirmedEdit, recordFingerprint, staleLayout } from './flows'
+import { frontmatter, headings, lineOutside, pinned, textFingerprint } from './markdown'
 import type { Project } from './project'
 import type { SessionFile } from './types'
 

@@ -158,7 +158,10 @@ export class Session {
     const project = await projectAt(this.root, this.id, undefined, this.settingsStarted ? undefined : 'start')
     this.settingsStarted = true
     this.enabled = project.settings.enabled
-    if (!project.settings.enabled) return { params, delivered: async () => {} }
+    if (!project.settings.enabled) {
+      if (project.problem) this.tell(project.problem)
+      return { params, delivered: async () => {} }
+    }
     const first = !this.prepared
     let initialFiles: Awaited<ReturnType<typeof sessionFiles>> | undefined
     if (first) {

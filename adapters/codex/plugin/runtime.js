@@ -243,6 +243,12 @@ function frontmatter(text) {
   }
   return found;
 }
+function textFingerprint(text) {
+  let hash = 2166136261;
+  for (let i = 0;i < text.length; i++)
+    hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+  return hash >>> 0;
+}
 
 // core/src/about.ts
 var OUTCOME = {
@@ -308,6 +314,47 @@ async function installTaskCommand(project) {
 function taskInstructions(command) {
   return command ? `Use \`${command}\` from the project root for all tracker commands. Start with \`show <id>\` for a named issue or \`ready --parent <epic>\` for available work in an epic. Claim with \`update <id> --claim\`. A prerequisite is \`dep add <dependent> <prerequisite>\`. Close with \`close <id> --reason <result>\`. For the Beads reference run \`${command} prime\`; use this executable wherever it shows \`bd\`.` : 'To use the built-in shift-task tracker, call shift_setup(section="tasks") to prepare the project command. Run prime with the path it confirms. If setup fails, leave the conflicting path alone.';
 }
+// core/src/map-import.ts
+async function prepareMapImport(records, disk, root, map, legacy, excluded) {
+  const existing = await records.read(map);
+  if (existing === null && legacy && await records.exists(map))
+    throw new Error("Cannot read the internal map.");
+  const pending = pendingMap(existing);
+  if (existing !== null && !pending)
+    return null;
+  if (legacy && await disk.exists(`${root}/${legacy}`)) {
+    const rules = await disk.read(`${root}/${legacy}`);
+    if (rules === null)
+      throw new Error(`Cannot read the former map at ${legacy}.`);
+    const text = stageMap(legacy, rules);
+    if (text !== existing)
+      await records.write(map, text, existing);
+    return { text, rules };
+  }
+  if (!pending || existing === null)
+    return null;
+  const selected = legacy ? pending.path === legacy : excluded.includes(pending.path);
+  return { text: existing, rules: selected ? pending.rules : "" };
+}
+function stageMap(path, rules) {
+  return `<!-- shift:map-import ${textFingerprint(rules)} ${JSON.stringify(path)} -->
+${rules}`;
+}
+function pendingMap(text) {
+  const marker = text?.match(/^<!-- shift:map-import (\d+) ("[^\n]*") -->\n/);
+  if (!text || !marker?.[2])
+    return null;
+  const rules = text.slice(marker[0].length);
+  if (textFingerprint(rules) !== Number(marker[1]))
+    return null;
+  try {
+    const path = JSON.parse(marker[2]);
+    return typeof path === "string" ? { path, rules } : null;
+  } catch {
+    return null;
+  }
+}
+
 // core/src/paths.ts
 function dirname(path) {
   const at = path.lastIndexOf("/");
@@ -1582,14 +1629,12 @@ async function refreshDocs(project, { tocs = true } = {}) {
   const knowledge = knowledgeMap(await readKnowledge(project));
   if (current === null && await store.exists(shift))
     return docs;
-  let source = current;
   const legacy = project.settings.files.legacyMap;
-  if (source === null && legacy && legacy !== project.settings.files.shift && await store.exists(`${root}/${legacy}`)) {
-    source = await store.read(`${root}/${legacy}`);
-    if (source === null)
-      throw new Error(`Cannot read the former map at ${legacy} to preserve its knowledge rules.`);
-  }
-  if (source === null && !docs.length && !knowledge)
+  const pending = pendingMap(current);
+  if (legacy && (pending || current === null && await store.exists(`${root}/${legacy}`)))
+    return docs;
+  const source = pending ? settings.exclude.includes(pending.path) ? pending.rules : null : current;
+  if (current === null && !docs.length && !knowledge)
     return docs;
   const map = withMap(source, renderMap(docs, settings, missing, knowledge));
   if (map !== current)
@@ -1873,12 +1918,6 @@ async function recordStamps(project, own) {
     stamped(KNOWLEDGE)
   ]);
   return Object.assign({}, ...parts);
-}
-function textFingerprint(text) {
-  let hash = 2166136261;
-  for (let i = 0;i < text.length; i++)
-    hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-  return hash >>> 0;
 }
 async function letterProblem({ store, root }) {
   const letter = await store.read(`${root}/${LETTER}`);
@@ -3045,13 +3084,15 @@ class WorkingRecords {
         const key = this.key(path);
         return !!(key && (await this.all())[key]) || await disk.exists(path);
       },
-      write: async (path, text) => {
+      write: async (path, text, expected) => {
         const key = this.key(path);
         if (!key)
-          return disk.write(path, text);
+          return disk.write(path, text, expected);
         const old = (await this.all())[key];
         if (!old && await disk.exists(path))
-          return disk.write(path, text);
+          return disk.write(path, text, expected);
+        if (expected !== undefined && (old?.text ?? null) !== expected)
+          throw new Error("Record changed during initialization.");
         await this.put({ [key]: { text, revision: old?.revision ?? "" } });
       },
       list: async (path, kind) => {
@@ -3093,36 +3134,42 @@ async function loadProject(store, root, actor, letterSession = actor, lifecycle)
   };
   if (source === null && await store.exists(path))
     return project(null, `Cannot read ${SETTINGS}.`);
-  if (!lifecycle)
-    return project(source, parseSettings(source ?? ""));
+  if (!lifecycle) {
+    const parsed = parseSettings(source ?? "");
+    if (typeof parsed === "string") {
+      const recoverable = settingsDocument(source ?? "", true);
+      if (typeof recoverable !== "string" && !recoverable.settings.enabled) {
+        const disabled = project(source, recoverable);
+        disabled.problem = parsed;
+        return disabled;
+      }
+    }
+    return project(source, parsed);
+  }
   const document = settingsDocument(source ?? "", true);
   if (typeof document === "string")
     return project(source, document);
   const current = project(source, document);
-  if (source === document.next || await staleLayout(current))
+  if (source === document.next && !current.settings.docs.exclude.length || await staleLayout(current))
     return current;
   const updated = parseSettings(document.next);
   if (typeof updated === "string")
     return project(source, updated);
+  const legacy = current.settings.files.legacyMap;
+  const map = `${root}/${current.settings.files.shift}`;
   try {
-    const legacy = current.settings.files.legacyMap;
-    if (legacy && legacy !== current.settings.files.shift && await store.exists(`${root}/${legacy}`)) {
-      const records = !current.settings.enabled && !current.settings.commit && store.nativeRecords ? new WorkingRecords(current, store, letterSession ?? "").store() : current.store;
-      const map = `${root}/${current.settings.files.shift}`;
-      if (!await records.exists(map)) {
-        const rules = await store.read(`${root}/${legacy}`);
-        if (rules === null)
-          throw new Error(`Cannot read the former map at ${legacy}.`);
-        await records.write(map, rules);
-      } else if (await records.read(map) === null)
-        throw new Error("Cannot read the internal map.");
+    const records = !current.settings.enabled && !current.settings.commit && store.nativeRecords ? new WorkingRecords(current, store, letterSession ?? "").store() : current.store;
+    const staged = legacy || current.settings.docs.exclude.length ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude) : null;
+    if (source !== document.next) {
+      if (await store.read(path) !== source || source === null && await store.exists(path))
+        throw new Error("Settings changed during initialization. Retry at the next session start.");
+      await store.write(path, document.next, source);
     }
-    if (await store.read(path) !== source || source === null && await store.exists(path))
-      throw new Error("Settings changed during initialization. Retry at the next session start.");
-    await store.write(path, document.next, source);
+    if (staged)
+      await records.write(map, staged.rules, staged.text);
     return project(document.next, updated);
   } catch (error) {
-    if (await store.read(path) === document.next)
+    if (!legacy && !current.settings.docs.exclude.length && await store.read(path) === document.next)
       return project(document.next, updated);
     current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`;
     return current;
@@ -4861,6 +4908,8 @@ async function runHook(input, dir, file) {
     }
     db.query("INSERT OR REPLACE INTO checkpoint VALUES (1, ?)").run(JSON.stringify(state));
     db.exec("COMMIT");
+    if (!project.settings.enabled && project.problem && input.hook_event_name === "SessionStart")
+      return { systemMessage: project.problem };
     const context = notes.filter(Boolean).join(`
 
 `);
@@ -4982,8 +5031,11 @@ class Session {
     const project = await projectAt(this.root, this.id, undefined, this.settingsStarted ? undefined : "start");
     this.settingsStarted = true;
     this.enabled = project.settings.enabled;
-    if (!project.settings.enabled)
+    if (!project.settings.enabled) {
+      if (project.problem)
+        this.tell(project.problem);
       return { params, delivered: async () => {} };
+    }
     const first = !this.prepared;
     let initialFiles;
     if (first) {
@@ -5509,7 +5561,15 @@ async function serve() {
 }
 if (process.argv[2] === "hook") {
   const input = await Bun.stdin.json();
-  const { file, dir } = stateFile(String(input.session_id ?? ""));
-  console.log(JSON.stringify(await runHook(input, dir, file)));
+  try {
+    const { file, dir } = stateFile(String(input.session_id ?? ""));
+    console.log(JSON.stringify(await runHook(input, dir, file)));
+  } catch (error) {
+    const tool = String(input.tool_name ?? "");
+    const observing = input.hook_event_name === "PreToolUse" || input.hook_event_name === "PostToolUse";
+    if (!observing || !tool.startsWith("mcp__") || tool.startsWith("mcp__shift__"))
+      throw error;
+    console.log(JSON.stringify({ systemMessage: `Shift could not check its records: ${String(error)}` }));
+  }
 } else if (process.argv[2] === "mcp")
   await serve();

@@ -1,5 +1,6 @@
 import { staleLayout } from './flows'
 import { SETTINGS } from './layout'
+import { prepareMapImport } from './map-import'
 import { DEFAULT_SETTINGS, type ParsedSettings, parseSettings, type Settings, settingsDocument } from './settings'
 import type { Store } from './store'
 import { WorkingRecords } from './working'
@@ -50,35 +51,47 @@ export async function loadProject(
     return p
   }
   if (source === null && (await store.exists(path))) return project(null, `Cannot read ${SETTINGS}.`)
-  if (!lifecycle) return project(source, parseSettings(source ?? ''))
+  if (!lifecycle) {
+    const parsed = parseSettings(source ?? '')
+    if (typeof parsed === 'string') {
+      // A retired key can survive a failed upgrade. Honor a valid off switch while reporting it.
+      const recoverable = settingsDocument(source ?? '', true)
+      if (typeof recoverable !== 'string' && !recoverable.settings.enabled) {
+        const disabled = project(source, recoverable)
+        disabled.problem = parsed
+        return disabled
+      }
+    }
+    return project(source, parsed)
+  }
   const document = settingsDocument(source ?? '', true)
   if (typeof document === 'string') return project(source, document)
   const current = project(source, document)
-  if (source === document.next || (await staleLayout(current))) return current
+  if ((source === document.next && !current.settings.docs.exclude.length) || (await staleLayout(current))) return current
   const updated = parseSettings(document.next)
   if (typeof updated === 'string') return project(source, updated)
+  const legacy = current.settings.files.legacyMap
+  const map = `${root}/${current.settings.files.shift}`
   try {
-    const legacy = current.settings.files.legacyMap
-    if (legacy && legacy !== current.settings.files.shift && (await store.exists(`${root}/${legacy}`))) {
-      // Even a disabled project's private map belongs in its usual store when it is upgraded.
-      const records =
-        !current.settings.enabled && !current.settings.commit && store.nativeRecords
-          ? new WorkingRecords(current, store, letterSession ?? '').store()
-          : current.store
-      const map = `${root}/${current.settings.files.shift}`
-      if (!(await records.exists(map))) {
-        const rules = await store.read(`${root}/${legacy}`)
-        if (rules === null) throw new Error(`Cannot read the former map at ${legacy}.`)
-        await records.write(map, rules)
-      } else if ((await records.read(map)) === null) throw new Error('Cannot read the internal map.')
+    // A private disabled project also imports its map into the working database.
+    const records =
+      !current.settings.enabled && !current.settings.commit && store.nativeRecords
+        ? new WorkingRecords(current, store, letterSession ?? '').store()
+        : current.store
+    const staged =
+      legacy || current.settings.docs.exclude.length
+        ? await prepareMapImport(records, store, root, map, legacy, current.settings.docs.exclude)
+        : null
+    if (source !== document.next) {
+      if ((await store.read(path)) !== source || (source === null && (await store.exists(path))))
+        throw new Error('Settings changed during initialization. Retry at the next session start.')
+      await store.write(path, document.next, source)
     }
-    if ((await store.read(path)) !== source || (source === null && (await store.exists(path))))
-      throw new Error('Settings changed during initialization. Retry at the next session start.')
-    await store.write(path, document.next, source)
+    if (staged) await records.write(map, staged.rules, staged.text)
     return project(document.next, updated)
   } catch (error) {
-    // Two starts may have prepared the same upgrade. The first writer already completed it.
-    if ((await store.read(path)) === document.next) return project(document.next, updated)
+    if (!legacy && !current.settings.docs.exclude.length && (await store.read(path)) === document.next)
+      return project(document.next, updated)
     current.problem = `Could not initialize ${SETTINGS}: ${String(error)}`
     return current
   }

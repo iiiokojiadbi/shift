@@ -101,12 +101,13 @@ export class WorkingRecords {
         const key = this.key(path)
         return !!(key && (await this.all())[key]) || (await disk.exists(path))
       },
-      write: async (path, text) => {
+      write: async (path, text, expected) => {
         const key = this.key(path)
-        if (!key) return disk.write(path, text)
+        if (!key) return disk.write(path, text, expected)
         const old = (await this.all())[key]
         // Existing loose files remain editable until an explicit import.
-        if (!old && (await disk.exists(path))) return disk.write(path, text)
+        if (!old && (await disk.exists(path))) return disk.write(path, text, expected)
+        if (expected !== undefined && (old?.text ?? null) !== expected) throw new Error('Record changed during initialization.')
         await this.put({ [key]: { text, revision: old?.revision ?? '' } })
       },
       list: async (path, kind) => {

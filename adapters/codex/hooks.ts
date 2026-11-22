@@ -398,6 +398,7 @@ export async function runHook(input: Fields, dir: string, file: string) {
     }
     db.query('INSERT OR REPLACE INTO checkpoint VALUES (1, ?)').run(JSON.stringify(state))
     db.exec('COMMIT')
+    if (!project.settings.enabled && project.problem && input.hook_event_name === 'SessionStart') return { systemMessage: project.problem }
     const context = notes.filter(Boolean).join('\n\n')
     return context ? { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: context } } : {}
   } finally {

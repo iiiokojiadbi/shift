@@ -244,3 +244,11 @@ export function bullets(body: string | undefined): string[] {
     .filter(line => line.startsWith('- '))
     .map(line => line.slice(2))
 }
+
+// FNV-1a over the text: whether a file restamped really changed, without keeping its text.
+export function textFingerprint(text: string): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
+
+  return hash >>> 0
+}

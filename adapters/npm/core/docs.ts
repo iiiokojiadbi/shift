@@ -1,5 +1,6 @@
 // Generated from core/src by scripts/sync-core.ts — edit the source, not this copy.
 import { DIR, DOCS_MAX_DEPTH, KNOWLEDGE, MOD, NAMES } from './layout'
+import { pendingMap } from './map-import'
 import {
   frontmatter,
   type Heading,
@@ -509,13 +510,13 @@ export async function refreshDocs(project: Project, { tocs = true }: { tocs?: bo
   // A file there that cannot be read is not written over: the owner's text in it would be lost.
   const knowledge = knowledgeMap(await readKnowledge(project))
   if (current === null && (await store.exists(shift))) return docs
-  let source = current
+  // Only session initialization publishes a legacy import. An ordinary refresh
+  // must not promote a staged or newly selected external map between retries.
   const legacy = project.settings.files.legacyMap
-  if (source === null && legacy && legacy !== project.settings.files.shift && (await store.exists(`${root}/${legacy}`))) {
-    source = await store.read(`${root}/${legacy}`)
-    if (source === null) throw new Error(`Cannot read the former map at ${legacy} to preserve its knowledge rules.`)
-  }
-  if (source === null && !docs.length && !knowledge) return docs
+  const pending = pendingMap(current)
+  if (legacy && (pending || (current === null && (await store.exists(`${root}/${legacy}`))))) return docs
+  const source = pending ? (settings.exclude.includes(pending.path) ? pending.rules : null) : current
+  if (current === null && !docs.length && !knowledge) return docs
   const map = withMap(source, renderMap(docs, settings, missing, knowledge))
   if (map !== current) await store.write(shift, map)
 

@@ -4,7 +4,7 @@ import { installTaskCommand, taskInstructions } from './beads'
 import { docsReport, isDoc, refreshDocs, withMap, withToc } from './docs'
 import { renderHistory, renderSummary } from './history'
 import { ABOUT_MAX, BOARD, DIR, GUIDE_TOOL, HOLD, KNOWLEDGE, LETTER, LETTER_SECTIONS, NAMES, SETTINGS } from './layout'
-import { formatK, frontmatter, openingParagraph, sections } from './markdown'
+import { formatK, frontmatter, openingParagraph, sections, textFingerprint } from './markdown'
 import { basename, dirname, join, resolvePath } from './paths'
 import type { Project } from './project'
 import { checkLetter, checkWork, checkWritten, ownerRevisionProblem } from './records'
@@ -119,14 +119,6 @@ async function recordStamps(project: Project, own: Set<string>): Promise<Seen> {
   ])
 
   return Object.assign({}, ...parts)
-}
-
-// FNV-1a over the text: whether a file restamped really changed, without keeping its text.
-export function textFingerprint(text: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
-
-  return hash >>> 0
 }
 
 async function letterProblem({ store, root }: Project): Promise<string | null> {

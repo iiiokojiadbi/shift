@@ -176,10 +176,11 @@ test('a failed map import retries from the original schema and an existing inter
   const read = store.read
   store.read = path => (path === former ? Promise.resolve(null) : read(path))
   expect((await open(store)).problem).toContain('Cannot read the former map')
-  store.files.set(settingsPath, `enabled = false\n${source}`)
+  store.files.set(settingsPath, `enabled = false\nretired = true\n${source}`)
   const disabled = await open(store)
   expect(disabled.problem).toContain('Cannot read the former map')
   expect((await startSession(disabled)).enabled).toBe(false)
+  expect((await loadProject(store, ROOT)).settings.enabled).toBe(false)
   store.files.set(settingsPath, source)
   expect(store.files.get(settingsPath)).toBe(source)
   store.read = read
@@ -248,4 +249,34 @@ test('a project note inserted next to generated help survives once with the help
   expect(next).toContain(`# Shift: needed for delivery\n${help}\nenabled = true`)
   expect(next.split(help ?? 'unexpected')).toHaveLength(2)
   expect((await open(store)).settingsText).toBe(next)
+})
+
+test('a retry imports the newly selected source after settings change during the map write', async () => {
+  const source = '[files]\nshift = "docs/a.md"'
+  const store = memoryStore({ [settingsPath]: source, [`${ROOT}/docs/a.md`]: 'rules A', [`${ROOT}/docs/b.md`]: 'rules B' })
+  const write = store.write
+  store.write = async (path, text, expected) => {
+    await write(path, text, expected)
+    if (path === `${R}/SHIFT.md`) store.files.set(settingsPath, source.replace('a.md', 'b.md'))
+  }
+  expect((await open(store)).problem).toContain('Settings changed')
+  store.write = write
+  await sessionFiles(await loadProject(store, ROOT))
+  expect((await open(store)).problem).toBeNull()
+  expect(store.files.get(`${R}/SHIFT.md`)).toBe('rules B')
+  expect(store.files.get(settingsPath)).toContain('docs/b.md')
+})
+
+test('a restart finishes publishing the rules after the settings upgrade committed', async () => {
+  const store = memoryStore({ [settingsPath]: '[files]\nshift = "docs/map.md"', [`${ROOT}/docs/map.md`]: 'saved rules' })
+  const write = store.write
+  store.write = async (path, text, expected) => {
+    if (path === `${R}/SHIFT.md` && text === 'saved rules') throw new Error('interrupted')
+    await write(path, text, expected)
+  }
+  expect((await open(store)).problem).toContain('interrupted')
+  expect(store.files.get(settingsPath)).toContain('schema_version = 2')
+  store.write = write
+  expect((await open(store)).problem).toBeNull()
+  expect(store.files.get(`${R}/SHIFT.md`)).toBe('saved rules')
 })

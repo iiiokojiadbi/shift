@@ -203,6 +203,14 @@ async function serve() {
 
 if (process.argv[2] === 'hook') {
   const input = await Bun.stdin.json()
-  const { file, dir } = stateFile(String(input.session_id ?? ''))
-  console.log(JSON.stringify(await runHook(input, dir, file)))
+  try {
+    const { file, dir } = stateFile(String(input.session_id ?? ''))
+    console.log(JSON.stringify(await runHook(input, dir, file)))
+  } catch (error) {
+    const tool = String(input.tool_name ?? '')
+    const observing = input.hook_event_name === 'PreToolUse' || input.hook_event_name === 'PostToolUse'
+    if (!observing || !tool.startsWith('mcp__') || tool.startsWith('mcp__shift__')) throw error
+    // Another plugin owns this call. Report an observation failure without setting a tool decision.
+    console.log(JSON.stringify({ systemMessage: `Shift could not check its records: ${String(error)}` }))
+  }
 } else if (process.argv[2] === 'mcp') await serve()

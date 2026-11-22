@@ -49,7 +49,11 @@ export function claudeStore($: EngineInterface): Store {
 
       return Object.fromEntries(entries.filter(entry => entry.kind === 'file').map(entry => [entry.name, `${entry.mtimeMs}:${entry.size}`]))
     },
-    write: async (path, text) => {
+    write: async (path, text, expected) => {
+      if (expected !== undefined) {
+        const existing = (await $.fs.exists(path)) ? await $.fs.read(path) : null
+        if (existing !== expected) throw new Error('File changed during initialization.')
+      }
       await $.fs.write(path, text)
     },
     exists: path => $.fs.exists(path),
