@@ -1,7 +1,7 @@
 {
   "name": "shift",
-  "version": "0.40.0",
-  "description": "The agent shifts itself at a stage boundary: keeps a work board, writes itself a letter, steers the compaction and resumes from the letter",
+  "version": "0.41.0",
+  "description": "Keep project records and continue long work from a letter after a shift. Includes an optional project task tracker.",
   "license": "MIT",
   "author": {
     "name": "iiiokojiadbi"

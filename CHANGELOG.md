@@ -2,12 +2,25 @@
 
 The adapters share the project's version number. Newest first.
 
-## Unreleased
+## 0.41.0
+
+### Added
 
 - Edit internal Markdown through `shift_record`, with version-checked replacements, drafts and a working letter per chat. Use `shift_guide(section="migration")` to adopt existing internal Markdown and retire older files safely.
 - Use the optional project command `./.shift/bin/shift-task`. Its `prime` shows Shift's conventions and the bundled Beads workflow. Tasks live in a private workspace separate from shift records.
-- Configure how much history to receive. By default Shift retains ten completed shifts. The agent receives one full letter and nine earlier descriptions, with complete snapshots readable by ID. Pending and undelivered shifts remain recoverable.
-- Project settings are created and upgraded at session start. Explicit supported choices and comments carry forward, and retired keys are removed.
+- Configure how many full letters and earlier descriptions to receive, when to prepare the tracker, whether to show early reminders and how deeply to scan documentation. Startup creates or upgrades commented settings and preserves supported choices.
+- Browse mapped knowledge by topic with `shift_read`. Owner decisions can specify when they expire and link to relevant tasks.
+
+### Changed
+
+- The board carries stage goals and the current shared focus. The letter carries the next step, and its opening paragraph supplies the description used in later restores.
+- By default Shift retains ten completed shifts and delivers one full letter and nine earlier descriptions. The working records, documentation map and retained snapshots live in `.shift/history.db` by default. Read complete snapshots by ID with `shift_history`.
+- The agent's startup instructions explain when to maintain project documentation and how to use the optional tracker.
+
+### Fixed
+
+- Preserve and deliver a waiting letter to its own chat across restarts. Keep undelivered shifts recoverable and preserve saved history when settings cannot be read.
+- Preserve project-authored map text across interrupted upgrades and keep private records out of Git. Subagent restrictions on shifting leave other plugins available.
 
 ## 0.40.0
 

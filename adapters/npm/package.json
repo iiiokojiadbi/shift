@@ -1,6 +1,6 @@
 {
   "name": "@iiiokojiadbi/shift",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "The agent decides by itself when to shift: it keeps a work board, writes a letter to itself, and continues from where it stopped.",
   "license": "MIT",
   "type": "module",
@@ -53,10 +53,10 @@
     }
   },
   "optionalDependencies": {
-    "@iiiokojiadbi/shift-beads-linux-x64": "0.40.0",
-    "@iiiokojiadbi/shift-beads-linux-arm64": "0.40.0",
-    "@iiiokojiadbi/shift-beads-darwin-x64": "0.40.0",
-    "@iiiokojiadbi/shift-beads-darwin-arm64": "0.40.0",
-    "@iiiokojiadbi/shift-beads-win32-x64": "0.40.0"
+    "@iiiokojiadbi/shift-beads-linux-x64": "0.41.0",
+    "@iiiokojiadbi/shift-beads-linux-arm64": "0.41.0",
+    "@iiiokojiadbi/shift-beads-darwin-x64": "0.41.0",
+    "@iiiokojiadbi/shift-beads-darwin-arm64": "0.41.0",
+    "@iiiokojiadbi/shift-beads-win32-x64": "0.41.0"
   }
 }

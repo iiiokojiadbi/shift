@@ -1,24 +1,27 @@
-# shift for pi and opencode
+# Shift for pi and opencode
 
-[![npm](https://img.shields.io/npm/v/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
-[![downloads](https://img.shields.io/npm/dm/@iiiokojiadbi/shift)](https://www.npmjs.com/package/@iiiokojiadbi/shift)
-[![license](https://img.shields.io/npm/l/@iiiokojiadbi/shift)](https://github.com/iiiokojiadbi/shift/blob/main/LICENSE)
+Shift lets a coding agent continue long work across context resets. The agent maintains a shared board, writes itself a letter and starts a fresh stretch with the current project records. By default it also receives nine earlier descriptions and can open retained shifts by ID.
 
-The agent decides by itself when to **shift**. At a stage boundary it updates its board, writes a letter to itself, and has the harness let the stretch's history go, with a direction of what to hold. Right after the shift it gets its letter and board back and continues from where it stopped.
+## Install
 
-One package for both harnesses: pi loads `index.ts`, opencode loads `server.ts`.
+For pi:
 
 ```sh
 pi install npm:@iiiokojiadbi/shift
+```
+
+For opencode:
+
+```sh
 opencode plugin add @iiiokojiadbi/shift
 ```
 
-It adds a "Shift" section to the system prompt, the `shift` tool with its companions (`shift_record`, `shift_read`, `shift_guide`, `shift_status`, `shift_history`, `shift_setup`, `shift_sizes`, `doc_outline`, `docs_mentioning`), and three commands: `/shift` asks the agent to shift now, `/shift-tasks` shows the project task command, `/unshift` picks up the last shift in a fresh session. It hints a shift as the history grows.
+Keep npm optional dependencies enabled for the bundled runtime. Open a session in a project and give the agent work. Use `/shift` to ask it to shift now, `/unshift` to pick up a saved shift in a new session, or `/shift-tasks` to find the optional task command.
 
-The platform package supplies the bundled runtime. Tasks and comments live in `.shift/beads/`. The default store for current Markdown and saved snapshots is `.shift/history.db`.
+## Project files
 
-The records live in the project's `.shift/` folder and stay out of its git unless `commit = true` in `.shift/settings.toml`.
+Shift creates commented settings in `.shift/settings.toml` and keeps current Markdown records and recent shifts in `.shift/history.db` by default. Project docs stay in their own files and appear by topic in the documentation map. For an older project, ask the agent to read `shift_guide(section="migration")`. [Records and upgrade guide](https://github.com/iiiokojiadbi/shift/blob/main/docs/records.md)
 
-For a project with older `.shift` files, ask the agent to open `shift_guide(section="migration")`. [Project documentation](https://github.com/iiiokojiadbi/shift)
+The optional Beads tracker stores tasks separately in `.shift/beads/`. After preparing it with `/shift-tasks`, run `./.shift/bin/shift-task prime` from the project root, or `./.shift/bin/shift-task.exe prime` on Windows. It shows Shift's task conventions and the full bundled Beads workflow.
 
-Write the next step in the letter. For work that needs its own status, dependencies or discussion, prepare the optional tracker with `shift_setup(section="tasks")` or `/shift-tasks`, then run `./.shift/bin/shift-task prime` from the project root for the Shift task conventions followed by the original Beads workflow. Use `./.shift/bin/shift-task.exe` on Windows.
+[Project documentation](https://github.com/iiiokojiadbi/shift) · [Changelog](https://github.com/iiiokojiadbi/shift/blob/main/CHANGELOG.md)

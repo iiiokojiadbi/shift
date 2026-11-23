@@ -5,7 +5,7 @@
     {
       "name": "shift",
       "source": "./adapters/claude-code",
-      "description": "The agent shifts itself at a stage boundary: keeps a work board and tasks, writes itself a letter, steers the compaction and resumes from the letter"
+      "description": "Keep project records and continue long work from a letter after a shift. Includes an optional project task tracker."
     }
   ]
 }
