@@ -6,7 +6,7 @@ The adapters share the project's version number. Newest first.
 
 ### Changed
 
-- The npm package now uses one runtime dependency, `@iiiokojiadbi/shift-beads`. It contains all five supported builds and Shift selects the executable for the current platform.
+- Install Shift through `@iiiokojiadbi/shift` on all five supported platforms. The stable release pins runtime builds published as platform-suffixed versions of the same package. npm installs the build for the current OS and CPU.
 
 ## 0.41.0
 
