@@ -2,6 +2,12 @@
 
 The adapters share the project's version number. Newest first.
 
+## 0.41.1
+
+### Changed
+
+- The npm package now uses one runtime dependency, `@iiiokojiadbi/shift-beads`. It contains all five supported builds and Shift selects the executable for the current platform.
+
 ## 0.41.0
 
 ### Added

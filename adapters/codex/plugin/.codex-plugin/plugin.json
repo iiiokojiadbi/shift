@@ -1,6 +1,6 @@
 {
   "name": "shift",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "description": "Keep the project's work records and documentation map, and continue a long task from a letter after a shift.",
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json",

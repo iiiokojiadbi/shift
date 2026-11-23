@@ -16,7 +16,7 @@ For opencode:
 opencode plugin add @iiiokojiadbi/shift
 ```
 
-Keep npm optional dependencies enabled for the bundled runtime. Open a session in a project and give the agent work. Use `/shift` to ask it to shift now, `/unshift` to pick up a saved shift in a new session, or `/shift-tasks` to find the optional task command.
+The npm package installs the bundled runtime as a dependency. Open a session in a project and give the agent work. Use `/shift` to ask it to shift now, `/unshift` to pick up a saved shift in a new session, or `/shift-tasks` to find the optional task command.
 
 ## Project files
 

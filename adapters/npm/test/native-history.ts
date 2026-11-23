@@ -52,10 +52,10 @@ export async function historyRuntime() {
     await symlink(join(repo, 'adapters/npm/core'), join(npm, 'core'), 'dir')
     await symlink(join(repo, 'core'), join(dir, 'source/core'), 'dir')
     await symlink(join(repo, 'node_modules'), join(dir, 'source/node_modules'), 'dir')
-    const name = `@iiiokojiadbi/shift-beads-${process.platform}-${process.arch}`
+    const name = '@iiiokojiadbi/shift-beads'
     const dependency = join(npm, 'node_modules', name)
     await mkdir(dependency, { recursive: true })
-    const version = JSON.parse(await readFile(join(npm, 'package.json'), 'utf8')).optionalDependencies[name]
+    const version = JSON.parse(await readFile(join(npm, 'package.json'), 'utf8')).dependencies[name]
     await writeFile(join(dependency, 'package.json'), JSON.stringify({ name, version }))
     await cp(binary, join(dependency, basename(binary)))
     return join(adapters, 'codex/index.ts')

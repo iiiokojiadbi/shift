@@ -21,13 +21,13 @@ export const nodeStore: Store = {
     if (typeof SHIFT_MARKETPLACE !== 'undefined' && SHIFT_MARKETPLACE) {
       path = resolve(import.meta.dirname, 'vendor', executable)
     } else {
-      const name = `@iiiokojiadbi/shift-beads-${process.platform}-${process.arch}`
+      const name = '@iiiokojiadbi/shift-beads'
       const require = createRequire(import.meta.url)
       const own = require('./package.json')
       const native = require.resolve(`${name}/package.json`)
       const installed = JSON.parse(await readFile(native, 'utf8'))
-      if (installed.name !== name || installed.version !== own.optionalDependencies?.[name])
-        throw new Error(`Bundled task package ${name} does not match the installed Shift version.`)
+      if (installed.name !== name || installed.version !== own.dependencies?.[name])
+        throw new Error(`Bundled runtime ${name} does not match the installed Shift version.`)
       path = resolve(dirname(native), executable)
     }
     const child = promisify(execFile)(path, [root, ...args], { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 })

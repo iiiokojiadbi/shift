@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { nativePackages } from './native-packages'
+import { nativePackage } from './native-packages'
 
 const ROOT = join(import.meta.dirname, '..')
 const PACKAGE = join(ROOT, 'adapters/npm')
@@ -73,7 +73,7 @@ const missing = REQUIRED.filter(path => !shipped.includes(path))
 if (missing.length > 0) throw new Error(`missing from the package: ${missing.join(', ')}`)
 if (kb > MAX_TARBALL_KB) throw new Error(`the tarball is ${kb.toFixed(0)} KB, over ${MAX_TARBALL_KB} KB`)
 
-const native = await nativePackages(ROOT, manifest)
+const native = await nativePackage(ROOT, manifest)
 function registryIntegrity(reference: string): string | null {
   try {
     return run('npm', ['view', reference, 'dist.integrity']).trim() || null
@@ -82,12 +82,8 @@ function registryIntegrity(reference: string): string | null {
     throw cause
   }
 }
-const pending = []
-for (const pkg of native) {
-  const found = registryIntegrity(pkg.reference)
-  if (found === null) pending.push(pkg)
-  else if (found !== pkg.integrity) throw new Error(`Registry contents differ for ${pkg.reference}.`)
-}
+const nativeIntegrity = registryIntegrity(native.reference)
+if (nativeIntegrity !== null && nativeIntegrity !== native.integrity) throw new Error(`Registry contents differ for ${native.reference}.`)
 
 // The package's versions as the registry lists them; `npm view` fails both for a package that is not there and for a
 // registry it cannot reach: only npm's own E404 means it has none yet.
@@ -104,7 +100,7 @@ try {
 }
 if (versions.includes(manifest.version)) {
   // Uploaded by an earlier run that stopped before its tag: the tag is all that is left, on the commit npm recorded.
-  if (pending.length) throw new Error('Published main package has missing platform dependencies.')
+  if (nativeIntegrity === null) throw new Error('Published main package is missing its native runtime.')
   const tagged = run('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`]).trim() !== ''
   if (tagged || !publish) throw new Error(`${reference} is already in the registry: bump the version in adapters/npm/package.json`)
   const head = run('npm', ['view', reference, 'gitHead']).trim()
@@ -124,20 +120,25 @@ if (!publish) {
 // npm packs the folder as it is now: the tree must still be the commit checked, nothing changed since.
 if (run('git', ['rev-parse', 'HEAD']).trim() !== commit || run('git', ['status', '--porcelain']).trim() !== '')
   throw new Error(`the tree changed while ${reference} was checked: run the release again`)
-// A partial upload can be resumed. Verify every platform before making the parent discoverable.
-for (const pkg of pending) show('npm', ['publish', '--access', 'public', ...(otp === undefined ? [] : ['--otp', otp])], pkg.dir)
-for (const pkg of native) {
-  if (registryIntegrity(pkg.reference) !== pkg.integrity)
-    throw new Error(`Waiting for registry integrity for ${pkg.reference}. Rerun the release once visible.`)
+const publishArgs = ['publish', '--access', 'public', ...(otp === undefined ? [] : ['--otp', otp])]
+if (nativeIntegrity === null) {
+  show('npm', publishArgs, native.dir)
+  let integrity: string | null = null
+  for (let attempt = 0; attempt < 60 && integrity === null; attempt++) {
+    if (attempt > 0) await Bun.sleep(10_000)
+    integrity = registryIntegrity(native.reference)
+  }
+  if (integrity === null) throw new Error(`${native.reference} is still processing. Rerun the release once it is visible.`)
+  if (integrity !== native.integrity) throw new Error(`Registry contents differ for ${native.reference}.`)
 }
 if (run('git', ['rev-parse', 'HEAD']).trim() !== commit || run('git', ['status', '--porcelain']).trim() !== '')
-  throw new Error('Release checkout changed while publishing the platform packages.')
+  throw new Error('Release checkout changed while publishing the native runtime.')
 console.log(`\npublishing ${reference}...`)
-show('npm', ['publish', '--access', 'public', ...(otp === undefined ? [] : ['--otp', otp])], PACKAGE)
+show('npm', publishArgs, PACKAGE)
 
 // The registry takes minutes to show a new version: asked again before it counts as a failure, never published twice.
 let latest = ''
-for (let attempt = 0; attempt < 30 && latest !== manifest.version; attempt++) {
+for (let attempt = 0; attempt < 60 && latest !== manifest.version; attempt++) {
   if (attempt > 0) await Bun.sleep(10_000)
   try {
     latest = run('npm', ['view', manifest.name, 'dist-tags.latest']).trim()

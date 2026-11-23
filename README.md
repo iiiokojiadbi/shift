@@ -41,7 +41,7 @@ pi install npm:@iiiokojiadbi/shift
 opencode plugin add @iiiokojiadbi/shift
 ```
 
-pi and opencode share an npm package. Keep npm optional dependencies enabled so the package can install its platform runtime. The bundled targets are Linux and macOS on x64 and arm64, and Windows on x64. [Platform details](docs/development.md#commands)
+pi and opencode share an npm package. It installs one runtime dependency with builds for Linux and macOS on x64 and arm64, and Windows on x64. [Platform details](docs/development.md#commands)
 
 ## Start in a project
 
